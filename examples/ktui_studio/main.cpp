@@ -345,8 +345,7 @@ static WidgetPtr build_studio_ui(StudioViewModel& vm, std::shared_ptr<Window> wi
                                         .background_color = Color{0.22f, 0.22f, 0.25f, 1.0f},
                                         .hover_color = Color{0.28f, 0.28f, 0.32f, 1.0f},
                                         .text_color = Color{0.90f, 0.90f, 0.94f, 1.0f},
-                                        .border_color = Color{0.30f, 0.30f, 0.35f, 1.0f},
-                                        .border_width = 1.0f,
+                                        .border_width = 0.0f,
                                         .font_size = 12.5f,
                                         .on_click = [&vm]() {
                                             if (vm.lock_buttons.get()) return;
@@ -362,8 +361,7 @@ static WidgetPtr build_studio_ui(StudioViewModel& vm, std::shared_ptr<Window> wi
                                         .background_color = Color{0.24f, 0.18f, 0.19f, 1.0f},
                                         .hover_color = Color{0.34f, 0.22f, 0.23f, 1.0f},
                                         .text_color = Color{0.95f, 0.82f, 0.82f, 1.0f},
-                                        .border_color = Color{0.40f, 0.25f, 0.28f, 1.0f},
-                                        .border_width = 1.0f,
+                                        .border_width = 0.0f,
                                         .font_size = 12.5f,
                                         .on_click = [&vm]() {
                                             if (vm.lock_buttons.get()) return;

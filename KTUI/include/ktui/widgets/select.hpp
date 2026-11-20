@@ -145,10 +145,12 @@ public:
     }
 
     void paint(PaintContext& context) override {
-        // 1. 底框与 1px 细边框
-        Color border_col = is_hovered ? Color{0.35f, 0.35f, 0.40f, 1.0f} : m_border_color;
+        // 1. 底框与 CUI CardBorder 微弱微光 (非高对比度生硬边框)
+        Color border_col = is_hovered ? Color{1.0f, 1.0f, 1.0f, 0.12f} : m_border_color;
         context.draw_rect(bounds(), m_bg_color, m_corner_radius, 0.0f);
-        context.draw_rect(bounds(), border_col, m_corner_radius, 1.0f);
+        if (border_col.a > 0.001f) {
+            context.draw_rect(bounds(), border_col, m_corner_radius, 1.0f);
+        }
 
         // 2. 当前选中项文本 (裁切防溢出)
         float text_y = (m_size.y - m_font_size * 1.30f) * 0.5f;
@@ -230,7 +232,7 @@ private:
     float m_corner_radius{3.0f};
     EdgeInsets m_padding{EdgeInsets(4.0f, 8.0f)};
     Color m_bg_color{Color{0.14f, 0.14f, 0.16f, 1.0f}};
-    Color m_border_color{Color{0.25f, 0.25f, 0.28f, 1.0f}};
+    Color m_border_color{Color{1.0f, 1.0f, 1.0f, 0.05f}};
     Color m_text_color{Color{0.92f, 0.92f, 0.95f, 1.0f}};
     float m_font_size{12.5f};
     std::function<void(const std::string&)> m_on_change{nullptr};
@@ -249,7 +251,7 @@ struct Select {
     float corner_radius{3.0f};
     EdgeInsets padding{EdgeInsets(4.0f, 8.0f)};
     Color background_color{Color{0.14f, 0.14f, 0.16f, 1.0f}};
-    Color border_color{Color{0.25f, 0.25f, 0.28f, 1.0f}};
+    Color border_color{Color{1.0f, 1.0f, 1.0f, 0.05f}};
     Color text_color{Color{0.92f, 0.92f, 0.95f, 1.0f}};
     float font_size{12.5f};
     std::function<void(const std::string&)> on_change{nullptr};

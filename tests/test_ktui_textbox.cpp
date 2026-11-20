@@ -26,11 +26,14 @@ void test_textbox_three_layer_architecture() {
     TextBoxInteractiveState state;
     ResolvedTextBoxStyle style = TextBoxStyleResolver::resolve(data, state, dark_theme);
 
-    // 验证 Fluent 桌面规范：硬朗微圆角 3px，高度 28px，底色微卡片，底部 2px 高光指示线
+    // 验证 Fluent / CUI 桌面规范：硬朗微圆角 3px，高度 28px，四周零包围边框 (border_width == 0.0f)，底部 1px 静止底线 + 2px 高光指示线
     assert(style.corner_radius == 3.0f);
     assert(style.height == 28.0f);
+    assert(style.border_width == 0.0f);
+    assert(style.border.a == 0.0f);
+    assert(style.underline_height == 1.0f);
+    assert(style.underline.a > 0.0f);
     assert(style.focus_line_height == 2.0f);
-    assert(style.border_width == 1.0f);
     assert(style.caret_width == 1.5f);
     assert(style.caret_blink_ms == 530);
 

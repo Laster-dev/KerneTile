@@ -17,7 +17,7 @@ struct ResolvedButtonStyle {
 
     float height{28.0f};
     float corner_radius{3.0f};      // 桌面硬朗微圆角 3px (完全参照 CUI / WinUI 标准)
-    float border_width{1.0f};       // 1px 精致微光描边
+    float border_width{0.0f};       // 默认 0px 无描边 (完全看齐 CUI ApplyBorderThickness(0.0f))
     float font_size{13.0f};
     float icon_gap{6.0f};           // 图标与文字间隙 6px
     EdgeInsets padding{EdgeInsets(4.0f, 12.0f)};
@@ -63,7 +63,7 @@ public:
         }
 
         style.corner_radius = 3.0f;
-        style.border_width = 1.0f;
+        style.border_width = 0.0f;
         style.icon_gap = 6.0f;
         style.ripple_duration = 0.65f;
 

@@ -304,9 +304,18 @@ public:
             context.draw_rect(bounds(), style.background, style.corner_radius, 0.0f);
         }
 
-        // 4. 绘制 1px 细边框
+        // 4. 绘制四周描边 (仅当外部显式指定 custom_border 且 border_width > 0 时才绘制，默认 0px 零描边)
         if (style.border_width > 0.0f && style.border.a > 0.001f) {
             context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
+        }
+
+        // 4.1 CUI / Fluent 底部 1px 静止底线 (ThemeTokenId::InputBorder，静止时提供下划视觉锚点)
+        const float corner_inset = std::min(style.corner_radius * 0.75f, 4.0f);
+        float line_start_x = bounds().min_x + corner_inset;
+        float line_w = std::max(0.0f, bounds().width() - corner_inset * 2.0f);
+        float resting_line_y = bounds().max_y - style.underline_height;
+        if (style.underline.a > 0.001f && style.underline_height > 0.0f) {
+            context.draw_rect(Rect::from_xywh(line_start_x, resting_line_y, line_w, style.underline_height), style.underline, 0.0f, 0.0f);
         }
 
         // 5. 计算文本内容区域并施加硬件裁剪保护 (严防内容溢出文本框外部)
@@ -372,7 +381,6 @@ public:
         // 10. Fluent 底部动态聚焦扩展高光线 (Focus Indicator Line)
         float focus_progress = m_focus_line_tween.current_value();
         if (focus_progress > 0.001f && !m_state.is_disabled) {
-            const float corner_inset = std::min(style.corner_radius * 0.75f, 4.0f);
             float max_active_w = bounds().width() - corner_inset * 2.0f;
             float active_w = max_active_w * focus_progress;
             float active_x = bounds().min_x + (bounds().width() - active_w) * 0.5f;
