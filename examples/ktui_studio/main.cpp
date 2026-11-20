@@ -1,6 +1,7 @@
 #include <ktui/ktui.hpp>
 #include <iostream>
 #include <string>
+#include <clocale>
 
 using namespace ktui;
 
@@ -211,6 +212,7 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
 }
 
 int main(int argc, char* argv[]) {
+    std::setlocale(LC_ALL, "");
     bool capture_only = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

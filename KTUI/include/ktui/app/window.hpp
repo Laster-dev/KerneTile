@@ -402,7 +402,7 @@ public:
                     m_focus_manager.handle_tab_navigation(m_root_render_box.get(), pe.modifiers.shift);
                     sync_ime_state();
                 } else {
-                    KeyEvent ev(PlatformEventType::KeyDown, pe.key_code, "", pe.modifiers);
+                    KeyEvent ev(PlatformEventType::KeyDown, pe.key_code, pe.text, pe.modifiers);
                     m_event_dispatcher.dispatch_key_event(m_focus_manager.focused_node(), m_root_render_box.get(), ev);
                     sync_ime_state();
                 }
@@ -437,6 +437,18 @@ public:
                     m_event_dispatcher.dispatch_key_event(focused, m_root_render_box.get(), ev);
                     request_redraw();
                     if (m_platform_window) m_platform_window->invalidate();
+                }
+                break;
+            }
+            case PlatformEventType::WindowCloseRequested: {
+                bool allow_close = true;
+                for (auto& cb : m_close_callbacks) {
+                    if (cb && !cb()) {
+                        allow_close = false;
+                    }
+                }
+                if (allow_close) {
+                    close();
                 }
                 break;
             }

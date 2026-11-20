@@ -9,6 +9,8 @@
 #include <condition_variable>
 #include <thread>
 #include <iostream>
+#include <clocale>
+#include <unordered_map>
 
 #if defined(KTUI_HAS_X11)
 #include <X11/Xlib.h>
@@ -18,6 +20,80 @@
 #endif
 
 namespace ktui {
+
+#if defined(KTUI_HAS_X11)
+// X11 KeySym 到通用虚拟键码 (Virtual Key Code) 规范映射
+static inline uint32_t x11_keysym_to_virtual_key(KeySym sym) {
+    switch (sym) {
+        case XK_BackSpace: return 8;   // VK_BACK
+        case XK_Tab:       return 9;   // VK_TAB
+        case XK_Clear:     return 12;  // VK_CLEAR
+        case XK_Return:    return 13;  // VK_RETURN
+        case XK_Pause:     return 19;  // VK_PAUSE
+        case XK_Escape:    return 27;  // VK_ESCAPE
+        case XK_space:     return 32;  // VK_SPACE
+        case XK_Page_Up:   return 33;  // VK_PRIOR
+        case XK_Page_Down: return 34;  // VK_NEXT
+        case XK_End:       return 35;  // VK_END
+        case XK_Home:      return 36;  // VK_HOME
+        case XK_Left:      return 37;  // VK_LEFT
+        case XK_Up:        return 38;  // VK_UP
+        case XK_Right:     return 39;  // VK_RIGHT
+        case XK_Down:      return 40;  // VK_DOWN
+        case XK_Select:    return 41;  // VK_SELECT
+        case XK_Print:     return 42;  // VK_PRINT
+        case XK_Execute:   return 43;  // VK_EXECUTE
+        case XK_Insert:    return 45;  // VK_INSERT
+        case XK_Delete:    return 46;  // VK_DELETE
+        case XK_Help:      return 47;  // VK_HELP
+
+        case XK_0: case XK_1: case XK_2: case XK_3: case XK_4:
+        case XK_5: case XK_6: case XK_7: case XK_8: case XK_9:
+            return static_cast<uint32_t>(sym);
+
+        case XK_a: case XK_b: case XK_c: case XK_d: case XK_e:
+        case XK_f: case XK_g: case XK_h: case XK_i: case XK_j:
+        case XK_k: case XK_l: case XK_m: case XK_n: case XK_o:
+        case XK_p: case XK_q: case XK_r: case XK_s: case XK_t:
+        case XK_u: case XK_v: case XK_w: case XK_x: case XK_y:
+        case XK_z:
+            return static_cast<uint32_t>(sym - XK_a + 'A');
+
+        case XK_A: case XK_B: case XK_C: case XK_D: case XK_E:
+        case XK_F: case XK_G: case XK_H: case XK_I: case XK_J:
+        case XK_K: case XK_L: case XK_M: case XK_N: case XK_O:
+        case XK_P: case XK_Q: case XK_R: case XK_S: case XK_T:
+        case XK_U: case XK_V: case XK_W: case XK_X: case XK_Y:
+        case XK_Z:
+            return static_cast<uint32_t>(sym);
+
+        case XK_F1:  return 112; // VK_F1
+        case XK_F2:  return 113;
+        case XK_F3:  return 114;
+        case XK_F4:  return 115;
+        case XK_F5:  return 116;
+        case XK_F6:  return 117;
+        case XK_F7:  return 118;
+        case XK_F8:  return 119;
+        case XK_F9:  return 120;
+        case XK_F10: return 121;
+        case XK_F11: return 122;
+        case XK_F12: return 123; // VK_F12
+
+        default:
+            return static_cast<uint32_t>(sym);
+    }
+}
+
+// X11 修饰键状态解析
+static inline KeyModifiers x11_state_to_modifiers(unsigned int state) {
+    KeyModifiers mods{};
+    mods.shift = (state & ShiftMask) != 0;
+    mods.ctrl  = (state & ControlMask) != 0;
+    mods.alt   = (state & Mod1Mask) != 0;
+    return mods;
+}
+#endif
 
 // Linux 平台任务调度器 (POSIX Thread-safe Task Dispatcher)
 class LinuxDispatcher : public IPlatformDispatcher {
@@ -88,7 +164,7 @@ private:
     uint64_t m_next_id{1};
 };
 
-// Linux 字体解析器 (支持 Fontconfig 与标准 XDG/Linux 字体目录)
+// Linux 字体解析器
 class LinuxFontResolver : public IFontResolver {
 public:
     std::string resolve_font(FontFamilyCategory category, FontWeight /*weight*/ = FontWeight::Regular) override {
@@ -99,20 +175,20 @@ public:
                 return "DejaVu Serif";
             case FontFamilyCategory::SansSerif:
             default:
-                return "WenQuanYi Micro Hei";
+                return "sans-serif";
         }
     }
 
     std::string resolve_font_by_name(const std::string& family_name) override {
-        return family_name.empty() ? "WenQuanYi Micro Hei" : family_name;
+        return family_name.empty() ? "sans-serif" : family_name;
     }
 };
 
-// Linux 平台抽象物理/虚拟窗口 (支持原生 X11 窗口与无头模式自动平滑切换)
+// Linux 平台抽象物理/虚拟窗口
 class LinuxWindow : public IPlatformWindow {
 public:
 #if defined(KTUI_HAS_X11)
-    explicit LinuxWindow(const WindowDesc& desc, Display* dpy = nullptr)
+    explicit LinuxWindow(const WindowDesc& desc, Display* dpy = nullptr, XIM xim = nullptr)
         : m_title(desc.title), m_size(desc.size), m_min_size(desc.min_size),
           m_max_size(desc.max_size), m_resizable(desc.resizable), m_display(dpy)
     {
@@ -136,6 +212,18 @@ public:
             Atom wm_delete = XInternAtom(m_display, "WM_DELETE_WINDOW", False);
             XSetWMProtocols(m_display, m_xwindow, &wm_delete, 1);
             m_gc = XCreateGC(m_display, m_xwindow, 0, nullptr);
+
+            if (xim) {
+                m_xic = XCreateIC(xim,
+                                  XNInputStyle, XIMPreeditNothing | XIMStatusNothing,
+                                  XNClientWindow, m_xwindow,
+                                  XNFocusWindow, m_xwindow,
+                                  nullptr);
+                if (m_xic) {
+                    XSetICFocus(m_xic);
+                }
+            }
+
             XFlush(m_display);
         }
     }
@@ -221,6 +309,7 @@ public:
         if (m_display && m_xwindow != 0) {
             XRaiseWindow(m_display, m_xwindow);
             XSetInputFocus(m_display, m_xwindow, RevertToParent, CurrentTime);
+            if (m_xic) XSetICFocus(m_xic);
             XFlush(m_display);
         }
 #endif
@@ -268,7 +357,16 @@ public:
         return const_cast<LinuxWindow*>(this); 
     }
 
-    // 将 CPU 光栅化帧缓冲呈现到真实 X11 物理窗口 (实现真实桌面原生弹窗交互)
+#if defined(KTUI_HAS_X11)
+    Window get_xwindow() const noexcept { return m_xwindow; }
+    XIC get_xic() const noexcept { return m_xic; }
+#endif
+
+    void set_destroy_handler(std::function<void()> handler) {
+        m_destroy_handler = std::move(handler);
+    }
+
+    // 将 CPU 光栅化帧缓冲呈现到真实 X11 物理窗口
     void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override {
 #if defined(KTUI_HAS_X11)
         if (m_display && m_xwindow != 0 && rgba && width > 0 && height > 0) {
@@ -316,21 +414,41 @@ public:
     void on_dpi_changed(std::function<void(float)> handler) override { m_dpi_handler = std::move(handler); }
     void on_focus_changed(std::function<void(bool)> handler) override { m_focus_handler = std::move(handler); }
 
+    // 主动请求关闭窗口 (触发应用层 on_close 回调保护)
+    bool request_close() {
+        if (m_closed) return true;
+        if (m_close_handler) {
+            if (!m_close_handler()) {
+                return false;
+            }
+        }
+        close();
+        return true;
+    }
+
     void close() override {
         if (!m_closed) {
             m_closed = true;
             m_visible = false;
 #if defined(KTUI_HAS_X11)
+            if (m_xic) {
+                XDestroyIC(m_xic);
+                m_xic = nullptr;
+            }
             if (m_display && m_gc) {
                 XFreeGC(m_display, m_gc);
                 m_gc = nullptr;
             }
             if (m_display && m_xwindow != 0) {
-                XDestroyWindow(m_display, m_xwindow);
-                XFlush(m_display);
+                Window win = m_xwindow;
                 m_xwindow = 0;
+                XDestroyWindow(m_display, win);
+                XFlush(m_display);
             }
 #endif
+            if (m_destroy_handler) {
+                m_destroy_handler();
+            }
         }
     }
 
@@ -356,8 +474,10 @@ private:
     Display* m_display{nullptr};
     Window m_xwindow{0};
     GC m_gc{nullptr};
+    XIC m_xic{nullptr};
 #endif
 
+    std::function<void()> m_destroy_handler{nullptr};
     std::function<TitlebarHitTest(PointF)> m_hit_test_cb{nullptr};
     std::function<void()> m_paint_requested{nullptr};
     std::function<bool()> m_close_handler{nullptr};
@@ -377,11 +497,17 @@ public:
 
     bool init() override {
 #if defined(KTUI_HAS_X11)
+        std::setlocale(LC_ALL, "");
+        XSetLocaleModifiers("");
         const char* disp_env = std::getenv("DISPLAY");
         if (disp_env && disp_env[0] != '\0') {
             m_display = XOpenDisplay(disp_env);
             if (m_display) {
                 std::cout << "[LinuxBackend] Successfully connected to X11 Display Server: " << disp_env << std::endl;
+                m_xim = XOpenIM(m_display, nullptr, nullptr, nullptr);
+                if (m_xim) {
+                    std::cout << "[LinuxBackend] Successfully initialized XIM Input Method." << std::endl;
+                }
             }
         }
 #endif
@@ -397,6 +523,12 @@ public:
             while (XPending(m_display) > 0) {
                 XEvent ev;
                 XNextEvent(m_display, &ev);
+
+                // 优先交由系统输入法过滤器处理 (fcitx / ibus / deepin-ime)
+                if (XFilterEvent(&ev, None)) {
+                    continue;
+                }
+
                 switch (ev.type) {
                     case Expose: {
                         if (m_event_callback) {
@@ -441,18 +573,73 @@ public:
                         }
                         break;
                     }
+                    case FocusIn: {
+                        auto it = m_windows_map.find(ev.xfocus.window);
+                        if (it != m_windows_map.end() && it->second && it->second->get_xic()) {
+                            XSetICFocus(it->second->get_xic());
+                        }
+                        break;
+                    }
+                    case FocusOut: {
+                        auto it = m_windows_map.find(ev.xfocus.window);
+                        if (it != m_windows_map.end() && it->second && it->second->get_xic()) {
+                            XUnsetICFocus(it->second->get_xic());
+                        }
+                        break;
+                    }
                     case KeyPress: {
                         if (m_event_callback) {
-                            char buf[32];
-                            KeySym sym;
-                            int count = XLookupString(&ev.xkey, buf, sizeof(buf) - 1, &sym, nullptr);
-                            buf[std::max(0, count)] = '\0';
-                            PlatformEvent pe;
-                            pe.type = PlatformEventType::KeyDown;
-                            pe.window_handle = reinterpret_cast<void*>(ev.xkey.window);
-                            pe.key_code = static_cast<uint32_t>(sym);
-                            if (count > 0) pe.text = std::string(buf, count);
-                            m_event_callback(pe);
+                            char buf[128];
+                            KeySym sym = NoSymbol;
+                            Status status = 0;
+                            int count = 0;
+
+                            XIC xic = nullptr;
+                            auto it = m_windows_map.find(ev.xkey.window);
+                            if (it != m_windows_map.end() && it->second) {
+                                xic = it->second->get_xic();
+                            }
+
+                            if (xic) {
+                                count = Xutf8LookupString(xic, &ev.xkey, buf, sizeof(buf) - 1, &sym, &status);
+                            } else {
+                                count = XLookupString(&ev.xkey, buf, sizeof(buf) - 1, &sym, nullptr);
+                            }
+                            if (count < 0) count = 0;
+                            buf[count] = '\0';
+
+                            uint32_t vk = x11_keysym_to_virtual_key(sym);
+                            KeyModifiers mods = x11_state_to_modifiers(ev.xkey.state);
+
+                            // 1. 发送 KeyDown 事件 (驱动退格、删除、箭头导航、回车提交及 Ctrl 快捷键)
+                            PlatformEvent pe_down;
+                            pe_down.type = PlatformEventType::KeyDown;
+                            pe_down.window_handle = reinterpret_cast<void*>(ev.xkey.window);
+                            pe_down.key_code = vk;
+                            pe_down.modifiers = mods;
+                            if (count > 0) pe_down.text = std::string(buf, count);
+                            m_event_callback(pe_down);
+
+                            // 2. 发送 ImeCommit 事件 (直接输入中英文文本到聚焦文本框)
+                            if (count > 0 && !mods.ctrl && !mods.alt) {
+                                bool is_printable = false;
+                                if (count == 1) {
+                                    uint8_t ch = static_cast<uint8_t>(buf[0]);
+                                    is_printable = (ch >= 32 && ch != 127);
+                                } else if (count > 1) {
+                                    is_printable = true; // 多字节 UTF-8 (汉字等)
+                                }
+
+                                if (is_printable) {
+                                    PlatformEvent pe_commit;
+                                    pe_commit.type = PlatformEventType::ImeCommit;
+                                    pe_commit.window_handle = reinterpret_cast<void*>(ev.xkey.window);
+                                    pe_commit.key_code = vk;
+                                    pe_commit.text = std::string(buf, count);
+                                    pe_commit.modifiers = mods;
+                                    m_event_callback(pe_commit);
+                                }
+                            }
                         }
                         break;
                     }
@@ -462,21 +649,34 @@ public:
                             PlatformEvent pe;
                             pe.type = PlatformEventType::KeyUp;
                             pe.window_handle = reinterpret_cast<void*>(ev.xkey.window);
-                            pe.key_code = static_cast<uint32_t>(sym);
+                            pe.key_code = x11_keysym_to_virtual_key(sym);
+                            pe.modifiers = x11_state_to_modifiers(ev.xkey.state);
                             m_event_callback(pe);
                         }
                         break;
                     }
                     case ClientMessage: {
+                        Atom wm_protocols = XInternAtom(m_display, "WM_PROTOCOLS", False);
                         Atom wm_delete = XInternAtom(m_display, "WM_DELETE_WINDOW", False);
-                        if (static_cast<Atom>(ev.xclient.data.l[0]) == wm_delete) {
+                        if (ev.xclient.message_type == wm_protocols &&
+                            static_cast<Atom>(ev.xclient.data.l[0]) == wm_delete) {
+                            // 优先交由应用层 Window::handle_platform_event 派发并执行 close()
                             if (m_event_callback) {
                                 PlatformEvent pe;
                                 pe.type = PlatformEventType::WindowCloseRequested;
                                 pe.window_handle = reinterpret_cast<void*>(ev.xclient.window);
                                 m_event_callback(pe);
                             }
+                            // 兜底保障：若窗口未被关闭则直接调用物理窗口关闭
+                            auto it = m_windows_map.find(ev.xclient.window);
+                            if (it != m_windows_map.end() && it->second) {
+                                it->second->request_close();
+                            }
                         }
+                        break;
+                    }
+                    case DestroyNotify: {
+                        m_windows_map.erase(ev.xdestroywindow.window);
                         break;
                     }
                 }
@@ -494,7 +694,15 @@ public:
 
     std::unique_ptr<IPlatformWindow> create_window(const WindowDesc& desc) override {
 #if defined(KTUI_HAS_X11)
-        return std::make_unique<LinuxWindow>(desc, m_display);
+        auto win = std::make_unique<LinuxWindow>(desc, m_display, m_xim);
+        if (win->get_xwindow() != 0) {
+            Window xw = win->get_xwindow();
+            m_windows_map[xw] = win.get();
+            win->set_destroy_handler([this, xw]() {
+                m_windows_map.erase(xw);
+            });
+        }
+        return win;
 #else
         return std::make_unique<LinuxWindow>(desc);
 #endif
@@ -520,6 +728,10 @@ public:
 
     void shutdown() override {
 #if defined(KTUI_HAS_X11)
+        if (m_xim) {
+            XCloseIM(m_xim);
+            m_xim = nullptr;
+        }
         if (m_display) {
             XCloseDisplay(m_display);
             m_display = nullptr;
@@ -534,6 +746,8 @@ private:
 
 #if defined(KTUI_HAS_X11)
     Display* m_display{nullptr};
+    XIM m_xim{nullptr};
+    std::unordered_map<Window, LinuxWindow*> m_windows_map;
 #endif
 
     mutable std::mutex m_clip_mutex;
