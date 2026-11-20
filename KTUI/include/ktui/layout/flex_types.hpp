@@ -1,0 +1,50 @@
+#pragma once
+
+#include <optional>
+#include <cstdint>
+
+namespace ktui {
+
+// Flex 主轴排布方向
+enum class FlexDirection : uint8_t {
+    Row,            // 水平排列 (从左往右)
+    Column,         // 垂直排列 (从上往下)
+    RowReverse,     // 水平反向排列 (从右往左)
+    ColumnReverse   // 垂直反向排列 (从下往上)
+};
+
+// 主轴对齐与空间分配方式 (Justify Content)
+enum class JustifyContent : uint8_t {
+    FlexStart,      // 紧靠主轴起点
+    FlexEnd,        // 紧靠主轴终点
+    Center,         // 沿主轴居中排列
+    SpaceBetween,   // 首尾贴边，剩余空间在子项之间均分
+    SpaceAround,    // 每个子项两侧各分配一半等宽间距
+    SpaceEvenly     // 首尾与子项之间的所有间隙绝对严格均等
+};
+
+// 交叉轴对齐方式 (Align Items / Cross Axis Alignment)
+enum class AlignItems : uint8_t {
+    FlexStart,      // 紧靠交叉轴起点
+    FlexEnd,        // 紧靠交叉轴终点
+    Center,         // 沿交叉轴居中对齐
+    Stretch         // 拉伸以填满交叉轴可用空间
+};
+
+// 弹性子项适配模式
+enum class FlexFit : uint8_t {
+    Tight,          // 紧凑：强制子项完全扩展并充满分配到的弹性空间
+    Loose           // 松散：允许子项小于分配空间，按子项 Intrinsic 尺寸显示
+};
+
+// 单个 Flex 子项的父级布局参数 (Flex Item Parent Data)
+struct FlexItemData {
+    float flex_grow{0.0f};          // 弹性放大权重 (0 表示不参与分配剩余空间)
+    float flex_shrink{1.0f};        // 弹性收缩权重 (空间不足时按比例压缩)
+    FlexFit fit{FlexFit::Tight};    // 填充模式
+    std::optional<AlignItems> align_self{std::nullopt}; // 单项交叉轴对齐覆盖
+
+    bool operator==(const FlexItemData&) const noexcept = default;
+};
+
+} // namespace ktui

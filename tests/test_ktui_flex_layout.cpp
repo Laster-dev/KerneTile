@@ -1,0 +1,280 @@
+#include <ktui/layout/box_constraints.hpp>
+#include <ktui/layout/flex_engine.hpp>
+#include <ktui/tree/render_flex.hpp>
+#include <ktui/tree/reconciliation.hpp>
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include <cmath>
+
+using namespace ktui;
+
+void test_box_constraints_basics() {
+    std::cout << "[Test 1] 盒约束 BoxConstraints 基本功能与安全钳制测试..." << std::endl;
+
+    BoxConstraints loose_c = BoxConstraints::loose(Vec2{800.0f, 600.0f});
+    assert(loose_c.min_width == 0.0f && loose_c.min_height == 0.0f);
+    assert(loose_c.max_width == 800.0f && loose_c.max_height == 600.0f);
+    assert(loose_c.is_loose());
+    assert(!loose_c.is_tight());
+
+    BoxConstraints tight_c = BoxConstraints::tight(Vec2{300.0f, 200.0f});
+    assert(tight_c.is_tight());
+    assert(tight_c.constrain(Vec2{50.0f, 500.0f}) == Vec2(300.0f, 200.0f));
+
+    // 内边距扣除
+    EdgeInsets padding(10.0f, 20.0f, 10.0f, 20.0f); // 水平 40, 垂直 20
+    BoxConstraints deflated = tight_c.deflate(padding);
+    assert(deflated.min_width == 260.0f && deflated.max_width == 260.0f);
+    assert(deflated.min_height == 180.0f && deflated.max_height == 180.0f);
+
+    std::cout << "  -> 紧约束/松约束与内边距扣除计算完全正确！" << std::endl;
+}
+
+void test_flex_main_grow_allocation() {
+    std::cout << "[Test 2] Flex 主轴固定尺寸与 flex_grow 剩余空间分配精度测试..." << std::endl;
+
+    // 容器宽 300px，高 100px (紧约束)
+    RenderFlex container(FlexDirection::Row, JustifyContent::FlexStart, AlignItems::FlexStart, 20.0f /* gap */);
+
+    // 子项 1: 固定宽 100px, 高 40px
+    auto child1 = std::make_unique<RenderSizedBox>(Vec2{100.0f, 40.0f});
+
+    // 子项 2: flex_grow = 1.0f 弹性填满剩余空间
+    auto child2 = std::make_unique<RenderSizedBox>(Vec2{0.0f, 50.0f});
+    child2->flex_data().flex_grow = 1.0f;
+    child2->flex_data().fit = FlexFit::Tight;
+
+    container.append_child(child1.get());
+    container.append_child(child2.get());
+
+    container.layout(BoxConstraints::tight(Vec2{300.0f, 100.0f}));
+
+    // 验证尺寸: 子项 2 应当获得 300 - 100(固定项) - 20(gap) = 180px
+    assert(child1->size().x == 100.0f);
+    assert(child2->size().x == 180.0f);
+
+    // 验证坐标定位:
+    // child1 位于 (0, 0)
+    // child2 位于 (100 + 20 = 120, 0)
+    assert(child1->offset() == Vec2(0.0f, 0.0f));
+    assert(child2->offset() == Vec2(120.0f, 0.0f));
+
+    std::cout << "  -> flex_grow 弹性主轴空间计算准确: 300 - 100 - 20 = 180px!" << std::endl;
+}
+
+void test_flex_multiple_grow_ratios() {
+    std::cout << "[Test 3] 多弹性子项按比例伸缩 (flex_grow = 1 vs 2) 测试..." << std::endl;
+
+    // 容器宽 600px，gap = 15px
+    RenderFlex container(FlexDirection::Row, JustifyContent::FlexStart, AlignItems::FlexStart, 15.0f);
+
+    auto childA = std::make_unique<RenderSizedBox>(Vec2{150.0f, 40.0f}); // 固定 150
+    auto childB = std::make_unique<RenderSizedBox>(Vec2{0.0f, 40.0f});   // flex 1
+    childB->flex_data().flex_grow = 1.0f;
+    auto childC = std::make_unique<RenderSizedBox>(Vec2{0.0f, 40.0f});   // flex 2
+    childC->flex_data().flex_grow = 2.0f;
+
+    container.append_child(childA.get());
+    container.append_child(childB.get());
+    container.append_child(childC.get());
+
+    container.layout(BoxConstraints::tight(Vec2{600.0f, 100.0f}));
+
+    // 剩余空间: 600 - 150 - (2 * 15) = 420px
+    // childB: 420 * (1 / 3) = 140px
+    // childC: 420 * (2 / 3) = 280px
+    assert(std::abs(childA->size().x - 150.0f) < 1e-3f);
+    assert(std::abs(childB->size().x - 140.0f) < 1e-3f);
+    assert(std::abs(childC->size().x - 280.0f) < 1e-3f);
+
+    // 坐标校验:
+    // A: 0
+    // B: 150 + 15 = 165
+    // C: 165 + 140 + 15 = 320
+    assert(std::abs(childA->offset().x - 0.0f) < 1e-3f);
+    assert(std::abs(childB->offset().x - 165.0f) < 1e-3f);
+    assert(std::abs(childC->offset().x - 320.0f) < 1e-3f);
+
+    std::cout << "  -> 1:2 比例弹性分配计算与累加原点严格吻合！" << std::endl;
+}
+
+void test_justify_content_distribution() {
+    std::cout << "[Test 4] JustifyContent::SpaceBetween / SpaceEvenly / Center 测试..." << std::endl;
+
+    // 容器宽 300px，3 个 50px 宽子项 (总使用 150px，剩余 150px，gap=0)
+    auto c1 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 50.0f});
+    auto c2 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 50.0f});
+    auto c3 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 50.0f});
+
+    RenderFlex container(FlexDirection::Row, JustifyContent::SpaceBetween, AlignItems::FlexStart, 0.0f);
+    container.append_child(c1.get());
+    container.append_child(c2.get());
+    container.append_child(c3.get());
+
+    // 1. SpaceBetween 测试
+    container.layout(BoxConstraints::tight(Vec2{300.0f, 60.0f}));
+    // 间隙 = 150 / 2 = 75px
+    // c1 = 0, c2 = 50 + 75 = 125, c3 = 125 + 50 + 75 = 250
+    assert(std::abs(c1->offset().x - 0.0f) < 1e-3f);
+    assert(std::abs(c2->offset().x - 125.0f) < 1e-3f);
+    assert(std::abs(c3->offset().x - 250.0f) < 1e-3f);
+
+    // 2. SpaceEvenly 测试
+    container.set_justify(JustifyContent::SpaceEvenly);
+    container.layout(BoxConstraints::tight(Vec2{300.0f, 60.0f}));
+    // 4 个等距间隙 = 150 / 4 = 37.5px
+    // c1 = 37.5, c2 = 37.5 + 50 + 37.5 = 125, c3 = 125 + 50 + 37.5 = 212.5
+    assert(std::abs(c1->offset().x - 37.5f) < 1e-3f);
+    assert(std::abs(c2->offset().x - 125.0f) < 1e-3f);
+    assert(std::abs(c3->offset().x - 212.5f) < 1e-3f);
+
+    // 3. Center 测试
+    container.set_justify(JustifyContent::Center);
+    container.layout(BoxConstraints::tight(Vec2{300.0f, 60.0f}));
+    // 左右均分剩余 150px -> 起点 75px
+    // c1 = 75, c2 = 125, c3 = 175
+    assert(std::abs(c1->offset().x - 75.0f) < 1e-3f);
+    assert(std::abs(c2->offset().x - 125.0f) < 1e-3f);
+    assert(std::abs(c3->offset().x - 175.0f) < 1e-3f);
+
+    std::cout << "  -> JustifyContent 主轴等距/两端/居中排版公式验证 100% 精确！" << std::endl;
+}
+
+void test_column_and_cross_axis_alignment() {
+    std::cout << "[Test 5] 垂直 Column 与 AlignItems::Center / Stretch 交叉轴对齐测试..." << std::endl;
+
+    // 容器为 Column (垂直)，宽 200px, 高 400px (紧约束)
+    RenderFlex col(FlexDirection::Column, JustifyContent::FlexStart, AlignItems::FlexStart, 10.0f);
+
+    // item1: 50x50, 显式设置为交叉轴居中 (AlignItems::Center)
+    auto item1 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 50.0f});
+    item1->flex_data().align_self = AlignItems::Center;
+
+    // item2: 高度 60px, 显式设置为拉伸 (AlignItems::Stretch)
+    auto item2 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 60.0f});
+    item2->flex_data().align_self = AlignItems::Stretch;
+
+    col.append_child(item1.get());
+    col.append_child(item2.get());
+
+    col.layout(BoxConstraints::tight(Vec2{200.0f, 400.0f}));
+
+    // 检查 item1 交叉轴 (X 轴) 居中: (200 - 50) / 2 = 75px, Y 轴为 0
+    assert(std::abs(item1->offset().x - 75.0f) < 1e-3f);
+    assert(std::abs(item1->offset().y - 0.0f) < 1e-3f);
+
+    // 检查 item2 交叉轴拉伸 (Stretch): 宽度应拉伸为容器宽度 200px, X 轴为 0, Y 轴为 50 + 10 = 60px
+    assert(std::abs(item2->size().x - 200.0f) < 1e-3f);
+    assert(std::abs(item2->size().y - 60.0f) < 1e-3f);
+    assert(std::abs(item2->offset().x - 0.0f) < 1e-3f);
+    assert(std::abs(item2->offset().y - 60.0f) < 1e-3f);
+
+    std::cout << "  -> 垂直 Column 排布与交叉轴 Center/Stretch 拉伸计算完全吻合！" << std::endl;
+}
+
+void test_relayout_boundary_isolation() {
+    std::cout << "[Test 6] Relayout Boundary (重排边界) 冒泡阻断机制测试..." << std::endl;
+
+    // 构建层级树: RootFlex -> MiddleBoundaryBox (紧约束，固定宽高) -> LeafBox
+    auto root = std::make_unique<RenderFlex>(FlexDirection::Column);
+    auto middle = std::make_unique<RenderSizedBox>(Vec2{200.0f, 200.0f});
+    middle->set_relayout_boundary(true); // 声明为重排隔离边界
+    auto leaf = std::make_unique<RenderSizedBox>(Vec2{50.0f, 50.0f});
+
+    middle->append_child(leaf.get());
+    root->append_child(middle.get());
+
+    // 初次布局: middle 受到紧约束 tight(200, 200)，推导为 Relayout Boundary
+    root->layout(BoxConstraints::loose(Vec2{800.0f, 600.0f}));
+
+    assert(!root->needs_layout());
+    assert(!middle->needs_layout());
+    assert(!leaf->needs_layout());
+    assert(middle->is_relayout_boundary()); // 成功建立边界！
+
+    // 触发底层叶子节点重新排版
+    leaf->set_fixed_size(Vec2{80.0f, 80.0f});
+
+    // 校验状态:
+    // leaf 变脏
+    assert(leaf->needs_layout());
+    // middle 变脏
+    assert(middle->needs_layout());
+    // 关键契约: root 的 needs_layout 必须依然为 false！重排必须被 middle 边界完全阻断！
+    assert(!root->needs_layout());
+
+    std::cout << "  -> 核心 Relayout Boundary 成功阻断冒泡，根节点未被污染 (Zero Cascade)!" << std::endl;
+}
+
+void test_reconciler_children_sync() {
+    std::cout << "[Test 7] Reconciler 树增量调和与节点原地复用测试..." << std::endl;
+
+    auto container = std::make_unique<RenderFlex>();
+
+    struct Spec {
+        int id;
+        Vec2 size;
+    };
+
+    std::vector<Spec> v1 = {
+        {1, Vec2{100.0f, 50.0f}},
+        {2, Vec2{120.0f, 50.0f}},
+        {3, Vec2{140.0f, 50.0f}}
+    };
+
+    // 第一次调和：创建 3 个子节点
+    Reconciler::sync_children(
+        container.get(),
+        v1,
+        [](const Spec& s) -> RenderNode* { return new RenderSizedBox(s.size); },
+        [](RenderNode* n, const Spec& s) { static_cast<RenderSizedBox*>(n)->set_fixed_size(s.size); }
+    );
+
+    assert(container->child_count() == 3);
+    RenderNode* node0 = container->first_child();
+    RenderNode* node1 = node0->next_sibling();
+    RenderNode* node2 = node1->next_sibling();
+    assert(node2 != nullptr);
+
+    // 第二次调和：减少为 2 个规格并修改尺寸
+    std::vector<Spec> v2 = {
+        {1, Vec2{110.0f, 60.0f}},
+        {2, Vec2{130.0f, 60.0f}}
+    };
+
+    Reconciler::sync_children(
+        container.get(),
+        v2,
+        [](const Spec& s) -> RenderNode* { return new RenderSizedBox(s.size); },
+        [](RenderNode* n, const Spec& s) { static_cast<RenderSizedBox*>(n)->set_fixed_size(s.size); }
+    );
+
+    assert(container->child_count() == 2);
+    // 验证前两个节点指针原地复用，未被无谓销毁重建
+    assert(container->first_child() == node0);
+    assert(container->first_child()->next_sibling() == node1);
+    assert(static_cast<RenderSizedBox*>(node0)->fixed_size() == Vec2(110.0f, 60.0f));
+
+    std::cout << "  -> Reconciler 原地复用更新与多余节点回收验证成功！" << std::endl;
+}
+
+int main() {
+    std::cout << "==================================================" << std::endl;
+    std::cout << "   KTUI 阶段 5: RenderTree 与 Flex 布局引擎测试   " << std::endl;
+    std::cout << "==================================================" << std::endl;
+
+    test_box_constraints_basics();
+    test_flex_main_grow_allocation();
+    test_flex_multiple_grow_ratios();
+    test_justify_content_distribution();
+    test_column_and_cross_axis_alignment();
+    test_relayout_boundary_isolation();
+    test_reconciler_children_sync();
+
+    std::cout << "==================================================" << std::endl;
+    std::cout << "   恭喜！阶段 5 RenderTree 与 Flex 布局 100% 通过!  " << std::endl;
+    std::cout << "==================================================" << std::endl;
+
+    return 0;
+}

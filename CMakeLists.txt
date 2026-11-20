@@ -226,3 +226,12 @@ target_include_directories(test_ktui_app_and_theme PRIVATE
 )
 target_link_libraries(test_ktui_app_and_theme PRIVATE ktui_pal kernetile_core)
 add_test(NAME test_ktui_app_and_theme COMMAND test_ktui_app_and_theme WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# KTUI 阶段 5 测试
+add_executable(test_ktui_flex_layout tests/test_ktui_flex_layout.cpp)
+target_include_directories(test_ktui_flex_layout PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_flex_layout PRIVATE kernetile_core)
+add_test(NAME test_ktui_flex_layout COMMAND test_ktui_flex_layout WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
