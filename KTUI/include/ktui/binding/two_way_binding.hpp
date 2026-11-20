@@ -57,6 +57,7 @@ public:
     }
 
     const T& get() const { return m_property->get(); }
+    [[nodiscard]] Property<T>* property() const noexcept { return m_property; }
 
     // 由 UI 控件在用户输入改变时调用 (生成全局递增事务 Token)
     void set_from_ui(const T& val) {

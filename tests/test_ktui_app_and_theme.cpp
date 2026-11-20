@@ -93,19 +93,22 @@ void test_design_tokens_and_palette() {
     assert(light_theme.colors.background.r > 0.8f);
     assert(light_theme.colors.text_primary.r < 0.2f);
 
-    // 验证间距体系
+    // 验证间距体系 (桌面紧凑体系)
     assert(dark_theme.spacing.xs == 4.0f);
-    assert(dark_theme.spacing.md == 16.0f);
-    assert(dark_theme.spacing.xxxl == 64.0f);
+    assert(dark_theme.spacing.sm == 6.0f);
+    assert(dark_theme.spacing.md == 8.0f);
+    assert(dark_theme.spacing.xxxl == 32.0f);
 
-    // 验证字阶体系
-    assert(dark_theme.typography.base == 16.0f);
-    assert(dark_theme.typography.xxxl == 32.0f);
+    // 验证字阶体系 (桌面 IDE 紧凑体系)
+    assert(dark_theme.typography.base == 13.0f);
+    assert(dark_theme.typography.xxxl == 22.0f);
 
-    // 验证圆角与阴影
-    assert(dark_theme.radii.md == 8.0f);
-    assert(dark_theme.radii.full == 9999.0f);
-    assert(dark_theme.shadows.md.blur_radius == 8.0f);
+    // 验证圆角与阴影 (硬朗微圆角，杜绝移动端大圆角)
+    assert(dark_theme.radii.sm == 3.0f);
+    assert(dark_theme.radii.md == 4.0f);
+    assert(dark_theme.radii.xl == 8.0f);
+    assert(dark_theme.radii.full == 12.0f);
+    assert(dark_theme.shadows.md.blur_radius == 4.0f);
 
     // 相等性比较
     assert(dark_theme == Theme::dark());

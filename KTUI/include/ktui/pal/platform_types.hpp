@@ -28,6 +28,10 @@ struct EdgeInsets {
     constexpr EdgeInsets(float in_top, float in_right, float in_bottom, float in_left) noexcept
         : top(in_top), right(in_right), bottom(in_bottom), left(in_left) {}
 
+    [[nodiscard]] constexpr float horizontal() const noexcept { return left + right; }
+    [[nodiscard]] constexpr float vertical() const noexcept { return top + bottom; }
+    [[nodiscard]] static constexpr EdgeInsets zero() noexcept { return EdgeInsets{0.0f, 0.0f, 0.0f, 0.0f}; }
+
     bool operator==(const EdgeInsets&) const noexcept = default;
 };
 

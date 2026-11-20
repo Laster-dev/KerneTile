@@ -44,6 +44,17 @@ struct BoxConstraints {
         return BoxConstraints(0.0f, max_size.x, 0.0f, max_size.y);
     }
 
+    // 转为松约束 (解除最小尺寸约束)
+    [[nodiscard]] constexpr BoxConstraints loosen() const noexcept {
+        return BoxConstraints(0.0f, max_width, 0.0f, max_height);
+    }
+
+    // 获取当前约束下允许的最大合法尺寸 (非无穷大时取最大值，否则取最小值)
+    [[nodiscard]] constexpr Vec2 biggest() const noexcept {
+        return Vec2{has_bounded_width() ? max_width : min_width,
+                    has_bounded_height() ? max_height : min_height};
+    }
+
     // 便捷工厂：尽可能扩展填满
     [[nodiscard]] static constexpr BoxConstraints expand(float width = kInfinity, float height = kInfinity) noexcept {
         return BoxConstraints(
