@@ -108,6 +108,7 @@ public:
     bool is_hovered{false};
     bool is_active{false};
     bool is_focusable{false};
+    CursorShape cursor_shape{CursorShape::Arrow};
 
     std::function<void(PointerEvent&)> on_pointer_down;
     std::function<void(PointerEvent&)> on_pointer_up;

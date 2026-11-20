@@ -259,6 +259,28 @@ public:
             case PlatformEventType::PointerMove: {
                 PointerEvent ev(PlatformEventType::PointerMove, pe.position, pe.button);
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
+                // 自动同步鼠标光标形状 (Hover 按钮变手型、输入框变 I-Beam)
+                if (m_platform_window) {
+                    CursorShape cursor = CursorShape::Arrow;
+                    HitTestResult hit_res;
+                    if (m_root_render_box->hit_test(hit_res, pe.position)) {
+                        for (const auto& entry : hit_res.path()) {
+                            if (entry.target && entry.target->cursor_shape != CursorShape::Arrow) {
+                                cursor = entry.target->cursor_shape;
+                                break;
+                            }
+                        }
+                    }
+                    m_platform_window->set_cursor(cursor);
+                    m_platform_window->invalidate();
+                }
+                request_redraw();
+                break;
+            }
+            case PlatformEventType::PointerScroll: {
+                PointerEvent ev(PlatformEventType::PointerScroll, pe.position, PointerButton::None);
+                ev.delta = pe.delta;
+                m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 request_redraw();
                 if (m_platform_window) m_platform_window->invalidate();
                 break;

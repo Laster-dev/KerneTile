@@ -82,6 +82,7 @@ public:
 
     void set_ime_enabled(bool enabled) override;
     void set_ime_cursor_rect(Rect cursor_rect) override;
+    void set_cursor(CursorShape cursor) override;
 
     void on_close_requested(std::function<bool()> handler) override { m_on_close = std::move(handler); }
     void on_resized(std::function<void(Vec2 new_size)> handler) override { m_on_resized = std::move(handler); }
@@ -122,6 +123,7 @@ private:
     std::vector<uint8_t> m_bgra_scratch;
     Rect m_ime_cursor_rect{};
     bool m_ime_enabled = false;
+    CursorShape m_cursor_shape = CursorShape::Arrow;
 };
 
 // Windows 原生 PAL 平台后端
@@ -139,6 +141,9 @@ public:
     IPlatformDispatcher& get_dispatcher() override { return m_dispatcher; }
     IVSyncSource& get_vsync_source() override { return m_vsync; }
     IFontResolver& get_font_resolver() override { return m_font_resolver; }
+
+    std::string get_clipboard_text() const override;
+    void set_clipboard_text(const std::string& utf8_text) override;
 
     void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);

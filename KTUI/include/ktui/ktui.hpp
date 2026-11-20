@@ -15,6 +15,7 @@
 // 跨平台抽象与类型
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/pal/platform_backend.hpp>
+#include <ktui/pal/clipboard.hpp>
 #include <ktui/pal/font_resolver.hpp>
 
 // 响应式数据绑定与状态管理

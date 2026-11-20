@@ -14,6 +14,7 @@ namespace ktui {
 class RenderButton : public RenderBox {
 public:
     RenderButton() noexcept {
+        cursor_shape = CursorShape::PointingHand;
         setup_behavior();
     }
 
@@ -48,6 +49,7 @@ public:
     void set_disabled(bool disabled) {
         if (m_disabled != disabled) {
             m_disabled = disabled;
+            cursor_shape = m_disabled ? CursorShape::Forbidden : CursorShape::PointingHand;
             if (m_disabled) {
                 is_hovered = false;
                 is_active = false;
@@ -87,13 +89,15 @@ public:
             context.draw_rect(bounds(), current_border, m_corner_radius, m_border_width);
         }
 
-        // 2. 精确居中文本排版
+        // 2. 精确居中文本排版 (施加按钮内部硬件裁剪，严防文字溢出按钮边界)
         if (!m_text.empty()) {
+            context.push_clip(bounds(), m_corner_radius);
             Vec2 measured = TextMeasure::measure(m_text, m_font_size);
-            float text_x = std::max(0.0f, (m_size.x - measured.x) * 0.5f);
+            float text_x = std::max(m_padding.left, (m_size.x - measured.x) * 0.5f);
             float text_y = std::max(0.0f, (m_size.y - measured.y) * 0.5f);
 
             context.draw_text(m_text, PointF{text_x, text_y}, m_font_size, current_text);
+            context.pop_clip();
         }
     }
 

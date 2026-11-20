@@ -14,10 +14,11 @@ public:
     RenderDecoratedBox() noexcept = default;
     ~RenderDecoratedBox() override = default;
 
-    void set_properties(float w, float h, Color bg, Color border, float border_w, float radius, EdgeInsets pad) {
+    void set_properties(float w, float h, Color bg, Color border, float border_w, float radius, EdgeInsets pad, bool clip = true) {
         bool needs_relayout = (m_width != w || m_height != h || !(m_padding == pad));
         bool needs_repainting = (m_background_color != bg || m_border_color != border ||
-                                 m_border_width != border_w || m_corner_radius != radius);
+                                 m_border_width != border_w || m_corner_radius != radius ||
+                                 m_clip_content != clip);
 
         m_width = w;
         m_height = h;
@@ -26,6 +27,7 @@ public:
         m_border_width = border_w;
         m_corner_radius = radius;
         m_padding = pad;
+        m_clip_content = clip;
 
         if (needs_relayout) {
             mark_needs_layout();
@@ -82,8 +84,14 @@ public:
         if (m_border_width > 0.0f && m_border_color.a > 0.001f) {
             context.draw_rect(bounds(), m_border_color, m_corner_radius, m_border_width);
         }
-        // 3. 递归绘制子节点
+        // 3. 递归绘制子节点 (默认施加硬件级圆角矩形裁剪，严防内容溢出容器)
+        if (m_clip_content) {
+            context.push_clip(bounds(), m_corner_radius);
+        }
         RenderBox::paint(context);
+        if (m_clip_content) {
+            context.pop_clip();
+        }
     }
 
 private:
@@ -94,13 +102,14 @@ private:
     float m_border_width{0.0f};
     float m_corner_radius{0.0f};
     EdgeInsets m_padding{EdgeInsets::zero()};
+    bool m_clip_content{true};
     std::shared_ptr<RenderBox> m_child_box{nullptr};
 };
 
 class BoxWidget;
 
 // C++20 指定初始化器声明式聚合体 (Box)
-// 桌面专业标准：默认微圆角 0.0f~4.0f，绝不大圆角
+// 桌面专业标准：默认微圆角 0.0f~4.0f，绝不大圆角；默认开启内容防溢出裁剪
 struct Box {
     float width{-1.0f};
     float height{-1.0f};
@@ -110,6 +119,7 @@ struct Box {
     float corner_radius{0.0f}; // 桌面级克制圆角 (0px 直角或 2~4px 微圆角)
     EdgeInsets padding{EdgeInsets::zero()};
     WidgetPtr child{nullptr};
+    bool clip_content{true};   // 是否对子节点施加硬件视口裁剪
 
     operator WidgetPtr() const;
 };
@@ -128,7 +138,7 @@ public:
         node->set_child_box(m_child_render_box);
         node->set_properties(m_desc.width, m_desc.height, m_desc.background_color,
                              m_desc.border_color, m_desc.border_width,
-                             m_desc.corner_radius, m_desc.padding);
+                             m_desc.corner_radius, m_desc.padding, m_desc.clip_content);
         return node;
     }
 
@@ -149,7 +159,7 @@ public:
 
             dec_box->set_properties(m_desc.width, m_desc.height, m_desc.background_color,
                                  m_desc.border_color, m_desc.border_width,
-                                 m_desc.corner_radius, m_desc.padding);
+                                 m_desc.corner_radius, m_desc.padding, m_desc.clip_content);
         }
     }
 

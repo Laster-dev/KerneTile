@@ -77,9 +77,10 @@ public:
     virtual void invalidate() {}
     virtual void on_paint_requested(std::function<void()> /*handler*/) {}
 
-    // ==================== 框架级 IME 输入法控制 ====================
+    // ==================== 框架级 IME 输入法与光标形状控制 ====================
     virtual void set_ime_enabled(bool /*enabled*/) {}
     virtual void set_ime_cursor_rect(Rect /*cursor_rect*/) {}
+    virtual void set_cursor(CursorShape /*cursor*/) {}
 
     // ==================== 回调与销毁 ====================
     virtual void on_close_requested(std::function<bool()> handler) = 0;
@@ -106,6 +107,10 @@ public:
     virtual IPlatformDispatcher& get_dispatcher() = 0;
     virtual IVSyncSource& get_vsync_source() = 0;
     virtual IFontResolver& get_font_resolver() = 0;
+
+    // 系统剪贴板 (UTF-8)
+    virtual std::string get_clipboard_text() const { return ""; }
+    virtual void set_clipboard_text(const std::string& /*utf8_text*/) {}
 
     // 注册全局事件监听器
     virtual void set_event_callback(std::function<void(const PlatformEvent&)> callback) = 0;

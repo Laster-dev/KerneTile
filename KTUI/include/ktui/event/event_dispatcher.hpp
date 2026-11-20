@@ -65,10 +65,12 @@ public:
         }
 
         // ==================== 3. Bubble 阶段冒泡派发 ====================
-        // 从叶到根 (result.path() 中首项为叶子节点)
+        // 若当前存在拖拽捕获目标 (m_active_target) 且鼠标移出了目标区域，仍需向捕获目标转发 Move/Up
+        bool active_hit = false;
         for (const auto& entry : result.path()) {
             RenderBox* target = entry.target;
             if (!target) continue;
+            if (target == m_active_target) active_hit = true;
 
             // 设置目标局部坐标
             event.local_position = entry.local_position;
@@ -91,6 +93,17 @@ public:
             // 若回调中调用了 stop_propagation() 则立即阻断冒泡！
             if (event.is_propagation_stopped()) {
                 break;
+            }
+        }
+
+        if (m_active_target && !active_hit &&
+            (event.type == PlatformEventType::PointerMove || event.type == PlatformEventType::PointerUp)) {
+            Vec2 abs_off = m_active_target->global_offset();
+            event.local_position = event.position - abs_off;
+            if (event.type == PlatformEventType::PointerMove && m_active_target->on_pointer_move) {
+                m_active_target->on_pointer_move(event);
+            } else if (event.type == PlatformEventType::PointerUp && m_active_target->on_pointer_up) {
+                m_active_target->on_pointer_up(event);
             }
         }
 

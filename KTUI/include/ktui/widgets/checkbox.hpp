@@ -14,6 +14,7 @@ namespace ktui {
 class RenderCheckbox : public RenderBox {
 public:
     RenderCheckbox() noexcept {
+        cursor_shape = CursorShape::PointingHand;
         setup_behavior();
     }
 
@@ -76,11 +77,13 @@ public:
             context.draw_rect(inner_rect, m_check_mark_col, 1.0f, 0.0f);
         }
 
-        // 3. 标签文字
+        // 3. 标签文字 (施加硬件裁剪防溢出)
         if (!m_label.empty()) {
             float text_x = m_box_size + 6.0f;
             float text_y = std::max(0.0f, (m_size.y - m_font_size * 1.35f) * 0.5f);
+            context.push_clip(bounds(), 0.0f);
             context.draw_text(m_label, PointF{text_x, text_y}, m_font_size, m_text_col);
+            context.pop_clip();
         }
     }
 

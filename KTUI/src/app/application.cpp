@@ -1,4 +1,5 @@
 #include <ktui/app/application.hpp>
+#include <ktui/pal/clipboard.hpp>
 #include <algorithm>
 
 namespace ktui {
@@ -30,6 +31,7 @@ Application::Application(std::unique_ptr<IPlatformBackend> backend)
 
     if (m_backend) {
         m_backend->init();
+        Clipboard::bind_backend(m_backend.get());
         m_backend->set_event_callback([this](const PlatformEvent& pe) {
             std::shared_ptr<Window> target;
             if (pe.window_handle != nullptr) {
@@ -58,6 +60,7 @@ Application::~Application() {
     m_windows.clear();
 
     if (m_backend) {
+        Clipboard::bind_backend(nullptr);
         m_backend->shutdown();
     }
 

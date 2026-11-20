@@ -167,6 +167,9 @@ public:
     IVSyncSource& get_vsync_source() override { return m_vsync; }
     IFontResolver& get_font_resolver() override { return m_font_resolver; }
 
+    std::string get_clipboard_text() const override { return m_clipboard_text; }
+    void set_clipboard_text(const std::string& utf8_text) override { m_clipboard_text = utf8_text; }
+
     void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);
     }
@@ -184,6 +187,7 @@ private:
     DefaultFontResolver m_font_resolver;
     std::function<void(const PlatformEvent&)> m_event_callback;
     std::deque<PlatformEvent> m_event_queue;
+    std::string m_clipboard_text;
 };
 
 } // namespace ktui

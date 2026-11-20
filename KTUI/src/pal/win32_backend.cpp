@@ -355,6 +355,29 @@ void Win32Window::set_ime_cursor_rect(Rect cursor_rect) {
     }
 }
 
+static HCURSOR load_win32_cursor(CursorShape shape) {
+    WORD id = 32512; // IDC_ARROW
+    switch (shape) {
+        case CursorShape::IBeam:        id = 32513; break; // IDC_IBEAM
+        case CursorShape::PointingHand: id = 32649; break; // IDC_HAND
+        case CursorShape::ResizeEW:     id = 32644; break; // IDC_SIZEWE
+        case CursorShape::ResizeNS:     id = 32645; break; // IDC_SIZENS
+        case CursorShape::ResizeNWSE:   id = 32642; break; // IDC_SIZENWSE
+        case CursorShape::ResizeNESW:   id = 32643; break; // IDC_SIZENESW
+        case CursorShape::Crosshair:    id = 32515; break; // IDC_CROSS
+        case CursorShape::Forbidden:    id = 32648; break; // IDC_NO
+        case CursorShape::Arrow:
+        default:                        id = 32512; break; // IDC_ARROW
+    }
+    return LoadCursorW(nullptr, MAKEINTRESOURCEW(id));
+}
+
+void Win32Window::set_cursor(CursorShape cursor) {
+    if (m_cursor_shape == cursor) return;
+    m_cursor_shape = cursor;
+    SetCursor(load_win32_cursor(m_cursor_shape));
+}
+
 void Win32Window::close() {
     if (m_hwnd) {
         PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
@@ -365,6 +388,14 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
         case WM_ERASEBKGND:
             return 1; // 禁止 GDI 擦除背景防止闪烁
+
+        case WM_SETCURSOR: {
+            if (LOWORD(lparam) == HTCLIENT) {
+                SetCursor(load_win32_cursor(m_cursor_shape));
+                return TRUE;
+            }
+            break;
+        }
 
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -607,6 +638,40 @@ void Win32Backend::wait_events(uint32_t timeout_ms) {
     }
 }
 
+std::string Win32Backend::get_clipboard_text() const {
+    if (!OpenClipboard(nullptr)) return "";
+    std::string result;
+    HANDLE hdata = GetClipboardData(CF_UNICODETEXT);
+    if (hdata) {
+        const wchar_t* wstr = static_cast<const wchar_t*>(GlobalLock(hdata));
+        if (wstr) {
+            result = wstring_to_utf8(std::wstring(wstr));
+            GlobalUnlock(hdata);
+        }
+    }
+    CloseClipboard();
+    return result;
+}
+
+void Win32Backend::set_clipboard_text(const std::string& utf8_text) {
+    std::wstring wide = utf8_to_wstring(utf8_text);
+    if (!OpenClipboard(nullptr)) return;
+    EmptyClipboard();
+    size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hmem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (hmem) {
+        void* ptr = GlobalLock(hmem);
+        if (ptr) {
+            std::memcpy(ptr, wide.c_str(), bytes);
+            GlobalUnlock(hmem);
+            SetClipboardData(CF_UNICODETEXT, hmem);
+        } else {
+            GlobalFree(hmem);
+        }
+    }
+    CloseClipboard();
+}
+
 void Win32Backend::dispatch_platform_event(const PlatformEvent& event) {
     if (m_event_callback) {
         m_event_callback(event);
@@ -653,6 +718,16 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                                        static_cast<float>(static_cast<short>(HIWORD(lparam)))};
                     s_instance->dispatch_platform_event(pe);
                     break;
+                case WM_MOUSEWHEEL: {
+                    POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+                    ScreenToClient(hwnd, &pt);
+                    short wheel_delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                    pe.type = PlatformEventType::PointerScroll;
+                    pe.position = Vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)};
+                    pe.delta = Vec2{0.0f, -static_cast<float>(wheel_delta) / 120.0f * 36.0f};
+                    s_instance->dispatch_platform_event(pe);
+                    break;
+                }
                 case WM_KEYDOWN:
                     pe.type = PlatformEventType::KeyDown;
                     pe.key_code = static_cast<uint32_t>(wparam);

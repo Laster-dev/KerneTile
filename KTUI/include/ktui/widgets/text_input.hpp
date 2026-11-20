@@ -2,12 +2,14 @@
 
 #include "widget.hpp"
 #include <ktui/pal/platform_types.hpp>
+#include <ktui/pal/clipboard.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/text_measure.hpp>
 #include <optional>
 #include <string>
+#include <utility>
 #include <algorithm>
 
 namespace ktui {
@@ -57,6 +59,7 @@ class RenderTextInput : public RenderBox, public ITextInputClient {
 public:
     RenderTextInput() noexcept {
         is_focusable = true;
+        cursor_shape = CursorShape::IBeam;
         setup_behavior();
     }
 
@@ -71,6 +74,7 @@ public:
         if (m_text != text) {
             m_text = std::move(text);
             m_cursor_index = std::min(m_cursor_index, m_text.length());
+            m_selection_anchor = std::min(m_selection_anchor, m_text.length());
         }
         m_placeholder = std::move(placeholder);
         m_height = h;
@@ -92,6 +96,8 @@ public:
         if (m_text != text) {
             m_text = std::move(text);
             m_cursor_index = std::min(m_cursor_index, m_text.length());
+            m_selection_anchor = m_cursor_index;
+            ensure_cursor_visible();
             mark_needs_paint();
         }
     }
@@ -100,27 +106,62 @@ public:
     [[nodiscard]] size_t cursor_index() const noexcept { return m_cursor_index; }
     void set_cursor_index(size_t idx) noexcept {
         m_cursor_index = std::min(idx, m_text.length());
+        m_selection_anchor = m_cursor_index;
+        ensure_cursor_visible();
         mark_needs_paint();
+    }
+
+    [[nodiscard]] bool has_selection() const noexcept {
+        return m_cursor_index != m_selection_anchor;
+    }
+
+    [[nodiscard]] std::pair<size_t, size_t> selection_range() const noexcept {
+        return {std::min(m_cursor_index, m_selection_anchor),
+                std::max(m_cursor_index, m_selection_anchor)};
+    }
+
+    [[nodiscard]] std::string selected_text() const {
+        if (!has_selection()) return "";
+        auto [s, e] = selection_range();
+        return m_text.substr(s, e - s);
+    }
+
+    void select_all() noexcept {
+        m_selection_anchor = 0;
+        m_cursor_index = m_text.length();
+        ensure_cursor_visible();
+        mark_needs_paint();
+    }
+
+    void clear_selection() noexcept {
+        if (m_selection_anchor != m_cursor_index) {
+            m_selection_anchor = m_cursor_index;
+            mark_needs_paint();
+        }
     }
 
     [[nodiscard]] bool is_input_focused() const noexcept { return m_is_focused; }
     void set_input_focused(bool focused) noexcept {
         if (m_is_focused != focused) {
             m_is_focused = focused;
+            if (!m_is_focused) {
+                m_selection_anchor = m_cursor_index;
+            }
             mark_needs_paint();
         }
     }
 
     void perform_layout() override {
-        float text_w = std::max(TextMeasure::measure_width(m_text, m_font_size),
-                                TextMeasure::measure_width(m_placeholder, m_font_size));
-        float desired_w = text_w + m_padding.horizontal() + 20.0f;
+        // 固定输入框自身布局宽度（优先填满父容器有限约束，否则按占位符或默认 180px，绝不因长文本输入无限撑爆容器！）
+        float ph_w = TextMeasure::measure_width(m_placeholder, m_font_size);
+        float desired_w = std::max(180.0f, ph_w + m_padding.horizontal() + 20.0f);
         if (m_constraints.max_width < BoxConstraints::kInfinity) {
-            desired_w = std::max(desired_w, m_constraints.max_width);
+            desired_w = m_constraints.max_width;
         }
         float desired_h = m_height;
 
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
+        ensure_cursor_visible();
     }
 
     void paint(PaintContext& context) override {
@@ -129,10 +170,27 @@ public:
         context.draw_rect(bounds(), m_bg_color, m_corner_radius, 0.0f);
         context.draw_rect(bounds(), border_col, m_corner_radius, 1.0f);
 
-        // 2. 绘制内文（含 IME 预编辑组合态）或占位提示
-        float text_x = m_padding.left;
+        // 2. 开启内边距视口硬件裁剪 (彻底杜绝长文本或光标溢出到输入框外！)
+        float view_x = m_padding.left;
+        float view_w = std::max(0.0f, m_size.x - m_padding.horizontal());
+        Rect inner_clip = Rect::from_xywh(view_x, 1.0f, view_w, std::max(0.0f, m_size.y - 2.0f));
+        context.push_clip(inner_clip, 0.0f);
+
+        float text_x = view_x - m_scroll_x;
         float text_y = std::max(0.0f, (m_size.y - m_font_size * 1.30f) * 0.5f);
 
+        // 2.1 绘制文本选区高亮背景
+        if (m_is_focused && has_selection() && m_preedit_text.empty()) {
+            auto [sel_start, sel_end] = selection_range();
+            float x0 = text_x + TextMeasure::measure_width(std::string_view(m_text).substr(0, sel_start), m_font_size);
+            float x1 = text_x + TextMeasure::measure_width(std::string_view(m_text).substr(0, sel_end), m_font_size);
+            float sel_h = m_font_size * 1.25f;
+            float sel_y = std::max(0.0f, (m_size.y - sel_h) * 0.5f);
+            context.draw_rect(Rect::from_xywh(x0, sel_y, std::max(2.0f, x1 - x0), sel_h),
+                              Color{0.20f, 0.52f, 0.92f, 0.45f}, 1.0f, 0.0f);
+        }
+
+        // 2.2 绘制内文（含 IME 预编辑组合态）或占位提示
         std::string display_text = m_text;
         float preedit_start_x = text_x + TextMeasure::measure_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
         float preedit_w = 0.0f;
@@ -142,12 +200,12 @@ public:
         }
 
         if (display_text.empty() && !m_placeholder.empty()) {
-            context.draw_text(m_placeholder, PointF{text_x, text_y}, m_font_size, m_placeholder_color);
+            context.draw_text(m_placeholder, PointF{view_x, text_y}, m_font_size, m_placeholder_color);
         } else if (!display_text.empty()) {
             context.draw_text(display_text, PointF{text_x, text_y}, m_font_size, m_text_color);
         }
 
-        // 2.5 若存在 IME 预编辑文本，在其下方绘制强调下划线
+        // 2.3 若存在 IME 预编辑文本，在其下方绘制强调下划线
         if (!m_preedit_text.empty() && preedit_w > 0.0f) {
             float underline_y = text_y + m_font_size * 1.15f;
             context.draw_rect(Rect::from_xywh(preedit_start_x, underline_y, preedit_w, 1.5f),
@@ -163,6 +221,8 @@ public:
             context.draw_rect(Rect::from_xywh(cursor_x, cursor_y, 1.5f, cursor_h),
                               m_text_color, 0.0f, 0.0f);
         }
+
+        context.pop_clip();
     }
 
     // ==================== ITextInputClient 框架级 IME 协议实现 ====================
@@ -170,16 +230,22 @@ public:
 
     [[nodiscard]] Rect get_ime_cursor_rect() const override {
         Vec2 abs = global_offset();
-        float text_x = m_padding.left;
+        float view_x = m_padding.left;
+        float view_w = std::max(0.0f, m_size.x - m_padding.horizontal());
         float prefix_w = TextMeasure::measure_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
         float preedit_w = TextMeasure::measure_width(m_preedit_text, m_font_size);
+        float local_cx = std::clamp(view_x - m_scroll_x + prefix_w + preedit_w, view_x, view_x + view_w);
         float cursor_h = m_font_size * 1.2f;
         float cursor_y = std::max(0.0f, (m_size.y - cursor_h) * 0.5f);
-        return Rect::from_xywh(abs.x + text_x + prefix_w + preedit_w, abs.y + cursor_y, 2.0f, cursor_h);
+        return Rect::from_xywh(abs.x + local_cx, abs.y + cursor_y, 2.0f, cursor_h);
     }
 
     void on_ime_preedit(const std::string& text, size_t /*cursor_byte_pos*/) override {
+        if (!text.empty() && has_selection()) {
+            delete_selection_internal();
+        }
         m_preedit_text = text;
+        ensure_cursor_visible();
         mark_needs_paint();
     }
 
@@ -188,11 +254,12 @@ public:
         if (!utf8_text.empty()) {
             append_chars(utf8_text);
         } else {
+            ensure_cursor_visible();
             mark_needs_paint();
         }
     }
 
-    // 外部或测试注入按键处理
+    // 外部或测试注入按键处理 (完整支持选区、Ctrl+A/C/X/V 剪贴板、Shift+导航)
     void handle_text_key(const KeyEvent& ev) {
         if (!m_is_focused) return;
 
@@ -205,34 +272,89 @@ public:
             constexpr uint32_t kKeyHome = 36;
             constexpr uint32_t kKeyEnd = 35;
 
+            // Ctrl 组合快捷键: Ctrl+A (全选), Ctrl+C (复制), Ctrl+X (剪切), Ctrl+V (粘贴)
+            if (ev.modifiers.ctrl) {
+                uint32_t kc = ev.key_code;
+                if (kc == 'A' || kc == 'a') {
+                    select_all();
+                    return;
+                } else if (kc == 'C' || kc == 'c') {
+                    if (has_selection()) {
+                        Clipboard::set_text(selected_text());
+                    }
+                    return;
+                } else if (kc == 'X' || kc == 'x') {
+                    if (has_selection()) {
+                        Clipboard::set_text(selected_text());
+                        delete_selection_internal();
+                        notify_changed();
+                    }
+                    return;
+                } else if (kc == 'V' || kc == 'v') {
+                    std::string clip = Clipboard::get_text();
+                    // 过滤单行输入框不支持的回车换行符
+                    std::string clean;
+                    clean.reserve(clip.size());
+                    for (char c : clip) {
+                        if (c != '\r' && c != '\n') clean.push_back(c);
+                    }
+                    if (!clean.empty()) {
+                        append_chars(clean);
+                    }
+                    return;
+                }
+            }
+
             if (ev.key_code == kKeyBackspace) {
-                if (m_cursor_index > 0 && !m_text.empty()) {
+                if (has_selection()) {
+                    delete_selection_internal();
+                    notify_changed();
+                } else if (m_cursor_index > 0 && !m_text.empty()) {
                     size_t prev = utf8_util::prev_char_pos(m_text, m_cursor_index);
                     m_text.erase(prev, m_cursor_index - prev);
                     m_cursor_index = prev;
+                    m_selection_anchor = m_cursor_index;
                     notify_changed();
                 }
             } else if (ev.key_code == kKeyDelete) {
-                if (m_cursor_index < m_text.length()) {
+                if (has_selection()) {
+                    delete_selection_internal();
+                    notify_changed();
+                } else if (m_cursor_index < m_text.length()) {
                     size_t next = utf8_util::next_char_pos(m_text, m_cursor_index);
                     m_text.erase(m_cursor_index, next - m_cursor_index);
+                    m_selection_anchor = m_cursor_index;
                     notify_changed();
                 }
             } else if (ev.key_code == kKeyLeft) {
-                if (m_cursor_index > 0) {
+                if (has_selection() && !ev.modifiers.shift) {
+                    m_cursor_index = selection_range().first;
+                    m_selection_anchor = m_cursor_index;
+                } else if (m_cursor_index > 0) {
                     m_cursor_index = utf8_util::prev_char_pos(m_text, m_cursor_index);
-                    mark_needs_paint();
+                    if (!ev.modifiers.shift) m_selection_anchor = m_cursor_index;
                 }
+                ensure_cursor_visible();
+                mark_needs_paint();
             } else if (ev.key_code == kKeyRight) {
-                if (m_cursor_index < m_text.length()) {
+                if (has_selection() && !ev.modifiers.shift) {
+                    m_cursor_index = selection_range().second;
+                    m_selection_anchor = m_cursor_index;
+                } else if (m_cursor_index < m_text.length()) {
                     m_cursor_index = utf8_util::next_char_pos(m_text, m_cursor_index);
-                    mark_needs_paint();
+                    if (!ev.modifiers.shift) m_selection_anchor = m_cursor_index;
                 }
+                ensure_cursor_visible();
+                mark_needs_paint();
             } else if (ev.key_code == kKeyHome) {
                 m_cursor_index = 0;
+                if (!ev.modifiers.shift) m_selection_anchor = m_cursor_index;
+                ensure_cursor_visible();
                 mark_needs_paint();
             } else if (ev.key_code == kKeyEnd) {
                 m_cursor_index = m_text.length();
+                if (!ev.modifiers.shift) m_selection_anchor = m_cursor_index;
+                ensure_cursor_visible();
                 mark_needs_paint();
             } else if (ev.key_code == kKeyEnter) {
                 if (m_on_submit) {
@@ -242,23 +364,59 @@ public:
         }
         
         if (ev.type == PlatformEventType::ImeCommit || !ev.text.empty()) {
-            if (!ev.text.empty()) {
+            if (!ev.text.empty() && !ev.modifiers.ctrl) {
                 append_chars(ev.text);
             }
         }
     }
 
-    // 直接键入 UTF-8 字符序列 (便捷测试与自动化输入)
+    // 直接键入 UTF-8 字符序列 (若当前存在选区则自动替换选区)
     void append_chars(const std::string& chars) {
         if (chars.empty()) return;
+        if (has_selection()) {
+            delete_selection_internal();
+        }
         m_text.insert(m_cursor_index, chars);
         m_cursor_index += chars.size();
+        m_selection_anchor = m_cursor_index;
         notify_changed();
     }
 
 private:
+    void delete_selection_internal() {
+        if (!has_selection()) return;
+        auto [s, e] = selection_range();
+        m_text.erase(s, e - s);
+        m_cursor_index = s;
+        m_selection_anchor = s;
+    }
+
+    void ensure_cursor_visible() {
+        float view_w = std::max(0.0f, m_size.x - m_padding.horizontal());
+        if (view_w <= 1.0f) {
+            m_scroll_x = 0.0f;
+            return;
+        }
+        float cursor_x = TextMeasure::measure_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size)
+                       + TextMeasure::measure_width(m_preedit_text, m_font_size);
+        float total_w = TextMeasure::measure_width(m_text, m_font_size)
+                      + TextMeasure::measure_width(m_preedit_text, m_font_size);
+
+        constexpr float kMargin = 4.0f;
+        if (cursor_x - m_scroll_x > view_w - kMargin) {
+            m_scroll_x = cursor_x - view_w + kMargin;
+        } else if (cursor_x - m_scroll_x < 0.0f) {
+            m_scroll_x = cursor_x;
+        }
+
+        // 若删除文本后右侧出现过多空白，自动回拉滚动条
+        float max_scroll = std::max(0.0f, total_w - view_w + kMargin);
+        m_scroll_x = std::clamp(m_scroll_x, 0.0f, max_scroll);
+    }
+
     void notify_changed() {
-        mark_needs_layout();
+        ensure_cursor_visible();
+        mark_needs_paint();
         if (m_on_change) {
             m_on_change(m_text);
         }
@@ -268,11 +426,27 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary) {
                 set_input_focused(true);
-                // 使用真实排版引擎 advance 精确反算 UTF-8 码点光标位置
                 float click_x = (ev.local_position.x > 0.0f || ev.local_position.y > 0.0f) ? ev.local_position.x : ev.position.x;
-                float relative_x = click_x - m_padding.left;
+                float relative_x = click_x - m_padding.left + m_scroll_x;
                 m_cursor_index = TextMeasure::hit_test_cursor(m_text, m_font_size, relative_x);
+                if (!ev.modifiers.shift) {
+                    m_selection_anchor = m_cursor_index;
+                }
+                ensure_cursor_visible();
                 mark_needs_paint();
+            }
+        };
+
+        on_pointer_move = [this](PointerEvent& ev) {
+            if (is_active && m_is_focused) {
+                float click_x = (ev.local_position.x != 0.0f || ev.local_position.y != 0.0f) ? ev.local_position.x : ev.position.x;
+                float relative_x = click_x - m_padding.left + m_scroll_x;
+                size_t new_idx = TextMeasure::hit_test_cursor(m_text, m_font_size, relative_x);
+                if (new_idx != m_cursor_index) {
+                    m_cursor_index = new_idx;
+                    ensure_cursor_visible();
+                    mark_needs_paint();
+                }
             }
         };
 
@@ -280,6 +454,7 @@ private:
             set_input_focused(ev.gained_focus);
             if (!ev.gained_focus) {
                 m_preedit_text.clear();
+                m_selection_anchor = m_cursor_index;
             }
         };
 
@@ -292,6 +467,8 @@ private:
     std::string m_preedit_text;
     std::string m_placeholder;
     size_t m_cursor_index{0};
+    size_t m_selection_anchor{0};
+    float m_scroll_x{0.0f};
     bool m_is_focused{false};
 
     float m_height{26.0f};          // 桌面紧凑输入框标准 26px

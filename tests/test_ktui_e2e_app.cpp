@@ -257,6 +257,58 @@ void test_paint_context_primitive_emission_and_clip_stack() {
     std::cout << "  -> 成功发射 " << context.primitive_count() << " 个 80B 紧致渲染图元，视口裁剪栈平衡闭环！" << std::endl;
 }
 
+void test_overflow_clipping_selection_and_clipboard() {
+    std::cout << "[Test 6] 文本防溢出滚动、选区 (Ctrl+A/Shift) 与剪贴板 (Ctrl+C/X/V) 验证..." << std::endl;
+
+    WidgetPtr input_w = TextInput {
+        .text = "",
+        .placeholder = "Input...",
+        .height = 26.0f
+    };
+    auto node = std::dynamic_pointer_cast<RenderTextInput>(input_w->create_render_node());
+    assert(node != nullptr);
+    assert(node->cursor_shape == CursorShape::IBeam);
+
+    // 约束在 140px 宽的容器内
+    node->layout(BoxConstraints(0.0f, 140.0f, 0.0f, 26.0f));
+    assert(node->size().x == 140.0f);
+
+    // 聚焦并输入超长中英文文本，验证输入框尺寸绝不被撑爆且 IME 光标严格在框内
+    node->set_input_focused(true);
+    node->on_ime_commit("这是一段非常长的中英文混合测试文本_KerneTile_KTUI_Overflow_Protection_1234567890");
+    node->layout(BoxConstraints(0.0f, 140.0f, 0.0f, 26.0f));
+    assert(node->size().x == 140.0f);
+    Rect ime_rc = node->get_ime_cursor_rect();
+    assert(ime_rc.min_x >= 0.0f && ime_rc.min_x <= 140.0f);
+
+    // Ctrl+A 全选 + Ctrl+C 复制 + Ctrl+X 剪切 + Ctrl+V 粘贴
+    KeyModifiers ctrl_mod{};
+    ctrl_mod.ctrl = true;
+    node->handle_text_key(KeyEvent(PlatformEventType::KeyDown, 'A', "", ctrl_mod));
+    assert(node->has_selection());
+    node->handle_text_key(KeyEvent(PlatformEventType::KeyDown, 'C', "", ctrl_mod));
+    assert(!Clipboard::get_text().empty());
+
+    node->handle_text_key(KeyEvent(PlatformEventType::KeyDown, 'X', "", ctrl_mod));
+    assert(node->text().empty());
+
+    node->handle_text_key(KeyEvent(PlatformEventType::KeyDown, 'V', "", ctrl_mod));
+    assert(node->text() == Clipboard::get_text());
+
+    // 验证 Text 控件的 Wrap 多行自动折行
+    WidgetPtr wrap_text = Text {
+        .text = "这是一段用于测试多行自动换行的长文本内容，超出最大宽度时应当自动折行增加高度。",
+        .font_size = 13.0f,
+        .overflow = TextOverflow::Wrap
+    };
+    auto wrap_node = wrap_text->create_render_node();
+    wrap_node->layout(BoxConstraints(0.0f, 120.0f, 0.0f, 500.0f));
+    assert(wrap_node->size().x <= 120.0f);
+    assert(wrap_node->size().y > 25.0f); // 至少折为 2 行以上
+
+    std::cout << "  -> 防溢出水平滚动、选区替换、Ctrl+A/C/X/V 剪贴板与多行折行全部验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -267,6 +319,7 @@ int main() {
     test_desktop_button_interaction_lifecycle();
     test_spring_animation_in_desktop_controls();
     test_paint_context_primitive_emission_and_clip_stack();
+    test_overflow_clipping_selection_and_clipboard();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

@@ -11,13 +11,22 @@
 
 namespace ktui {
 
+// 文本溢出处理策略
+enum class TextOverflow : uint8_t {
+    Clip,       // 硬裁剪
+    Ellipsis,   // 超出宽度自动截断并追加 "..." (UTF-8 安全)
+    Wrap        // 超出宽度自动多行折行
+};
+
 // 文本渲染盒 (RenderText)
 class RenderText : public RenderBox {
 public:
     RenderText(std::string text = "", float font_size = 13.0f,
                Color color = Color{0.9f, 0.9f, 0.9f, 1.0f},
-               FontWeight weight = FontWeight::Regular) noexcept
-        : m_text(std::move(text)), m_font_size(font_size), m_color(color), m_font_weight(weight) {}
+               FontWeight weight = FontWeight::Regular,
+               TextOverflow overflow = TextOverflow::Ellipsis) noexcept
+        : m_text(std::move(text)), m_font_size(font_size), m_color(color),
+          m_font_weight(weight), m_overflow(overflow) {}
 
     ~RenderText() override = default;
 
@@ -46,34 +55,115 @@ public:
         }
     }
 
-    void perform_layout() override {
-        Vec2 measured = TextMeasure::measure(m_text, m_font_size);
-        m_size = m_constraints.constrain(measured);
-    }
-
-    void paint(PaintContext& context) override {
-        if (!m_text.empty() && m_color.a > 0.001f) {
-            context.draw_text(m_text, PointF{0.0f, 0.0f}, m_font_size, m_color);
+    void set_overflow(TextOverflow ov) {
+        if (m_overflow != ov) {
+            m_overflow = ov;
+            mark_needs_layout();
         }
     }
 
+    void perform_layout() override {
+        m_wrapped_lines.clear();
+        m_elided_text.clear();
+
+        Vec2 measured = TextMeasure::measure(m_text, m_font_size);
+        float max_w = m_constraints.max_width;
+
+        if (m_overflow == TextOverflow::Wrap && max_w < BoxConstraints::kInfinity && measured.x > max_w && !m_text.empty()) {
+            // UTF-8 码点安全自动换行
+            size_t line_start = 0;
+            size_t pos = 0;
+            while (pos < m_text.size()) {
+                size_t next = next_utf8_pos(m_text, pos);
+                if (m_text[pos] == '\n') {
+                    m_wrapped_lines.emplace_back(m_text.substr(line_start, pos - line_start));
+                    line_start = next;
+                    pos = next;
+                    continue;
+                }
+                float w = TextMeasure::measure_width(std::string_view(m_text).substr(line_start, next - line_start), m_font_size);
+                if (w > max_w && pos > line_start) {
+                    m_wrapped_lines.emplace_back(m_text.substr(line_start, pos - line_start));
+                    line_start = pos;
+                } else {
+                    pos = next;
+                }
+            }
+            if (line_start < m_text.size()) {
+                m_wrapped_lines.emplace_back(m_text.substr(line_start));
+            }
+            float line_h = measured.y > 0.0f ? measured.y : (m_font_size * 1.30f);
+            m_size = m_constraints.constrain(Vec2{max_w, line_h * static_cast<float>(std::max<size_t>(1, m_wrapped_lines.size()))});
+        } else {
+            m_size = m_constraints.constrain(measured);
+            if (m_overflow == TextOverflow::Ellipsis && measured.x > m_size.x + 0.5f && !m_text.empty()) {
+                float ellipsis_w = TextMeasure::measure_width("...", m_font_size);
+                float avail_w = std::max(0.0f, m_size.x - ellipsis_w);
+                size_t pos = 0;
+                size_t best_end = 0;
+                while (pos < m_text.size()) {
+                    size_t next = next_utf8_pos(m_text, pos);
+                    float w = TextMeasure::measure_width(std::string_view(m_text).substr(0, next), m_font_size);
+                    if (w > avail_w) break;
+                    best_end = next;
+                    pos = next;
+                }
+                m_elided_text = m_text.substr(0, best_end) + "...";
+            }
+        }
+    }
+
+    void paint(PaintContext& context) override {
+        if (m_text.empty() || m_color.a <= 0.001f) return;
+
+        // 强制硬件视口裁剪，绝不允许文本溢出自身包围盒
+        context.push_clip(bounds(), 0.0f);
+        if (m_overflow == TextOverflow::Wrap && !m_wrapped_lines.empty()) {
+            float line_h = TextMeasure::measure("A", m_font_size).y;
+            float y = 0.0f;
+            for (const auto& line : m_wrapped_lines) {
+                if (!line.empty()) {
+                    context.draw_text(line, PointF{0.0f, y}, m_font_size, m_color);
+                }
+                y += line_h;
+            }
+        } else {
+            const std::string& to_draw = m_elided_text.empty() ? m_text : m_elided_text;
+            context.draw_text(to_draw, PointF{0.0f, 0.0f}, m_font_size, m_color);
+        }
+        context.pop_clip();
+    }
+
 private:
+    static size_t next_utf8_pos(const std::string& s, size_t byte_pos) noexcept {
+        if (byte_pos >= s.size()) return s.size();
+        size_t pos = byte_pos + 1;
+        while (pos < s.size() && (static_cast<uint8_t>(s[pos]) & 0xC0) == 0x80) {
+            ++pos;
+        }
+        return pos;
+    }
+
     std::string m_text;
+    std::string m_elided_text;
+    std::vector<std::string> m_wrapped_lines;
     float m_font_size{13.0f}; // 桌面基准 13px
     Color m_color{0.9f, 0.9f, 0.9f, 1.0f};
     FontWeight m_font_weight{FontWeight::Regular};
+    TextOverflow m_overflow{TextOverflow::Ellipsis};
 };
 
 class TextWidget;
 
 // C++20 指定初始化器文本控件 (Text)
-// 桌面专业标准：默认 13px 紧凑字阶
+// 桌面专业标准：默认 13px 紧凑字阶，支持 Clip / Ellipsis / Wrap 防溢出
 struct Text {
     std::string text{""};
     BindRef<std::string> bind_text{nullptr};
     float font_size{13.0f}; // 桌面 IDE 基准字阶 (13px)
     Color color{Color{0.90f, 0.90f, 0.92f, 1.0f}};
     FontWeight font_weight{FontWeight::Regular};
+    TextOverflow overflow{TextOverflow::Ellipsis};
 
     operator WidgetPtr() const;
 };
@@ -89,7 +179,7 @@ public:
 
     std::shared_ptr<RenderBox> create_render_node() override {
         std::string initial_text = m_desc.bind_text ? m_desc.bind_text->get() : m_desc.text;
-        auto node = std::make_shared<RenderText>(initial_text, m_desc.font_size, m_desc.color, m_desc.font_weight);
+        auto node = std::make_shared<RenderText>(initial_text, m_desc.font_size, m_desc.color, m_desc.font_weight, m_desc.overflow);
 
         setup_binding(node);
         return node;
@@ -101,6 +191,7 @@ public:
             text_box->set_text(current_val);
             text_box->set_font_size(m_desc.font_size);
             text_box->set_color(m_desc.color);
+            text_box->set_overflow(m_desc.overflow);
 
             setup_binding(text_box);
         }
