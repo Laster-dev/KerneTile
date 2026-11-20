@@ -70,17 +70,21 @@ public:
     }
 
     void perform_layout() override {
-        float text_w = static_cast<float>(std::max(m_text.length(), m_placeholder.length())) * m_font_size * 0.58f;
-        float desired_w = text_w + m_padding.horizontal() + 20.0f; // 留出富余宽度
+        float text_w = static_cast<float>(std::max(m_text.length(), m_placeholder.length())) * m_font_size * 0.54f;
+        float desired_w = text_w + m_padding.horizontal() + 20.0f;
+        if (m_constraints.max_width < BoxConstraints::kInfinity) {
+            desired_w = std::max(desired_w, m_constraints.max_width);
+        }
         float desired_h = m_height;
 
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
     }
 
     void paint(PaintContext& context) override {
-        // 1. 绘制硬朗微圆角背景与 1px 细边框 (聚焦时高亮蓝色)
-        Color border_col = m_is_focused ? m_border_focus : m_border_normal;
-        context.draw_rect(bounds(), m_bg_color, m_corner_radius, 1.0f);
+        // 1. 绘制硬朗微圆角实心背景与 1px 细边框 (聚焦时高亮蓝色)
+        Color border_col = m_is_focused ? m_border_focus : (is_hovered ? Color{0.38f, 0.38f, 0.44f, 1.0f} : m_border_normal);
+        context.draw_rect(bounds(), m_bg_color, m_corner_radius, 0.0f);
+        context.draw_rect(bounds(), border_col, m_corner_radius, 1.0f);
 
         // 2. 绘制内文或占位提示
         float text_x = m_padding.left;
@@ -178,8 +182,9 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary) {
                 set_input_focused(true);
-                // 根据点击的 x 坐标推测光标位置
-                float relative_x = ev.position.x - m_padding.left;
+                // 根据点击的局部 x 坐标推测光标位置
+                float click_x = (ev.local_position.x > 0.0f || ev.local_position.y > 0.0f) ? ev.local_position.x : ev.position.x;
+                float relative_x = click_x - m_padding.left;
                 if (relative_x <= 0.0f) {
                     m_cursor_index = 0;
                 } else {

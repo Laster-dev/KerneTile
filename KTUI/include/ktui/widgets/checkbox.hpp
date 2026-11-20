@@ -60,9 +60,10 @@ public:
         Rect box_rect = Rect::from_xywh(0.0f, box_y, m_box_size, m_box_size);
 
         Color current_bg = m_checked ? m_bg_checked : m_bg_normal;
-        Color current_border = m_checked ? m_bg_checked : m_border_col;
+        Color current_border = m_checked ? m_bg_checked : (is_hovered ? Color{0.45f, 0.65f, 0.95f, 1.0f} : m_border_col);
 
-        context.draw_rect(box_rect, current_bg, m_corner_radius, 1.0f);
+        context.draw_rect(box_rect, current_bg, m_corner_radius, 0.0f);
+        context.draw_rect(box_rect, current_border, m_corner_radius, 1.0f);
 
         // 2. 勾选标记 (绘制紧凑勾选内芯或微对勾)
         if (m_checked) {

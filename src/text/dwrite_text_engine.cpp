@@ -29,28 +29,35 @@ DWriteTextEngine::DWriteTextEngine() {
     }
 }
 
-FontMetrics DWriteTextEngine::get_metrics(float font_size, std::string_view font_family) {
+static HFONT create_segoe_font(float font_size, std::string_view font_family = "") {
     std::wstring family = font_family.empty() ? L"Segoe UI" : utf8_to_wide(font_family);
-
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
-    HRESULT hr = m_factory->CreateTextFormat(
-        family.c_str(),
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        font_size,
-        L"",
-        &format
+    int font_height = -static_cast<int>(font_size + 0.5f);
+    if (font_height == 0) font_height = -12;
+    return CreateFontW(
+        font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str()
     );
+}
 
-    if (FAILED(hr)) {
-        return FontMetrics{
-            .font_size = font_size,
-            .ascender = font_size * 0.8f,
-            .descender = -font_size * 0.2f,
-            .line_height = font_size * 1.25f
-        };
+FontMetrics DWriteTextEngine::get_metrics(float font_size, std::string_view font_family) {
+    HDC hdc = CreateCompatibleDC(nullptr);
+    if (hdc) {
+        HFONT hfont = create_segoe_font(font_size, font_family);
+        HGDIOBJ old_font = SelectObject(hdc, hfont);
+        TEXTMETRICW tm{};
+        bool ok = GetTextMetricsW(hdc, &tm) != FALSE;
+        SelectObject(hdc, old_font);
+        DeleteObject(hfont);
+        DeleteDC(hdc);
+        if (ok) {
+            return FontMetrics{
+                .font_size = font_size,
+                .ascender = static_cast<float>(tm.tmAscent),
+                .descender = -static_cast<float>(tm.tmDescent),
+                .line_height = static_cast<float>(tm.tmHeight + tm.tmExternalLeading)
+            };
+        }
     }
 
     return FontMetrics{
@@ -67,69 +74,60 @@ TextLayoutResult DWriteTextEngine::shape_text(
     std::string_view font_family)
 {
     std::wstring wide_text = utf8_to_wide(utf8_text);
-    std::wstring family = font_family.empty() ? L"Segoe UI" : utf8_to_wide(font_family);
-
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
-    m_factory->CreateTextFormat(
-        family.c_str(),
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        font_size,
-        L"",
-        &format
-    );
-
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    m_factory->CreateTextLayout(
-        wide_text.c_str(),
-        static_cast<UINT32>(wide_text.size()),
-        format.Get(),
-        100000.0f,
-        100000.0f,
-        &layout
-    );
-
-    DWRITE_TEXT_METRICS text_metrics{};
-    layout->GetMetrics(&text_metrics);
-
     TextLayoutResult result;
     result.metrics = get_metrics(font_size, font_family);
-    result.total_width = text_metrics.widthIncludingTrailingWhitespace;
-    result.total_height = text_metrics.height;
-
-    UINT32 clusterCount = 0;
-    layout->GetClusterMetrics(nullptr, 0, &clusterCount);
-    std::vector<DWRITE_CLUSTER_METRICS> clusterMetrics(clusterCount);
-    layout->GetClusterMetrics(clusterMetrics.data(), clusterCount, &clusterCount);
-
     result.glyphs.reserve(wide_text.size());
-    FLOAT current_x = 0.0f;
-    UINT32 text_idx = 0;
 
-    for (UINT32 c = 0; c < clusterCount; ++c) {
-        const auto& cm = clusterMetrics[c];
-        FLOAT adv = cm.width;
-        FLOAT char_adv = cm.length > 0 ? (adv / cm.length) : adv;
+    HDC hdc = CreateCompatibleDC(nullptr);
+    HFONT hfont = hdc ? create_segoe_font(font_size, font_family) : nullptr;
+    HGDIOBJ old_font = (hdc && hfont) ? SelectObject(hdc, hfont) : nullptr;
 
-        for (UINT16 k = 0; k < cm.length && text_idx < wide_text.size(); ++k, ++text_idx) {
-            GlyphPlacement gp{
-                .glyph_id = static_cast<uint32_t>(wide_text[text_idx]),
-                .x = current_x,
-                .y = result.metrics.ascender,
-                .advance_x = char_adv,
-                .advance_y = 0.0f,
-                .width = char_adv,
-                .height = result.metrics.line_height,
-                .bearing_x = 0.0f,
-                .bearing_y = result.metrics.ascender
-            };
-            result.glyphs.push_back(gp);
-            current_x += char_adv;
+    MAT2 mat{};
+    mat.eM11.value = 1;
+    mat.eM22.value = 1;
+
+    float current_x = 0.0f;
+    for (wchar_t ch : wide_text) {
+        float adv = font_size * 0.5f;
+        float gw = adv;
+        float gh = result.metrics.line_height;
+        float bx = 0.0f;
+        float by = result.metrics.ascender;
+
+        if (hdc && hfont) {
+            GLYPHMETRICS gm{};
+            if (GetGlyphOutlineW(hdc, static_cast<UINT>(ch), GGO_METRICS, &gm, 0, nullptr, &mat) != GDI_ERROR) {
+                adv = static_cast<float>(gm.gmCellIncX);
+                gw = static_cast<float>(gm.gmBlackBoxX);
+                gh = static_cast<float>(gm.gmBlackBoxY);
+                bx = static_cast<float>(gm.gmptGlyphOrigin.x);
+                by = static_cast<float>(gm.gmptGlyphOrigin.y);
+            }
         }
+
+        GlyphPlacement gp{
+            .glyph_id = static_cast<uint32_t>(ch),
+            .x = current_x,
+            .y = result.metrics.ascender,
+            .advance_x = adv,
+            .advance_y = 0.0f,
+            .width = gw,
+            .height = gh,
+            .bearing_x = bx,
+            .bearing_y = by
+        };
+        result.glyphs.push_back(gp);
+        current_x += adv;
     }
 
+    if (hdc) {
+        if (old_font) SelectObject(hdc, old_font);
+        if (hfont) DeleteObject(hfont);
+        DeleteDC(hdc);
+    }
+
+    result.total_width = current_x;
+    result.total_height = result.metrics.line_height;
     return result;
 }
 
@@ -138,15 +136,11 @@ FontRasterResult DWriteTextEngine::rasterize_glyph(
     float font_size,
     bool enable_stem_darkening)
 {
-    // 优先使用 Windows GDI 原生高性能矢量字形光栅化 (GetGlyphOutlineW GGO_GRAY8_BITMAP)
+    (void)enable_stem_darkening;
+    // 使用与 shape_text 完全一致的 Windows TrueType 字形光栅化 (GGO_GRAY8_BITMAP)
     HDC hdc = CreateCompatibleDC(nullptr);
     if (hdc) {
-        int font_height = -static_cast<int>(font_size + 0.5f);
-        HFONT hfont = CreateFontW(
-            font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
-        );
+        HFONT hfont = create_segoe_font(font_size);
         HGDIOBJ old_font = SelectObject(hdc, hfont);
 
         GLYPHMETRICS gm{};
@@ -174,10 +168,6 @@ FontRasterResult DWriteTextEngine::rasterize_glyph(
                 SelectObject(hdc, old_font);
                 DeleteObject(hfont);
                 DeleteDC(hdc);
-
-                if (enable_stem_darkening) {
-                    StemDarkener::apply(r8, font_size);
-                }
 
                 return FontRasterResult{
                     .width = w,

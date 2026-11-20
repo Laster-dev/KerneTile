@@ -162,15 +162,32 @@ void CpuTileRasterizer::render_tile(
                         if (pw > 0.001f && ph > 0.001f) {
                             float norm_x = (p_x - prim.min_x) / pw;
                             float norm_y = (p_y - prim.min_y) / ph;
-                            float u0 = static_cast<float>(prim.atlas_u0) / 65535.0f;
-                            float v0 = static_cast<float>(prim.atlas_v0) / 65535.0f;
-                            float u1 = static_cast<float>(prim.atlas_u1) / 65535.0f;
-                            float v1 = static_cast<float>(prim.atlas_v1) / 65535.0f;
-                            float u = u0 + norm_x * (u1 - u0);
-                            float v = v0 + norm_y * (v1 - v0);
-                            uint32_t ax = std::clamp(static_cast<uint32_t>(u * (atlas_width - 1) + 0.5f), 0u, atlas_width - 1);
-                            uint32_t ay = std::clamp(static_cast<uint32_t>(v * (atlas_height - 1) + 0.5f), 0u, atlas_height - 1);
-                            geom_cov = static_cast<float>(atlas_pixels[ay * atlas_width + ax]) / 255.0f;
+                            float ax0 = (static_cast<float>(prim.atlas_u0) / 65535.0f) * static_cast<float>(atlas_width);
+                            float ay0 = (static_cast<float>(prim.atlas_v0) / 65535.0f) * static_cast<float>(atlas_height);
+                            float ax1 = (static_cast<float>(prim.atlas_u1) / 65535.0f) * static_cast<float>(atlas_width);
+                            float ay1 = (static_cast<float>(prim.atlas_v1) / 65535.0f) * static_cast<float>(atlas_height);
+
+                            float fx = ax0 + norm_x * (ax1 - ax0) - 0.5f;
+                            float fy = ay0 + norm_y * (ay1 - ay0) - 0.5f;
+
+                            int32_t ix0 = static_cast<int32_t>(std::floor(fx));
+                            int32_t iy0 = static_cast<int32_t>(std::floor(fy));
+                            float tx = fx - static_cast<float>(ix0);
+                            float ty = fy - static_cast<float>(iy0);
+
+                            auto sample_atlas = [&](int32_t sx, int32_t sy) -> float {
+                                sx = std::clamp(sx, 0, static_cast<int32_t>(atlas_width) - 1);
+                                sy = std::clamp(sy, 0, static_cast<int32_t>(atlas_height) - 1);
+                                return static_cast<float>(atlas_pixels[static_cast<size_t>(sy) * atlas_width + sx]) / 255.0f;
+                            };
+
+                            float c00 = sample_atlas(ix0, iy0);
+                            float c10 = sample_atlas(ix0 + 1, iy0);
+                            float c01 = sample_atlas(ix0, iy0 + 1);
+                            float c11 = sample_atlas(ix0 + 1, iy0 + 1);
+                            float c0 = c00 + tx * (c10 - c00);
+                            float c1 = c01 + tx * (c11 - c01);
+                            geom_cov = c0 + ty * (c1 - c0);
                         }
                     }
                 } else {

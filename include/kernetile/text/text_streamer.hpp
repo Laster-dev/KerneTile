@@ -91,8 +91,8 @@ public:
             if (it != m_glyph_cache.end()) {
                 const auto& cg = it->second;
 
-                float min_x = x + gp.x + static_cast<float>(cg.bearing_x);
-                float min_y = y + gp.y - static_cast<float>(cg.bearing_y);
+                float min_x = std::floor(x + gp.x + static_cast<float>(cg.bearing_x) + 0.5f);
+                float min_y = std::floor(y + gp.y - static_cast<float>(cg.bearing_y) + 0.5f);
                 float max_x = min_x + static_cast<float>(cg.width);
                 float max_y = min_y + static_cast<float>(cg.height);
 

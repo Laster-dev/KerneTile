@@ -56,16 +56,11 @@ public:
             m_hovered_nodes = std::move(current_targets);
         }
 
-        // ==================== 2. Active 捕获与释放 ====================
+        // ==================== 2. Active 捕获 ====================
         if (event.type == PlatformEventType::PointerDown) {
             m_active_target = result.first_target();
             if (m_active_target) {
                 m_active_target->is_active = true;
-            }
-        } else if (event.type == PlatformEventType::PointerUp) {
-            if (m_active_target) {
-                m_active_target->is_active = false;
-                m_active_target = nullptr;
             }
         }
 
@@ -96,6 +91,14 @@ public:
             // 若回调中调用了 stop_propagation() 则立即阻断冒泡！
             if (event.is_propagation_stopped()) {
                 break;
+            }
+        }
+
+        // ==================== 4. Active 释放（在 PointerUp 回调执行后） ====================
+        if (event.type == PlatformEventType::PointerUp) {
+            if (m_active_target) {
+                m_active_target->is_active = false;
+                m_active_target = nullptr;
             }
         }
     }

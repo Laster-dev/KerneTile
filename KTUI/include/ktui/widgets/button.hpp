@@ -42,10 +42,22 @@ public:
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     [[nodiscard]] float font_size() const noexcept { return m_font_size; }
     [[nodiscard]] Color text_color() const noexcept { return m_text_color; }
+    [[nodiscard]] bool disabled() const noexcept { return m_disabled; }
+
+    void set_disabled(bool disabled) {
+        if (m_disabled != disabled) {
+            m_disabled = disabled;
+            if (m_disabled) {
+                is_hovered = false;
+                is_active = false;
+            }
+            mark_needs_paint();
+        }
+    }
 
     void perform_layout() override {
         // 计算文本所占空间
-        float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.58f;
+        float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.50f;
         float desired_w = text_w + m_padding.horizontal();
         float desired_h = m_height;
 
@@ -66,13 +78,18 @@ public:
         Color current_border = m_disabled ? Color{0.2f, 0.2f, 0.2f, 0.4f} : m_border_color;
         Color current_text = m_disabled ? Color{0.5f, 0.5f, 0.5f, 0.6f} : m_text_color;
 
-        // 1. 绘制硬朗微圆角背景与 1px 细边框 (杜绝大圆角)
-        context.draw_rect(bounds(), current_bg, m_corner_radius, m_border_width);
+        // 1. 绘制硬朗微圆角实心背景与 1px 细边框 (杜绝大圆角)
+        if (current_bg.a > 0.001f) {
+            context.draw_rect(bounds(), current_bg, m_corner_radius, 0.0f);
+        }
+        if (m_border_width > 0.0f && current_border.a > 0.001f) {
+            context.draw_rect(bounds(), current_border, m_corner_radius, m_border_width);
+        }
 
         // 2. 居中文本排版
         if (!m_text.empty()) {
-            float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.58f;
-            float text_h = m_font_size * 1.35f;
+            float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.50f;
+            float text_h = m_font_size * 1.25f;
             float text_x = std::max(0.0f, (m_size.x - text_w) * 0.5f);
             float text_y = std::max(0.0f, (m_size.y - text_h) * 0.5f);
 

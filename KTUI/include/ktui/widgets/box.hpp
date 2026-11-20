@@ -74,11 +74,15 @@ public:
     }
 
     void paint(PaintContext& context) override {
-        // 绘制自身背景与边框
-        if (m_background_color.a > 0.001f || m_border_width > 0.0f) {
-            context.draw_rect(bounds(), m_background_color, m_corner_radius, m_border_width);
+        // 1. 绘制自身实心背景
+        if (m_background_color.a > 0.001f) {
+            context.draw_rect(bounds(), m_background_color, m_corner_radius, 0.0f);
         }
-        // 递归绘制子节点
+        // 2. 绘制 1px 细边框
+        if (m_border_width > 0.0f && m_border_color.a > 0.001f) {
+            context.draw_rect(bounds(), m_border_color, m_corner_radius, m_border_width);
+        }
+        // 3. 递归绘制子节点
         RenderBox::paint(context);
     }
 
