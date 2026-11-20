@@ -222,10 +222,13 @@ std::unique_ptr<ITextEngine> create_text_engine() {
 } // namespace kernetile::text
 
 #else
+#include "vector_text_engine.hpp"
 
 namespace kernetile::text {
 std::unique_ptr<ITextEngine> create_directwrite_engine() { return nullptr; }
-std::unique_ptr<ITextEngine> create_text_engine() { return create_builtin_engine(); }
+std::unique_ptr<ITextEngine> create_text_engine() { 
+    return create_vector_text_engine(); 
+}
 }
 
 #endif

@@ -63,6 +63,7 @@ target_link_libraries(kernetile_hal PUBLIC kernetile_core)
 set(TEXT_SOURCES
     src/text/builtin_text_engine.cpp
     src/text/builtin_font_data.cpp
+    src/text/vector_text_engine.cpp
     src/text/dwrite_text_engine.cpp
 )
 add_library(kernetile_text STATIC ${TEXT_SOURCES})
