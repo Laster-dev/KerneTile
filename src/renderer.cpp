@@ -78,9 +78,11 @@ public:
         prim.radius_bottom_right = corner_radius;
         prim.radius_bottom_left = corner_radius;
 
-        prim.color_r = color.r;
-        prim.color_g = color.g;
-        prim.color_b = color.b;
+        // 严格遵循 UiPrimitive 不变量契约: 转换为线性光空间预乘颜色 (0 <= C <= A <= 1)
+        // 彻底杜绝半透明图元在光栅化混合时因直通色导致的 RGB 饱和白爆死
+        prim.color_r = color.r * color.a;
+        prim.color_g = color.g * color.a;
+        prim.color_b = color.b * color.a;
         prim.color_a = color.a;
 
         prim.border_width = border_width;
@@ -106,9 +108,11 @@ public:
         prim.radius_bottom_right = corner_radius;
         prim.radius_bottom_left = corner_radius;
 
-        prim.color_r = color.r;
-        prim.color_g = color.g;
-        prim.color_b = color.b;
+        // 严格遵循 UiPrimitive 不变量契约: 转换为线性光空间预乘颜色 (0 <= C <= A <= 1)
+        // 彻底杜绝半透明图元在光栅化混合时因直通色导致的 RGB 饱和白爆死
+        prim.color_r = color.r * color.a;
+        prim.color_g = color.g * color.a;
+        prim.color_b = color.b * color.a;
         prim.color_a = color.a;
 
         prim.shadow_blur = shadow_blur;

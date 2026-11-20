@@ -149,11 +149,11 @@ public:
         auto style = resolve_current_style();
         float duration = style.ripple_duration > 0.0f ? style.ripple_duration : 0.65f;
 
-        // 委托动效管理器：半径使用 EaseOutCubic 快速膨胀，透明度使用 Linear 线性淡出
+        // 委托动效管理器：半径使用 EaseOutCubic 快速膨胀，透明度从 style.ripple.a 平滑淡出至 0.0 (绝对半透明，杜绝纯白)
         m_ripple_radius_tween.start(4.0f, max_radius, duration, Easing::EaseOutCubic);
-        m_ripple_opacity_tween.start(0.35f, 0.0f, duration, Easing::Linear);
+        m_ripple_opacity_tween.start(style.ripple.a, 0.0f, duration, Easing::Linear);
         m_ripple_radius = 4.0f;
-        m_ripple_opacity = 0.35f;
+        m_ripple_opacity = style.ripple.a;
         m_ripple_active = true;
         m_last_tick_time = std::chrono::steady_clock::now();
         mark_needs_paint();
@@ -237,7 +237,7 @@ public:
         if (m_ripple_active && m_ripple_opacity > 0.001f) {
             context.push_clip(bounds(), style.corner_radius);
             Color ripple_col = style.ripple;
-            ripple_col.a *= (m_ripple_opacity / 0.35f);
+            ripple_col.a = m_ripple_opacity; // 纯半透明动态衰减，杜绝白色硬块
             Rect ripple_rect = Rect::from_xywh(
                 m_ripple_center.x - m_ripple_radius,
                 m_ripple_center.y - m_ripple_radius,

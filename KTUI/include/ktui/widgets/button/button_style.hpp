@@ -83,7 +83,7 @@ public:
                     hover_border   = Color{0.25f, 0.68f, 1.0f, 0.8f};
                     pressed_border = Color{0.0f, 0.40f, 0.75f, 0.9f};
                     idle_text      = Color::white();
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.35f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.18f}; // 半透明微光扩散 (非纯白)
                     break;
                 case ButtonVariant::Subtle:
                     idle_bg        = Color::transparent();
@@ -93,7 +93,7 @@ public:
                     hover_border   = Color::transparent();
                     pressed_border = Color::transparent();
                     idle_text      = Color{0.88f, 0.88f, 0.92f, 1.0f};
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.20f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.10f};
                     break;
                 case ButtonVariant::Danger:
                     idle_bg        = Color{0.768f, 0.168f, 0.110f, 1.0f}; // #C42B1C DangerColor
@@ -103,7 +103,7 @@ public:
                     hover_border   = Color{0.95f, 0.30f, 0.22f, 0.8f};
                     pressed_border = Color{0.55f, 0.10f, 0.06f, 0.9f};
                     idle_text      = Color::white();
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.35f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.16f};
                     break;
                 case ButtonVariant::Standard:
                 default:
@@ -114,7 +114,7 @@ public:
                     hover_border   = Color{1.0f, 1.0f, 1.0f, 0.15f};
                     pressed_border = Color{1.0f, 1.0f, 1.0f, 0.06f};
                     idle_text      = Color{0.95f, 0.95f, 0.98f, 1.0f};  // TextPrimary
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.25f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.12f};
                     break;
             }
             disabled_bg     = Color{0.14f, 0.14f, 0.16f, 0.50f};
@@ -132,7 +132,7 @@ public:
                     hover_border   = Color{0.10f, 0.55f, 0.95f, 0.9f};
                     pressed_border = Color{0.0f, 0.35f, 0.65f, 1.0f};
                     idle_text      = Color::white();
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.35f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.20f};
                     break;
                 case ButtonVariant::Subtle:
                     idle_bg        = Color::transparent();
@@ -142,7 +142,7 @@ public:
                     hover_border   = Color::transparent();
                     pressed_border = Color::transparent();
                     idle_text      = Color{0.12f, 0.12f, 0.14f, 1.0f};
-                    style.ripple   = Color{0.0f, 0.0f, 0.0f, 0.15f};
+                    style.ripple   = Color{0.0f, 0.0f, 0.0f, 0.08f};
                     break;
                 case ButtonVariant::Danger:
                     idle_bg        = Color{0.78f, 0.15f, 0.12f, 1.0f};
@@ -152,7 +152,7 @@ public:
                     hover_border   = Color{0.85f, 0.22f, 0.18f, 0.9f};
                     pressed_border = Color{0.60f, 0.10f, 0.08f, 1.0f};
                     idle_text      = Color::white();
-                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.35f};
+                    style.ripple   = Color{1.0f, 1.0f, 1.0f, 0.18f};
                     break;
                 case ButtonVariant::Standard:
                 default:
@@ -163,7 +163,7 @@ public:
                     hover_border   = Color{0.0f, 0.0f, 0.0f, 0.18f};
                     pressed_border = Color{0.0f, 0.0f, 0.0f, 0.10f};
                     idle_text      = Color{0.12f, 0.12f, 0.15f, 1.0f};
-                    style.ripple   = Color{0.0f, 0.0f, 0.0f, 0.18f};
+                    style.ripple   = Color{0.0f, 0.0f, 0.0f, 0.08f}; // 浅色下为半透明暗影
                     break;
             }
             disabled_bg     = Color{0.92f, 0.92f, 0.94f, 0.50f};

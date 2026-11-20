@@ -149,7 +149,7 @@ void test_button_ripple_delegation_to_motion() {
 
     assert(btn.has_active_ripple());
     assert(btn.ripple_radius() == 4.0f);
-    assert(btn.ripple_opacity() == 0.35f);
+    assert(btn.ripple_opacity() <= 0.25f && btn.ripple_opacity() > 0.0f); // 严格确保为半透明微光，绝非纯白 (半透明而非白色)
 
     // 模拟时钟推进 0.2s，验证水波纹半透明层外扩，但公式完全由 Motion 驱动
     btn.tick_ripple(0.20f);
