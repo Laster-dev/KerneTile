@@ -19,6 +19,8 @@ struct Color {
     [[nodiscard]] static constexpr Color transparent() noexcept { return {0.0f, 0.0f, 0.0f, 0.0f}; }
     [[nodiscard]] static constexpr Color white() noexcept { return {1.0f, 1.0f, 1.0f, 1.0f}; }
     [[nodiscard]] static constexpr Color black() noexcept { return {0.0f, 0.0f, 0.0f, 1.0f}; }
+
+    bool operator==(const Color&) const noexcept = default;
 };
 
 // 预乘颜色 (Premultiplied Alpha RGBA)

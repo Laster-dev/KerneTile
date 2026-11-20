@@ -31,6 +31,8 @@ struct Vec2 {
         float len = length();
         return (len > 1e-6f) ? (*this / len) : Vec2{0.0f, 0.0f};
     }
+
+    bool operator==(const Vec2&) const noexcept = default;
 };
 
 inline constexpr Vec2 operator*(float scalar, const Vec2& v) noexcept {
@@ -49,6 +51,8 @@ struct Vec3 {
     [[nodiscard]] constexpr Vec3 operator-(const Vec3& rhs) const noexcept { return {x - rhs.x, y - rhs.y, z - rhs.z}; }
     [[nodiscard]] constexpr Vec3 operator*(float scalar) const noexcept { return {x * scalar, y * scalar, z * scalar}; }
     [[nodiscard]] constexpr float dot(const Vec3& rhs) const noexcept { return x * rhs.x + y * rhs.y + z * rhs.z; }
+
+    bool operator==(const Vec3&) const noexcept = default;
 };
 
 struct Vec4 {
@@ -64,6 +68,8 @@ struct Vec4 {
     [[nodiscard]] constexpr Vec4 operator-(const Vec4& rhs) const noexcept { return {x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w}; }
     [[nodiscard]] constexpr Vec4 operator*(float scalar) const noexcept { return {x * scalar, y * scalar, z * scalar, w * scalar}; }
     [[nodiscard]] constexpr float dot(const Vec4& rhs) const noexcept { return x * rhs.x + y * rhs.y + z * rhs.z + w * rhs.w; }
+
+    bool operator==(const Vec4&) const noexcept = default;
 };
 
 } // namespace kernetile::math

@@ -3,6 +3,7 @@
 set(KTUI_PAL_SOURCES
     src/pal/headless_backend.cpp
     src/pal/platform_backend.cpp
+    src/app/application.cpp
 )
 
 if (WIN32)

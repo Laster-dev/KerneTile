@@ -40,6 +40,12 @@ public:
         return id;
     }
 
+    uint64_t subscribe(std::function<void(const T&)> simple_listener) {
+        return subscribe([fn = std::move(simple_listener)](const T& val, uint64_t /*token*/) {
+            if (fn) fn(val);
+        });
+    }
+
     void unsubscribe(uint64_t id) {
         auto it = std::remove_if(m_listeners.begin(), m_listeners.end(),
                                  [id](const Entry& e) { return e.id == id; });

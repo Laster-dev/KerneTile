@@ -67,6 +67,8 @@ struct Rect {
     [[nodiscard]] constexpr Rect inset(float amount) const noexcept {
         return outset(-amount);
     }
+
+    bool operator==(const Rect&) const noexcept = default;
 };
 
 } // namespace kernetile::math
