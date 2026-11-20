@@ -5,6 +5,7 @@
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/text_measure.hpp>
 #include <optional>
 #include <string>
 #include <algorithm>
@@ -111,7 +112,8 @@ public:
     }
 
     void perform_layout() override {
-        float text_w = static_cast<float>(std::max(m_text.length(), m_placeholder.length())) * m_font_size * 0.54f;
+        float text_w = std::max(TextMeasure::measure_width(m_text, m_font_size),
+                                TextMeasure::measure_width(m_placeholder, m_font_size));
         float desired_w = text_w + m_padding.horizontal() + 20.0f;
         if (m_constraints.max_width < BoxConstraints::kInfinity) {
             desired_w = std::max(desired_w, m_constraints.max_width);
@@ -132,11 +134,11 @@ public:
         float text_y = std::max(0.0f, (m_size.y - m_font_size * 1.30f) * 0.5f);
 
         std::string display_text = m_text;
-        float preedit_start_x = text_x + utf8_util::estimate_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
+        float preedit_start_x = text_x + TextMeasure::measure_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
         float preedit_w = 0.0f;
         if (!m_preedit_text.empty()) {
             display_text.insert(m_cursor_index, m_preedit_text);
-            preedit_w = utf8_util::estimate_width(m_preedit_text, m_font_size);
+            preedit_w = TextMeasure::measure_width(m_preedit_text, m_font_size);
         }
 
         if (display_text.empty() && !m_placeholder.empty()) {
@@ -169,8 +171,8 @@ public:
     [[nodiscard]] Rect get_ime_cursor_rect() const override {
         Vec2 abs = global_offset();
         float text_x = m_padding.left;
-        float prefix_w = utf8_util::estimate_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
-        float preedit_w = utf8_util::estimate_width(m_preedit_text, m_font_size);
+        float prefix_w = TextMeasure::measure_width(std::string_view(m_text).substr(0, m_cursor_index), m_font_size);
+        float preedit_w = TextMeasure::measure_width(m_preedit_text, m_font_size);
         float cursor_h = m_font_size * 1.2f;
         float cursor_y = std::max(0.0f, (m_size.y - cursor_h) * 0.5f);
         return Rect::from_xywh(abs.x + text_x + prefix_w + preedit_w, abs.y + cursor_y, 2.0f, cursor_h);
@@ -266,23 +268,10 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary) {
                 set_input_focused(true);
-                // 根据点击的局部 x 坐标按 UTF-8 码点边界推测光标位置
+                // 使用真实排版引擎 advance 精确反算 UTF-8 码点光标位置
                 float click_x = (ev.local_position.x > 0.0f || ev.local_position.y > 0.0f) ? ev.local_position.x : ev.position.x;
                 float relative_x = click_x - m_padding.left;
-                if (relative_x <= 0.0f) {
-                    m_cursor_index = 0;
-                } else {
-                    size_t pos = 0;
-                    float acc_w = 0.0f;
-                    while (pos < m_text.size()) {
-                        size_t next = utf8_util::next_char_pos(m_text, pos);
-                        float cw = utf8_util::estimate_width(std::string_view(m_text).substr(pos, next - pos), m_font_size);
-                        if (acc_w + cw * 0.5f >= relative_x) break;
-                        acc_w += cw;
-                        pos = next;
-                    }
-                    m_cursor_index = pos;
-                }
+                m_cursor_index = TextMeasure::hit_test_cursor(m_text, m_font_size, relative_x);
                 mark_needs_paint();
             }
         };

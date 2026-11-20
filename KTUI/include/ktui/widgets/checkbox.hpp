@@ -4,6 +4,7 @@
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/text_measure.hpp>
 #include <optional>
 #include <string>
 
@@ -47,9 +48,10 @@ public:
     [[nodiscard]] bool checked() const noexcept { return m_checked; }
 
     void perform_layout() override {
-        float label_w = m_label.empty() ? 0.0f : (static_cast<float>(m_label.length()) * m_font_size * 0.58f + 6.0f);
+        Vec2 label_sz = m_label.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_label, m_font_size);
+        float label_w = m_label.empty() ? 0.0f : (label_sz.x + 6.0f);
         float desired_w = m_box_size + label_w;
-        float desired_h = std::max(m_box_size, m_font_size * 1.35f);
+        float desired_h = std::max(m_box_size, label_sz.y > 0.0f ? label_sz.y : m_font_size * 1.35f);
 
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
     }

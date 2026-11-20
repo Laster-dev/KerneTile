@@ -5,6 +5,7 @@
 #include <ktui/pal/font_resolver.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/text_measure.hpp>
 #include <optional>
 #include <string>
 
@@ -46,11 +47,8 @@ public:
     }
 
     void perform_layout() override {
-        // 估算文本物理尺寸 (以桌面紧凑英文字符比例约 0.58 测算，中英混合自适应)
-        float estimated_w = static_cast<float>(m_text.length()) * m_font_size * 0.58f;
-        float estimated_h = m_font_size * 1.35f;
-
-        m_size = m_constraints.constrain(Vec2{estimated_w, estimated_h});
+        Vec2 measured = TextMeasure::measure(m_text, m_font_size);
+        m_size = m_constraints.constrain(measured);
     }
 
     void paint(PaintContext& context) override {

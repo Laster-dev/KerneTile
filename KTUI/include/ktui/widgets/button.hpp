@@ -3,6 +3,7 @@
 #include "widget.hpp"
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/text_measure.hpp>
 #include <functional>
 #include <string>
 
@@ -56,8 +57,8 @@ public:
     }
 
     void perform_layout() override {
-        // 计算文本所占空间
-        float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.50f;
+        // 使用真实排版引擎精确测量文本像素宽度 (中英混排 100% 精确)
+        float text_w = TextMeasure::measure_width(m_text, m_font_size);
         float desired_w = text_w + m_padding.horizontal();
         float desired_h = m_height;
 
@@ -86,12 +87,11 @@ public:
             context.draw_rect(bounds(), current_border, m_corner_radius, m_border_width);
         }
 
-        // 2. 居中文本排版
+        // 2. 精确居中文本排版
         if (!m_text.empty()) {
-            float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.50f;
-            float text_h = m_font_size * 1.25f;
-            float text_x = std::max(0.0f, (m_size.x - text_w) * 0.5f);
-            float text_y = std::max(0.0f, (m_size.y - text_h) * 0.5f);
+            Vec2 measured = TextMeasure::measure(m_text, m_font_size);
+            float text_x = std::max(0.0f, (m_size.x - measured.x) * 0.5f);
+            float text_y = std::max(0.0f, (m_size.y - measured.y) * 0.5f);
 
             context.draw_text(m_text, PointF{text_x, text_y}, m_font_size, current_text);
         }
