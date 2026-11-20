@@ -278,3 +278,24 @@ target_link_libraries(test_ktui_e2e_app PRIVATE
 )
 add_test(NAME test_ktui_e2e_app COMMAND test_ktui_e2e_app WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# KTUI 桌面成品可执行 Demo 应用程序
+add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
+target_include_directories(ktui_studio_demo PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(ktui_studio_demo PRIVATE
+    ktui_pal
+    kernetile_engine
+    kernetile_hal
+    kernetile_tile
+    kernetile_text
+    kernetile_fx
+    kernetile_input
+    kernetile_platform
+    kernetile_cpu
+    kernetile_core
+)
+
+
