@@ -75,12 +75,26 @@ int Application::run() {
 
     while (m_running) {
         for (auto& win : m_windows) {
-            if (win && !win->is_closed() && win->needs_redraw() && win->root_render_box()) {
-                win->render_frame();
+            if (win && !win->is_closed() && win->root_render_box()) {
+                bool needs_paint = win->needs_redraw() ||
+                    win->root_render_box()->needs_paint() ||
+                    win->root_render_box()->needs_layout();
+                if (needs_paint) {
+                    win->render_frame();
+                }
             }
         }
 
-        pump_events(true);
+        uint32_t wait_ms = compute_wait_timeout();
+        pump_events(true, wait_ms);
+
+        // 若光标在闪烁周期内，按需唤醒重绘
+        for (auto& win : m_windows) {
+            if (win && !win->is_closed() && win->has_blinking_cursor()) {
+                win->request_redraw();
+            }
+        }
+
         cleanup_closed_windows();
 
         // 当所有窗口均已关闭且未显示指定保持运行，则退出
@@ -93,15 +107,38 @@ int Application::run() {
     return m_exit_code;
 }
 
+uint32_t Application::compute_wait_timeout() const {
+    bool has_dirty = false;
+    bool has_blinking = false;
+    for (const auto& win : m_windows) {
+        if (win && !win->is_closed()) {
+            if (win->needs_redraw()) {
+                has_dirty = true;
+                break;
+            }
+            if (win->root_render_box() && (win->root_render_box()->needs_paint() || win->root_render_box()->needs_layout())) {
+                has_dirty = true;
+                break;
+            }
+            if (win->has_blinking_cursor()) {
+                has_blinking = true;
+            }
+        }
+    }
+    if (has_dirty) return 1;
+    if (has_blinking) return 100;
+    return 0; // 完全闲置，平台消息队列彻底挂起休眠，0% CPU！
+}
+
 void Application::quit(int exit_code) {
     m_running = false;
     m_exit_code = exit_code;
 }
 
-void Application::pump_events(bool wait) {
+void Application::pump_events(bool wait, uint32_t timeout_ms) {
     if (m_backend) {
         if (wait) {
-            m_backend->wait_events(16);
+            m_backend->wait_events(timeout_ms);
         } else {
             m_backend->poll_events();
         }

@@ -718,6 +718,20 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                                        static_cast<float>(static_cast<short>(HIWORD(lparam)))};
                     s_instance->dispatch_platform_event(pe);
                     break;
+                case WM_RBUTTONDOWN:
+                    pe.type = PlatformEventType::PointerDown;
+                    pe.button = PointerButton::Secondary;
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    s_instance->dispatch_platform_event(pe);
+                    break;
+                case WM_RBUTTONUP:
+                    pe.type = PlatformEventType::PointerUp;
+                    pe.button = PointerButton::Secondary;
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    s_instance->dispatch_platform_event(pe);
+                    break;
                 case WM_MOUSEWHEEL: {
                     POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
                     ScreenToClient(hwnd, &pt);

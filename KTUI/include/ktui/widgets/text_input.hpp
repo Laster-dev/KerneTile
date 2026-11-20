@@ -11,8 +11,17 @@
 #include <string>
 #include <utility>
 #include <algorithm>
+#include <vector>
+#include <chrono>
 
 namespace ktui {
+
+// 文本编辑撤销重做快照
+struct UndoRecord {
+    std::string text;
+    size_t cursor_index{0};
+    size_t selection_anchor{0};
+};
 
 // UTF-8 码点边界安全工具
 namespace utf8_util {
@@ -144,10 +153,105 @@ public:
     void set_input_focused(bool focused) noexcept {
         if (m_is_focused != focused) {
             m_is_focused = focused;
+            m_last_activity_time = std::chrono::steady_clock::now();
             if (!m_is_focused) {
                 m_selection_anchor = m_cursor_index;
             }
             mark_needs_paint();
+        }
+    }
+
+    [[nodiscard]] bool is_cursor_blink_visible() const noexcept {
+        if (!m_is_focused) return false;
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_activity_time).count();
+        if (elapsed < 530) return true;
+        return ((elapsed / 530) % 2) == 0;
+    }
+
+    // ==================== 撤销 / 重做栈 (Undo / Redo) ====================
+    void push_undo_snapshot() {
+        if (!m_undo_stack.empty() && m_undo_stack.back().text == m_text) {
+            return;
+        }
+        m_undo_stack.push_back({m_text, m_cursor_index, m_selection_anchor});
+        if (m_undo_stack.size() > kMaxUndoSteps) {
+            m_undo_stack.erase(m_undo_stack.begin());
+        }
+        m_redo_stack.clear();
+    }
+
+    void undo() {
+        if (m_undo_stack.empty()) return;
+        m_redo_stack.push_back({m_text, m_cursor_index, m_selection_anchor});
+        auto rec = m_undo_stack.back();
+        m_undo_stack.pop_back();
+        m_text = std::move(rec.text);
+        m_cursor_index = std::min(rec.cursor_index, m_text.length());
+        m_selection_anchor = std::min(rec.selection_anchor, m_text.length());
+        m_last_activity_time = std::chrono::steady_clock::now();
+        notify_changed();
+    }
+
+    void redo() {
+        if (m_redo_stack.empty()) return;
+        m_undo_stack.push_back({m_text, m_cursor_index, m_selection_anchor});
+        auto rec = m_redo_stack.back();
+        m_redo_stack.pop_back();
+        m_text = std::move(rec.text);
+        m_cursor_index = std::min(rec.cursor_index, m_text.length());
+        m_selection_anchor = std::min(rec.selection_anchor, m_text.length());
+        m_last_activity_time = std::chrono::steady_clock::now();
+        notify_changed();
+    }
+
+    [[nodiscard]] bool can_undo() const noexcept { return !m_undo_stack.empty(); }
+    [[nodiscard]] bool can_redo() const noexcept { return !m_redo_stack.empty(); }
+
+    static bool is_word_char(char c) noexcept {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+    }
+
+    std::pair<size_t, size_t> find_word_boundaries(size_t index) const {
+        if (m_text.empty()) return {0, 0};
+        size_t idx = std::min(index, m_text.length());
+        if (idx == m_text.length() && idx > 0) {
+            idx = utf8_util::prev_char_pos(m_text, idx);
+        }
+
+        uint8_t b = static_cast<uint8_t>(m_text[idx]);
+        if (b >= 0x80) {
+            size_t start = idx;
+            while (start > 0 && (static_cast<uint8_t>(m_text[start]) & 0xC0) == 0x80) {
+                --start;
+            }
+            size_t end = utf8_util::next_char_pos(m_text, start);
+            return {start, end};
+        }
+
+        char c = m_text[idx];
+        if (is_word_char(c)) {
+            size_t start = idx;
+            while (start > 0 && is_word_char(m_text[start - 1])) {
+                --start;
+            }
+            size_t end = idx;
+            while (end < m_text.size() && is_word_char(m_text[end])) {
+                ++end;
+            }
+            return {start, end};
+        } else if (c == ' ' || c == '\t') {
+            size_t start = idx;
+            while (start > 0 && (m_text[start - 1] == ' ' || m_text[start - 1] == '\t')) {
+                --start;
+            }
+            size_t end = idx;
+            while (end < m_text.size() && (m_text[end] == ' ' || m_text[end] == '\t')) {
+                ++end;
+            }
+            return {start, end};
+        } else {
+            return {idx, std::min(idx + 1, m_text.size())};
         }
     }
 
@@ -212,8 +316,8 @@ public:
                               m_border_focus, 0.0f, 0.0f);
         }
 
-        // 3. 聚焦时绘制紧凑光标竖线
-        if (m_is_focused) {
+        // 3. 聚焦且光标处于闪烁可见周期时绘制紧凑光标竖线 (530ms 周期)
+        if (m_is_focused && is_cursor_blink_visible()) {
             float cursor_x = preedit_start_x + preedit_w;
             float cursor_h = m_font_size * 1.15f;
             float cursor_y = std::max(0.0f, (m_size.y - cursor_h) * 0.5f);
@@ -272,7 +376,7 @@ public:
             constexpr uint32_t kKeyHome = 36;
             constexpr uint32_t kKeyEnd = 35;
 
-            // Ctrl 组合快捷键: Ctrl+A (全选), Ctrl+C (复制), Ctrl+X (剪切), Ctrl+V (粘贴)
+            // Ctrl 组合快捷键: Ctrl+A (全选), Ctrl+C (复制), Ctrl+X (剪切), Ctrl+V (粘贴), Ctrl+Z (撤销), Ctrl+Y / Ctrl+Shift+Z (重做)
             if (ev.modifiers.ctrl) {
                 uint32_t kc = ev.key_code;
                 if (kc == 'A' || kc == 'a') {
@@ -285,6 +389,7 @@ public:
                     return;
                 } else if (kc == 'X' || kc == 'x') {
                     if (has_selection()) {
+                        push_undo_snapshot();
                         Clipboard::set_text(selected_text());
                         delete_selection_internal();
                         notify_changed();
@@ -299,17 +404,30 @@ public:
                         if (c != '\r' && c != '\n') clean.push_back(c);
                     }
                     if (!clean.empty()) {
+                        push_undo_snapshot();
                         append_chars(clean);
                     }
+                    return;
+                } else if (kc == 'Z' || kc == 'z') {
+                    if (ev.modifiers.shift) {
+                        redo();
+                    } else {
+                        undo();
+                    }
+                    return;
+                } else if (kc == 'Y' || kc == 'y') {
+                    redo();
                     return;
                 }
             }
 
             if (ev.key_code == kKeyBackspace) {
                 if (has_selection()) {
+                    push_undo_snapshot();
                     delete_selection_internal();
                     notify_changed();
                 } else if (m_cursor_index > 0 && !m_text.empty()) {
+                    push_undo_snapshot();
                     size_t prev = utf8_util::prev_char_pos(m_text, m_cursor_index);
                     m_text.erase(prev, m_cursor_index - prev);
                     m_cursor_index = prev;
@@ -318,9 +436,11 @@ public:
                 }
             } else if (ev.key_code == kKeyDelete) {
                 if (has_selection()) {
+                    push_undo_snapshot();
                     delete_selection_internal();
                     notify_changed();
                 } else if (m_cursor_index < m_text.length()) {
+                    push_undo_snapshot();
                     size_t next = utf8_util::next_char_pos(m_text, m_cursor_index);
                     m_text.erase(m_cursor_index, next - m_cursor_index);
                     m_selection_anchor = m_cursor_index;
@@ -373,12 +493,14 @@ public:
     // 直接键入 UTF-8 字符序列 (若当前存在选区则自动替换选区)
     void append_chars(const std::string& chars) {
         if (chars.empty()) return;
+        push_undo_snapshot();
         if (has_selection()) {
             delete_selection_internal();
         }
         m_text.insert(m_cursor_index, chars);
         m_cursor_index += chars.size();
         m_selection_anchor = m_cursor_index;
+        m_last_activity_time = std::chrono::steady_clock::now();
         notify_changed();
     }
 
@@ -426,11 +548,39 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary) {
                 set_input_focused(true);
+                m_last_activity_time = std::chrono::steady_clock::now();
+
+                uint64_t now_ms = ev.timestamp_ms;
+                if (now_ms == 0) {
+                    now_ms = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        m_last_activity_time.time_since_epoch()).count());
+                }
+                float dist_sq = (ev.position.x - m_last_click_pos.x) * (ev.position.x - m_last_click_pos.x)
+                              + (ev.position.y - m_last_click_pos.y) * (ev.position.y - m_last_click_pos.y);
+                if (now_ms - m_last_click_time_ms < 400 && dist_sq < 36.0f) {
+                    m_click_count = (m_click_count % 3) + 1;
+                } else {
+                    m_click_count = 1;
+                }
+                m_last_click_time_ms = now_ms;
+                m_last_click_pos = ev.position;
+
                 float click_x = (ev.local_position.x > 0.0f || ev.local_position.y > 0.0f) ? ev.local_position.x : ev.position.x;
                 float relative_x = click_x - m_padding.left + m_scroll_x;
                 m_cursor_index = TextMeasure::hit_test_cursor(m_text, m_font_size, relative_x);
-                if (!ev.modifiers.shift) {
-                    m_selection_anchor = m_cursor_index;
+
+                if (m_click_count == 2) {
+                    // 双击按词分词选中
+                    auto [w_start, w_end] = find_word_boundaries(m_cursor_index);
+                    m_selection_anchor = w_start;
+                    m_cursor_index = w_end;
+                } else if (m_click_count == 3) {
+                    // 三击全选当前文本
+                    select_all();
+                } else {
+                    if (!ev.modifiers.shift) {
+                        m_selection_anchor = m_cursor_index;
+                    }
                 }
                 ensure_cursor_visible();
                 mark_needs_paint();
@@ -439,6 +589,7 @@ private:
 
         on_pointer_move = [this](PointerEvent& ev) {
             if (is_active && m_is_focused) {
+                m_last_activity_time = std::chrono::steady_clock::now();
                 float click_x = (ev.local_position.x != 0.0f || ev.local_position.y != 0.0f) ? ev.local_position.x : ev.position.x;
                 float relative_x = click_x - m_padding.left + m_scroll_x;
                 size_t new_idx = TextMeasure::hit_test_cursor(m_text, m_font_size, relative_x);
@@ -459,6 +610,7 @@ private:
         };
 
         on_key = [this](KeyEvent& ev) {
+            m_last_activity_time = std::chrono::steady_clock::now();
             handle_text_key(ev);
         };
     }
@@ -470,6 +622,15 @@ private:
     size_t m_selection_anchor{0};
     float m_scroll_x{0.0f};
     bool m_is_focused{false};
+
+    std::vector<UndoRecord> m_undo_stack;
+    std::vector<UndoRecord> m_redo_stack;
+    static constexpr size_t kMaxUndoSteps = 100;
+
+    uint64_t m_last_click_time_ms{0};
+    Vec2 m_last_click_pos{0.0f, 0.0f};
+    int m_click_count{0};
+    std::chrono::steady_clock::time_point m_last_activity_time{std::chrono::steady_clock::now()};
 
     float m_height{26.0f};          // 桌面紧凑输入框标准 26px
     float m_corner_radius{3.0f};    // 桌面精致硬朗微圆角 3px

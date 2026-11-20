@@ -48,6 +48,7 @@
 #include <ktui/tree/render_node.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/tree/render_flex.hpp>
+#include <ktui/tree/overlay.hpp>
 
 // 事件与焦点管线
 #include <ktui/event/event_types.hpp>
@@ -73,3 +74,13 @@
 #include <ktui/widgets/slider.hpp>
 #include <ktui/widgets/scroll_view.hpp>
 #include <ktui/widgets/svg.hpp>
+#include <ktui/widgets/context_menu.hpp>
+#include <ktui/widgets/select.hpp>
+#include <ktui/widgets/tooltip.hpp>
+#include <ktui/widgets/modal.hpp>
+#include <ktui/widgets/tabs.hpp>
+#include <ktui/widgets/split_pane.hpp>
+#include <ktui/widgets/tree_view.hpp>
+#include <ktui/widgets/progress_bar.hpp>
+#include <ktui/widgets/switch.hpp>
+#include <ktui/widgets/radio_group.hpp>

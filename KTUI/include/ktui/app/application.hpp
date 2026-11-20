@@ -42,8 +42,11 @@ public:
     // 请求退出主循环
     void quit(int exit_code = 0);
 
-    // 驱动单次事件轮询
-    void pump_events(bool wait = false);
+    // 驱动单次事件轮询 (支持指定休眠超时，0 表示纯休眠直至平台输入，实现真正的 0% CPU 闲置)
+    void pump_events(bool wait = false, uint32_t timeout_ms = 16);
+
+    // 计算下一帧休眠超时毫秒
+    [[nodiscard]] uint32_t compute_wait_timeout() const;
 
     // 虚拟时钟步进 (支持无头驱动单步测试与动画推进)
     void step(float dt);

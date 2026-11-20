@@ -2,6 +2,7 @@
 
 #include <ktui/pal/platform_backend.hpp>
 #include <ktui/widgets/widget.hpp>
+#include <ktui/tree/overlay.hpp>
 #include <ktui/event/event_dispatcher.hpp>
 #include <ktui/event/focus_tree.hpp>
 #include <ktui/event/text_input_client.hpp>
@@ -162,6 +163,44 @@ public:
     [[nodiscard]] FocusManager& focus_manager() noexcept { return m_focus_manager; }
     [[nodiscard]] EventDispatcher& event_dispatcher() noexcept { return m_event_dispatcher; }
 
+    // ==================== 浮层与弹出层管理器 (Overlay Manager) ====================
+    [[nodiscard]] OverlayManager& overlay_manager() noexcept { return m_overlay_manager; }
+    [[nodiscard]] const OverlayManager& overlay_manager() const noexcept { return m_overlay_manager; }
+
+    uint64_t show_overlay(OverlayEntry entry) {
+        uint64_t id = m_overlay_manager.show(std::move(entry));
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+        return id;
+    }
+
+    void hide_overlay(uint64_t id) {
+        m_overlay_manager.hide(id);
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+
+    void dismiss_all_overlays() {
+        m_overlay_manager.dismiss_all();
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+
+    [[nodiscard]] bool has_active_overlay() const noexcept {
+        return m_overlay_manager.has_active_overlay();
+    }
+
+    [[nodiscard]] bool has_blinking_cursor() const noexcept {
+        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+            return client->accepts_text_input();
+        }
+        return false;
+    }
+
+    [[nodiscard]] static Window* active_window() noexcept {
+        return s_active_window;
+    }
+
     // 渲染当前帧并自动呈现到物理窗口
     void render_frame() {
         if (!m_root_render_box || !m_platform_window) return;
@@ -187,6 +226,8 @@ public:
         m_renderer->begin_frame();
         PaintContext ctx(m_renderer.get());
         m_root_render_box->paint(ctx);
+        // 2.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
+        m_overlay_manager.layout_and_paint(ctx, Vec2{static_cast<float>(w), static_cast<float>(h)});
         m_renderer->end_frame();
 
         // 3. 光栅化输出 RGBA8
@@ -253,7 +294,40 @@ public:
 
     // 框架级平台事件统一路由（指针、焦点、键盘、IME 全部自动托管）
     void handle_platform_event(const PlatformEvent& pe) {
+        s_active_window = this;
         if (!m_root_render_box) return;
+
+        // 优先让浮层系统拦截处理输入事件
+        if (m_overlay_manager.has_active_overlay()) {
+            if (pe.type == PlatformEventType::PointerDown) {
+                bool handled = m_overlay_manager.handle_pointer_down(pe.position, pe.button);
+                request_redraw();
+                if (m_platform_window) m_platform_window->invalidate();
+                if (handled) return;
+            } else if (pe.type == PlatformEventType::PointerMove) {
+                bool handled = m_overlay_manager.handle_pointer_move(pe.position);
+                if (handled) {
+                    request_redraw();
+                    if (m_platform_window) m_platform_window->invalidate();
+                    return;
+                }
+            } else if (pe.type == PlatformEventType::PointerUp) {
+                bool handled = m_overlay_manager.handle_pointer_up(pe.position, pe.button);
+                request_redraw();
+                if (m_platform_window) m_platform_window->invalidate();
+                if (handled) return;
+            } else if (pe.type == PlatformEventType::KeyDown && pe.key_code == 27) {
+                // Esc 键优先关闭顶层浮层
+                m_overlay_manager.dismiss_top();
+                request_redraw();
+                if (m_platform_window) m_platform_window->invalidate();
+                return;
+            }
+            if (m_overlay_manager.has_modal_overlay()) {
+                // 模态弹窗激活时阻断向底层派发其他事件
+                return;
+            }
+        }
 
         switch (pe.type) {
             case PlatformEventType::PointerMove: {
@@ -497,6 +571,9 @@ private:
     std::vector<uint8_t> m_framebuffer;
     EventDispatcher m_event_dispatcher;
     FocusManager m_focus_manager;
+    OverlayManager m_overlay_manager;
+
+    inline static Window* s_active_window = nullptr;
 
     std::vector<std::function<void(Vec2)>> m_resize_callbacks;
     std::vector<std::function<bool()>> m_close_callbacks;
