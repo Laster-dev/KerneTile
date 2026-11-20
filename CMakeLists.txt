@@ -185,3 +185,16 @@ add_kernetile_test(test_backend_conformance tests/test_backend_conformance.cpp)
 # 阶段 10 测试与基准套件
 add_kernetile_test(test_renderer_lifecycle tests/test_renderer_lifecycle.cpp)
 add_kernetile_test(bench_4k_scenarios tests/bench_4k_scenarios.cpp)
+
+# ==================== KTUI 跨平台现代 C++20 声明式 UI 框架 ====================
+add_subdirectory(KTUI)
+
+# KTUI 阶段 1 测试
+add_executable(test_ktui_pal_headless tests/test_ktui_pal_headless.cpp)
+target_include_directories(test_ktui_pal_headless PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_pal_headless PRIVATE ktui_pal kernetile_core)
+add_test(NAME test_ktui_pal_headless COMMAND test_ktui_pal_headless WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
