@@ -198,3 +198,21 @@ target_include_directories(test_ktui_pal_headless PRIVATE
 )
 target_link_libraries(test_ktui_pal_headless PRIVATE ktui_pal kernetile_core)
 add_test(NAME test_ktui_pal_headless COMMAND test_ktui_pal_headless WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# KTUI 阶段 2 测试
+add_executable(test_ktui_data_binding tests/test_ktui_data_binding.cpp)
+target_include_directories(test_ktui_data_binding PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_data_binding PRIVATE kernetile_core)
+add_test(NAME test_ktui_data_binding COMMAND test_ktui_data_binding WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# KTUI 阶段 3 测试
+add_executable(test_ktui_spring_physics tests/test_ktui_spring_physics.cpp)
+target_include_directories(test_ktui_spring_physics PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_spring_physics PRIVATE kernetile_core)
+add_test(NAME test_ktui_spring_physics COMMAND test_ktui_spring_physics WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

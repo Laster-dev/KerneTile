@@ -2,6 +2,7 @@
 
 #include <kernetile/math/vec.hpp>
 #include <kernetile/math/rect.hpp>
+#include <kernetile/math/color.hpp>
 #include <string>
 #include <cstdint>
 
@@ -9,8 +10,26 @@ namespace ktui {
 
 using Vec2 = kernetile::math::Vec2;
 using Rect = kernetile::math::Rect;
+using Color = kernetile::math::Color;
 using PointF = kernetile::math::Vec2;
 using RectF = kernetile::math::Rect;
+
+// 边缘内边距/外边距 (Top, Right, Bottom, Left)
+struct EdgeInsets {
+    float top{0.0f};
+    float right{0.0f};
+    float bottom{0.0f};
+    float left{0.0f};
+
+    constexpr EdgeInsets() noexcept = default;
+    constexpr EdgeInsets(float all) noexcept : top(all), right(all), bottom(all), left(all) {}
+    constexpr EdgeInsets(float vertical, float horizontal) noexcept
+        : top(vertical), right(horizontal), bottom(vertical), left(horizontal) {}
+    constexpr EdgeInsets(float in_top, float in_right, float in_bottom, float in_left) noexcept
+        : top(in_top), right(in_right), bottom(in_bottom), left(in_left) {}
+
+    bool operator==(const EdgeInsets&) const noexcept = default;
+};
 
 // 窗口类型
 enum class WindowType {
