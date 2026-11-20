@@ -39,6 +39,10 @@ public:
         mark_needs_layout();
     }
 
+    [[nodiscard]] const std::string& text() const noexcept { return m_text; }
+    [[nodiscard]] float font_size() const noexcept { return m_font_size; }
+    [[nodiscard]] Color text_color() const noexcept { return m_text_color; }
+
     void perform_layout() override {
         // 计算文本所占空间
         float text_w = static_cast<float>(m_text.length()) * m_font_size * 0.58f;

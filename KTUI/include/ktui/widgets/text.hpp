@@ -28,6 +28,8 @@ public:
     }
 
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
+    [[nodiscard]] float font_size() const noexcept { return m_font_size; }
+    [[nodiscard]] Color color() const noexcept { return m_color; }
 
     void set_font_size(float size) {
         if (m_font_size != size) {

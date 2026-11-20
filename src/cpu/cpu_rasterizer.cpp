@@ -39,7 +39,10 @@ void CpuTileRasterizer::render_tile(
     std::span<const uint32_t>          tile_indices,
     std::span<const core::TileHeader>  tile_headers,
     std::span<const core::ClipRect>    clip_rects,
-    uint8_t* dst_framebuffer)
+    uint8_t* dst_framebuffer,
+    const uint8_t* atlas_pixels,
+    uint32_t atlas_width,
+    uint32_t atlas_height)
 {
     if (tile_id >= tile_headers.size()) return;
 
@@ -145,7 +148,35 @@ void CpuTileRasterizer::render_tile(
                     dist = std::abs(dist + prim.border_width * 0.5f) - prim.border_width * 0.5f;
                 }
 
-                float geom_cov = evaluate_coverage(dist);
+                // 判断是否为字形图元 (IsGlyph)
+                bool is_glyph = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph)) != 0;
+                float geom_cov = 0.0f;
+
+                if (is_glyph) {
+                    if (p_x >= prim.min_x && p_x <= prim.max_x &&
+                        p_y >= prim.min_y && p_y <= prim.max_y &&
+                        atlas_pixels && atlas_width > 0 && atlas_height > 0)
+                    {
+                        float pw = prim.max_x - prim.min_x;
+                        float ph = prim.max_y - prim.min_y;
+                        if (pw > 0.001f && ph > 0.001f) {
+                            float norm_x = (p_x - prim.min_x) / pw;
+                            float norm_y = (p_y - prim.min_y) / ph;
+                            float u0 = static_cast<float>(prim.atlas_u0) / 65535.0f;
+                            float v0 = static_cast<float>(prim.atlas_v0) / 65535.0f;
+                            float u1 = static_cast<float>(prim.atlas_u1) / 65535.0f;
+                            float v1 = static_cast<float>(prim.atlas_v1) / 65535.0f;
+                            float u = u0 + norm_x * (u1 - u0);
+                            float v = v0 + norm_y * (v1 - v0);
+                            uint32_t ax = std::clamp(static_cast<uint32_t>(u * (atlas_width - 1) + 0.5f), 0u, atlas_width - 1);
+                            uint32_t ay = std::clamp(static_cast<uint32_t>(v * (atlas_height - 1) + 0.5f), 0u, atlas_height - 1);
+                            geom_cov = static_cast<float>(atlas_pixels[ay * atlas_width + ax]) / 255.0f;
+                        }
+                    }
+                } else {
+                    geom_cov = evaluate_coverage(dist);
+                }
+
                 if (geom_cov > 0.0001f) {
                     // 线性光空间预乘混合
                     float src_r = prim.color_r * geom_cov;
@@ -195,7 +226,8 @@ void CpuTileRasterizer::render(
             render_tile(tx, ty, tile_id, params.width, params.height,
                         params.primitives, params.tile_indices,
                         params.tile_headers, params.clip_rects,
-                        dst_framebuffer);
+                        dst_framebuffer,
+                        params.atlas_pixels, params.atlas_width, params.atlas_height);
         }
         return;
     }
@@ -220,7 +252,8 @@ void CpuTileRasterizer::render(
                 render_tile(tx, ty, tile_id, params.width, params.height,
                             params.primitives, params.tile_indices,
                             params.tile_headers, params.clip_rects,
-                            dst_framebuffer);
+                            dst_framebuffer,
+                            params.atlas_pixels, params.atlas_width, params.atlas_height);
             }
         });
     }

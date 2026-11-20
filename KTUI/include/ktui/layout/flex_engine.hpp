@@ -82,7 +82,7 @@ public:
         }
 
         // 确定可供弹性分配的总主轴基准长度
-        float target_container_main = max_main_constraint < BoxConstraints::kInfinity ? max_main_constraint : fixed_main_used;
+        float target_container_main = (total_grow > 0.0f && max_main_constraint < BoxConstraints::kInfinity) ? max_main_constraint : fixed_main_used;
         float remaining_free_space = std::max(0.0f, target_container_main - fixed_main_used);
 
         // 第二遍：为 flex_grow 子项分配剩余空间并排版
@@ -118,8 +118,11 @@ public:
         }
 
         // 确定容器自身的最终尺寸
+        float target_main = (total_grow > 0.0f || min_main_constraint == max_main_constraint)
+            ? (max_main_constraint < BoxConstraints::kInfinity ? max_main_constraint : actual_main_used)
+            : actual_main_used;
         float final_container_main = std::clamp(
-            max_main_constraint < BoxConstraints::kInfinity ? max_main_constraint : actual_main_used,
+            target_main,
             min_main_constraint,
             max_main_constraint
         );

@@ -186,6 +186,9 @@ public:
         params.tile_headers = m_last_binning.headers;
         params.dirty_tiles = dirty_tile_ids;
         params.clip_rects = m_clip_stack.get_clips();
+        params.atlas_pixels = m_atlas.get_pixels();
+        params.atlas_width = m_atlas.get_width();
+        params.atlas_height = m_atlas.get_height();
 
         cpu::CpuTileRasterizer::render(params, dst_buffer);
 

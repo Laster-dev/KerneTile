@@ -52,6 +52,16 @@ public:
 
         if (m_child_box) {
             BoxConstraints child_constraints = m_constraints.deflate(m_padding);
+            if (m_width >= 0.0f) {
+                float inner_w = std::max(0.0f, m_width - pad_size.x);
+                child_constraints.min_width = std::min(child_constraints.min_width, inner_w);
+                child_constraints.max_width = inner_w;
+            }
+            if (m_height >= 0.0f) {
+                float inner_h = std::max(0.0f, m_height - pad_size.y);
+                child_constraints.min_height = std::min(child_constraints.min_height, inner_h);
+                child_constraints.max_height = inner_h;
+            }
             m_child_box->layout(child_constraints, true);
             child_size = m_child_box->size();
             m_child_box->set_offset(Vec2{m_padding.left, m_padding.top});

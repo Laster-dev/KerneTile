@@ -138,7 +138,63 @@ FontRasterResult DWriteTextEngine::rasterize_glyph(
     float font_size,
     bool enable_stem_darkening)
 {
-    // 后备高质量抗锯齿矢量笔划光栅化
+    // 优先使用 Windows GDI 原生高性能矢量字形光栅化 (GetGlyphOutlineW GGO_GRAY8_BITMAP)
+    HDC hdc = CreateCompatibleDC(nullptr);
+    if (hdc) {
+        int font_height = -static_cast<int>(font_size + 0.5f);
+        HFONT hfont = CreateFontW(
+            font_height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI"
+        );
+        HGDIOBJ old_font = SelectObject(hdc, hfont);
+
+        GLYPHMETRICS gm{};
+        MAT2 mat{};
+        mat.eM11.value = 1;
+        mat.eM22.value = 1;
+
+        DWORD size = GetGlyphOutlineW(hdc, glyph_id, GGO_GRAY8_BITMAP, &gm, 0, nullptr, &mat);
+        if (size != GDI_ERROR && size > 0) {
+            std::vector<uint8_t> buffer(size);
+            if (GetGlyphOutlineW(hdc, glyph_id, GGO_GRAY8_BITMAP, &gm, size, buffer.data(), &mat) != GDI_ERROR) {
+                uint32_t w = gm.gmBlackBoxX;
+                uint32_t h = gm.gmBlackBoxY;
+                uint32_t pitch = (w + 3) & ~3;
+
+                std::vector<uint8_t> r8(w * h);
+                for (uint32_t y = 0; y < h; ++y) {
+                    for (uint32_t x = 0; x < w; ++x) {
+                        uint8_t val = buffer[y * pitch + x];
+                        uint32_t scaled = static_cast<uint32_t>(val * 255 / 64);
+                        r8[y * w + x] = static_cast<uint8_t>(scaled > 255 ? 255 : scaled);
+                    }
+                }
+
+                SelectObject(hdc, old_font);
+                DeleteObject(hfont);
+                DeleteDC(hdc);
+
+                if (enable_stem_darkening) {
+                    StemDarkener::apply(r8, font_size);
+                }
+
+                return FontRasterResult{
+                    .width = w,
+                    .height = h,
+                    .bearing_x = gm.gmptGlyphOrigin.x,
+                    .bearing_y = gm.gmptGlyphOrigin.y,
+                    .r8_bitmap = std::move(r8)
+                };
+            }
+        }
+
+        SelectObject(hdc, old_font);
+        DeleteObject(hfont);
+        DeleteDC(hdc);
+    }
+
+    // 后备高质量点阵/矢量笔划光栅化
     BuiltinTextEngine fallback;
     return fallback.rasterize_glyph(glyph_id, font_size, enable_stem_darkening);
 }

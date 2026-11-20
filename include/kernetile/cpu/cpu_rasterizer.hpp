@@ -33,6 +33,9 @@ public:
         std::span<const core::TileHeader>  tile_headers{};
         std::span<const uint32_t>          dirty_tiles{}; // 待渲染的 tile_id 列表
         std::span<const core::ClipRect>    clip_rects{};
+        const uint8_t*                     atlas_pixels{nullptr};
+        uint32_t                           atlas_width{0};
+        uint32_t                           atlas_height{0};
         uint32_t                           thread_count{0}; // 0 代表自适应计算
     };
 
@@ -52,7 +55,10 @@ public:
         std::span<const uint32_t>          tile_indices,
         std::span<const core::TileHeader>  tile_headers,
         std::span<const core::ClipRect>    clip_rects,
-        uint8_t* dst_framebuffer);
+        uint8_t* dst_framebuffer,
+        const uint8_t* atlas_pixels = nullptr,
+        uint32_t atlas_width = 0,
+        uint32_t atlas_height = 0);
 
     // 数学内核 (与 Slang / DXIL 着色器完全相同的 Abramowitz & Stegun 系数)
     static float erf_approx(float x) noexcept;
