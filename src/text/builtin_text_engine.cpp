@@ -57,8 +57,8 @@ TextLayoutResult BuiltinTextEngine::shape_text(
         float adv = font_size * 0.5f;
         if (codepoint == ' ') {
             adv = font_size * 0.3f;
-        } else if (codepoint >= 0x4E00 && codepoint <= 0x9FA5) {
-            // CJK 汉字全角推进
+        } else if (codepoint >= 0x2E80) {
+            // 全角字符
             adv = font_size * 1.0f;
         } else if (codepoint >= 'A' && codepoint <= 'Z') {
             adv = font_size * 0.65f;
@@ -99,7 +99,7 @@ FontRasterResult BuiltinTextEngine::rasterize_glyph(
     uint32_t w = std::max(4u, static_cast<uint32_t>(font_size * 0.6f + 0.5f));
     uint32_t h = std::max(4u, static_cast<uint32_t>(font_size + 0.5f));
 
-    if (glyph_id >= 0x4E00 && glyph_id <= 0x9FA5) {
+    if (glyph_id >= 0x2E80) {
         w = std::max(4u, static_cast<uint32_t>(font_size + 0.5f));
     } else if (glyph_id == 'i' || glyph_id == 'l' || glyph_id == '.' || glyph_id == ':') {
         w = std::max(2u, static_cast<uint32_t>(font_size * 0.3f + 0.5f));
@@ -118,11 +118,6 @@ FontRasterResult BuiltinTextEngine::rasterize_glyph(
         return result;
     }
 
-    const uint8_t* cjk_data = nullptr;
-    if (glyph_id >= 0x4E00) {
-        cjk_data = find_builtin_cjk_glyph(glyph_id);
-    }
-
     if (glyph_id >= 32 && glyph_id <= 126) {
         // ASCII 8x8 标准字模双线性插值渲染
         const uint8_t* src_rows = g_ascii_8x8[glyph_id - 32];
@@ -137,21 +132,8 @@ FontRasterResult BuiltinTextEngine::rasterize_glyph(
                 result.r8_bitmap[y * w + x] = on ? 255 : 0;
             }
         }
-    } else if (cjk_data != nullptr) {
-        // 常用 CJK 汉字 16x16 标准点阵字模渲染
-        for (uint32_t y = 0; y < h; ++y) {
-            float sy = (static_cast<float>(y) / static_cast<float>(h)) * 16.0f;
-            int iy = std::clamp(static_cast<int>(sy), 0, 15);
-            uint16_t row_bits = (static_cast<uint16_t>(cjk_data[iy * 2]) << 8) | cjk_data[iy * 2 + 1];
-            for (uint32_t x = 0; x < w; ++x) {
-                float sx = (static_cast<float>(x) / static_cast<float>(w)) * 16.0f;
-                int ix = std::clamp(static_cast<int>(sx), 0, 15);
-                bool on = (row_bits & (0x8000 >> ix)) != 0;
-                result.r8_bitmap[y * w + x] = on ? 255 : 0;
-            }
-        }
     } else {
-        // 缺字优雅方框 (1px 描边矩形框)
+        // 缺字/不支持字符：标准缺字方框 (Tofu 描边矩形)
         for (uint32_t y = 0; y < h; ++y) {
             for (uint32_t x = 0; x < w; ++x) {
                 bool border = (x == 0 || x == w - 1 || y == 0 || y == h - 1);
