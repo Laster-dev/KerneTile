@@ -1,4 +1,5 @@
 #include "builtin_text_engine.hpp"
+#include "builtin_font_data.hpp"
 #include "kernetile/text/stem_darkening.hpp"
 #include <cmath>
 #include <algorithm>
@@ -117,29 +118,45 @@ FontRasterResult BuiltinTextEngine::rasterize_glyph(
         return result;
     }
 
-    // 合成标准高质量抗锯齿矢量笔划
-    float cx = static_cast<float>(w) * 0.5f;
-    float cy = static_cast<float>(h) * 0.5f;
-    float stroke_r = std::max(0.6f, font_size * 0.07f);
+    const uint8_t* cjk_data = nullptr;
+    if (glyph_id >= 0x4E00) {
+        cjk_data = find_builtin_cjk_glyph(glyph_id);
+    }
 
-    for (uint32_t y = 0; y < h; ++y) {
-        for (uint32_t x = 0; x < w; ++x) {
-            float px = static_cast<float>(x) + 0.5f;
-            float py = static_cast<float>(y) + 0.5f;
-
-            // 基础墨迹几何距离场
-            float d = 100.0f;
-            // 垂直主笔划
-            d = std::min(d, std::abs(px - cx) - stroke_r);
-
-            // 水平横梁
-            if (py >= cy - stroke_r * 1.5f && py <= cy + stroke_r * 1.5f) {
-                d = std::min(d, std::abs(py - cy) - stroke_r);
+    if (glyph_id >= 32 && glyph_id <= 126) {
+        // ASCII 8x8 标准字模双线性插值渲染
+        const uint8_t* src_rows = g_ascii_8x8[glyph_id - 32];
+        for (uint32_t y = 0; y < h; ++y) {
+            float sy = (static_cast<float>(y) / static_cast<float>(h)) * 8.0f;
+            int iy = std::clamp(static_cast<int>(sy), 0, 7);
+            uint8_t row_bits = src_rows[iy];
+            for (uint32_t x = 0; x < w; ++x) {
+                float sx = (static_cast<float>(x) / static_cast<float>(w)) * 8.0f;
+                int ix = std::clamp(static_cast<int>(sx), 0, 7);
+                bool on = (row_bits & (0x80 >> ix)) != 0;
+                result.r8_bitmap[y * w + x] = on ? 255 : 0;
             }
-
-            // 1 像素高斯平滑覆盖率
-            float coverage = std::clamp(0.5f - d, 0.0f, 1.0f);
-            result.r8_bitmap[y * w + x] = static_cast<uint8_t>(coverage * 255.0f);
+        }
+    } else if (cjk_data != nullptr) {
+        // 常用 CJK 汉字 16x16 标准点阵字模渲染
+        for (uint32_t y = 0; y < h; ++y) {
+            float sy = (static_cast<float>(y) / static_cast<float>(h)) * 16.0f;
+            int iy = std::clamp(static_cast<int>(sy), 0, 15);
+            uint16_t row_bits = (static_cast<uint16_t>(cjk_data[iy * 2]) << 8) | cjk_data[iy * 2 + 1];
+            for (uint32_t x = 0; x < w; ++x) {
+                float sx = (static_cast<float>(x) / static_cast<float>(w)) * 16.0f;
+                int ix = std::clamp(static_cast<int>(sx), 0, 15);
+                bool on = (row_bits & (0x8000 >> ix)) != 0;
+                result.r8_bitmap[y * w + x] = on ? 255 : 0;
+            }
+        }
+    } else {
+        // 缺字优雅方框 (1px 描边矩形框)
+        for (uint32_t y = 0; y < h; ++y) {
+            for (uint32_t x = 0; x < w; ++x) {
+                bool border = (x == 0 || x == w - 1 || y == 0 || y == h - 1);
+                result.r8_bitmap[y * w + x] = border ? 200 : 0;
+            }
         }
     }
 
