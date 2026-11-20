@@ -4,6 +4,8 @@
 #include "d3d12_pipeline.hpp"
 #include "d3d12_swapchain.hpp"
 #include "d3d12_command_recorder.hpp"
+#include "embedded_vs_blit.hpp"
+#include "embedded_ps_blit.hpp"
 #include <fstream>
 #include <vector>
 
@@ -228,18 +230,10 @@ void D3D12Device::init_root_signatures() {
 }
 
 void D3D12Device::init_blit_pso() {
-    auto vs_bytes = read_binary_file("shaders/vs_blit.dxil");
-    auto ps_bytes = read_binary_file("shaders/ps_blit.dxil");
-
-    if (vs_bytes.empty() || ps_bytes.empty()) {
-        std::cerr << "[D3D12] Warning: vs_blit.dxil or ps_blit.dxil not found in current directory. Blit PSO initialization deferred." << std::endl;
-        return;
-    }
-
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc{};
     pso_desc.pRootSignature = m_graphics_root_signature.Get();
-    pso_desc.VS = { vs_bytes.data(), vs_bytes.size() };
-    pso_desc.PS = { ps_bytes.data(), ps_bytes.size() };
+    pso_desc.VS = { g_embedded_vs_blit, sizeof(g_embedded_vs_blit) };
+    pso_desc.PS = { g_embedded_ps_blit, sizeof(g_embedded_ps_blit) };
 
     // 不透明渲染，直接覆盖
     pso_desc.BlendState.AlphaToCoverageEnable = FALSE;

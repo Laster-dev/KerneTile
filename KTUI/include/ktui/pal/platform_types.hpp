@@ -133,6 +133,7 @@ enum class PlatformEventType {
 // 跨平台统一事件结构体
 struct PlatformEvent {
     PlatformEventType type = PlatformEventType::PointerMove;
+    void* window_handle = nullptr;     // 事件所属原生窗口句柄 (供多窗口精准路由)
     Vec2 position = {0.0f, 0.0f};      // 局部或全局坐标
     Vec2 delta = {0.0f, 0.0f};         // 移动位移或滚轮偏移
     PointerButton button = PointerButton::None;

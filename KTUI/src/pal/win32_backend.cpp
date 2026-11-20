@@ -1,12 +1,31 @@
 #if defined(_WIN32)
 
 #include "win32_backend.hpp"
+#include <imm.h>
 #include <algorithm>
 
 namespace ktui {
 
 Win32Backend* Win32Backend::s_instance = nullptr;
 static const wchar_t* kWin32ClassName = L"KTUI_Window_Class";
+
+static std::wstring utf8_to_wstring(const std::string& utf8) {
+    if (utf8.empty()) return L"";
+    int len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (len <= 0) return L"";
+    std::wstring out(static_cast<size_t>(len), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &out[0], len);
+    return out;
+}
+
+static std::string wstring_to_utf8(const std::wstring& wide) {
+    if (wide.empty()) return "";
+    int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (len <= 0) return "";
+    std::string out(static_cast<size_t>(len), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), &out[0], len, nullptr, nullptr);
+    return out;
+}
 
 // ==================== Win32Window ====================
 
@@ -42,10 +61,12 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
 
     int x = (m_position.x < 0.0f) ? CW_USEDEFAULT : static_cast<int>(m_position.x);
     int y = (m_position.y < 0.0f) ? CW_USEDEFAULT : static_cast<int>(m_position.y);
-    int w = static_cast<int>(m_size.x);
-    int h = static_cast<int>(m_size.y);
+    RECT adj{0, 0, static_cast<LONG>(m_size.x), static_cast<LONG>(m_size.y)};
+    AdjustWindowRectEx(&adj, style, FALSE, ex_style);
+    int w = adj.right - adj.left;
+    int h = adj.bottom - adj.top;
 
-    std::wstring wtitle(m_title.begin(), m_title.end());
+    std::wstring wtitle = utf8_to_wstring(m_title);
 
     m_hwnd = CreateWindowExW(
         ex_style,
@@ -218,7 +239,7 @@ void Win32Window::flash_taskbar(bool flash) {
 void Win32Window::set_title(const std::string& title) {
     if (!m_hwnd) return;
     m_title = title;
-    std::wstring wtitle(title.begin(), title.end());
+    std::wstring wtitle = utf8_to_wstring(title);
     SetWindowTextW(m_hwnd, wtitle.c_str());
 }
 
@@ -264,6 +285,76 @@ void Win32Window::update_window_style() {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 }
 
+void Win32Window::present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    if (!m_hwnd || !rgba || width == 0 || height == 0) return;
+
+    HDC hdc = GetDC(m_hwnd);
+    if (!hdc) return;
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = static_cast<LONG>(width);
+    bmi.bmiHeader.biHeight = -static_cast<LONG>(height); // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    const size_t pixel_count = static_cast<size_t>(width) * height;
+    m_bgra_scratch.resize(pixel_count * 4);
+    for (size_t i = 0; i < pixel_count; ++i) {
+        m_bgra_scratch[i * 4 + 0] = rgba[i * 4 + 2];
+        m_bgra_scratch[i * 4 + 1] = rgba[i * 4 + 1];
+        m_bgra_scratch[i * 4 + 2] = rgba[i * 4 + 0];
+        m_bgra_scratch[i * 4 + 3] = 255;
+    }
+
+    SetDIBitsToDevice(hdc, 0, 0, width, height, 0, 0, 0, height,
+                      m_bgra_scratch.data(), &bmi, DIB_RGB_COLORS);
+    ReleaseDC(m_hwnd, hdc);
+}
+
+void Win32Window::invalidate() {
+    if (m_hwnd) {
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+}
+
+void Win32Window::set_ime_enabled(bool enabled) {
+    m_ime_enabled = enabled;
+    if (!m_hwnd) return;
+    ImmAssociateContextEx(m_hwnd, nullptr, enabled ? IACE_DEFAULT : 0);
+    if (enabled) {
+        set_ime_cursor_rect(m_ime_cursor_rect);
+    }
+}
+
+void Win32Window::set_ime_cursor_rect(Rect cursor_rect) {
+    m_ime_cursor_rect = cursor_rect;
+    if (!m_hwnd || !m_ime_enabled) return;
+
+    HIMC himc = ImmGetContext(m_hwnd);
+    if (himc) {
+        COMPOSITIONFORM cf{};
+        cf.dwStyle = CFS_POINT;
+        cf.ptCurrentPos.x = static_cast<LONG>(cursor_rect.min_x);
+        cf.ptCurrentPos.y = static_cast<LONG>(cursor_rect.min_y);
+        ImmSetCompositionWindow(himc, &cf);
+
+        CANDIDATEFORM cand{};
+        cand.dwIndex = 0;
+        cand.dwStyle = CFS_EXCLUDE;
+        cand.ptCurrentPos.x = static_cast<LONG>(cursor_rect.min_x);
+        cand.ptCurrentPos.y = static_cast<LONG>(cursor_rect.max_y);
+        cand.rcArea.left = static_cast<LONG>(cursor_rect.min_x);
+        cand.rcArea.top = static_cast<LONG>(cursor_rect.min_y);
+        cand.rcArea.right = static_cast<LONG>(cursor_rect.max_x);
+        cand.rcArea.bottom = static_cast<LONG>(cursor_rect.max_y + 4.0f);
+        ImmSetCandidateWindow(himc, &cand);
+
+        ImmReleaseContext(m_hwnd, himc);
+    }
+}
+
 void Win32Window::close() {
     if (m_hwnd) {
         PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
@@ -272,6 +363,103 @@ void Win32Window::close() {
 
 LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
+        case WM_ERASEBKGND:
+            return 1; // 禁止 GDI 擦除背景防止闪烁
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            BeginPaint(m_hwnd, &ps);
+            EndPaint(m_hwnd, &ps);
+            if (m_on_paint) {
+                m_on_paint();
+            }
+            return 0;
+        }
+
+        case WM_LBUTTONDOWN:
+            SetCapture(m_hwnd);
+            return 0;
+
+        case WM_LBUTTONUP:
+            ReleaseCapture();
+            return 0;
+
+        case WM_IME_STARTCOMPOSITION: {
+            set_ime_cursor_rect(m_ime_cursor_rect);
+            return 0; // 由 KTUI 控件自行绘制预编辑下划线，不显示系统默认悬浮小黑框
+        }
+
+        case WM_IME_COMPOSITION: {
+            HIMC himc = ImmGetContext(m_hwnd);
+            if (himc) {
+                if (lparam & GCS_COMPSTR) {
+                    LONG bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
+                    std::string utf8_comp;
+                    if (bytes > 0) {
+                        std::wstring wide(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+                        ImmGetCompositionStringW(himc, GCS_COMPSTR, &wide[0], static_cast<DWORD>(bytes));
+                        utf8_comp = wstring_to_utf8(wide);
+                    }
+                    if (Win32Backend::instance()) {
+                        PlatformEvent pe{};
+                        pe.type = PlatformEventType::ImeComposition;
+                        pe.window_handle = static_cast<void*>(m_hwnd);
+                        pe.text = std::move(utf8_comp);
+                        pe.timestamp_ms = GetTickCount64();
+                        Win32Backend::instance()->dispatch_platform_event(pe);
+                    }
+                }
+                if (lparam & GCS_RESULTSTR) {
+                    LONG bytes = ImmGetCompositionStringW(himc, GCS_RESULTSTR, nullptr, 0);
+                    if (bytes > 0) {
+                        std::wstring wide(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+                        ImmGetCompositionStringW(himc, GCS_RESULTSTR, &wide[0], static_cast<DWORD>(bytes));
+                        std::string utf8_res = wstring_to_utf8(wide);
+                        if (Win32Backend::instance() && !utf8_res.empty()) {
+                            PlatformEvent pe{};
+                            pe.type = PlatformEventType::ImeCommit;
+                            pe.window_handle = static_cast<void*>(m_hwnd);
+                            pe.text = std::move(utf8_res);
+                            pe.timestamp_ms = GetTickCount64();
+                            Win32Backend::instance()->dispatch_platform_event(pe);
+                        }
+                    }
+                }
+                ImmReleaseContext(m_hwnd, himc);
+            }
+            return 0;
+        }
+
+        case WM_IME_ENDCOMPOSITION: {
+            if (Win32Backend::instance()) {
+                PlatformEvent pe{};
+                pe.type = PlatformEventType::ImeComposition;
+                pe.window_handle = static_cast<void*>(m_hwnd);
+                pe.text = "";
+                pe.timestamp_ms = GetTickCount64();
+                Win32Backend::instance()->dispatch_platform_event(pe);
+            }
+            return 0;
+        }
+
+        case WM_CHAR: {
+            wchar_t ch = static_cast<wchar_t>(wparam);
+            if (ch >= 32 && ch != 127) {
+                std::wstring ws(1, ch);
+                std::string utf8 = wstring_to_utf8(ws);
+                if (Win32Backend::instance() && !utf8.empty()) {
+                    PlatformEvent pe{};
+                    pe.type = PlatformEventType::ImeCommit;
+                    pe.window_handle = static_cast<void*>(m_hwnd);
+                    pe.key_code = static_cast<uint32_t>(ch);
+                    pe.text = std::move(utf8);
+                    pe.timestamp_ms = GetTickCount64();
+                    Win32Backend::instance()->dispatch_platform_event(pe);
+                }
+            }
+            return 0;
+        }
+
         case WM_SIZE: {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
@@ -365,6 +553,9 @@ Win32Backend::~Win32Backend() {
 bool Win32Backend::init() {
     if (m_class_registered) return true;
 
+    // 自动启用 Windows Per-Monitor DPI 感知 V2，彻底杜绝系统拉伸导致的文字模糊
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = static_wnd_proc;
     wc.hInstance = m_hinstance;
@@ -436,7 +627,11 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
         if (it != s_instance->m_window_map.end() && it->second) {
             // 处理统一输入事件转发
             PlatformEvent pe{};
+            pe.window_handle = static_cast<void*>(hwnd);
             pe.timestamp_ms = GetTickCount64();
+            pe.modifiers.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            pe.modifiers.ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            pe.modifiers.alt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
             switch (msg) {
                 case WM_MOUSEMOVE:
                     pe.type = PlatformEventType::PointerMove;

@@ -16,7 +16,7 @@ target_include_directories(ktui_pal PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/include
 )
-target_link_libraries(ktui_pal PUBLIC kernetile_core)
+target_link_libraries(ktui_pal PUBLIC kernetile_core kernetile_engine)
 if (WIN32)
-    target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib)
+    target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib)
 endif()

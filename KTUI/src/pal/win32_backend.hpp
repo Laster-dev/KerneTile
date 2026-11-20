@@ -76,6 +76,13 @@ public:
 
     void* get_native_handle() const override { return static_cast<void*>(m_hwnd); }
 
+    void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override;
+    void invalidate() override;
+    void on_paint_requested(std::function<void()> handler) override { m_on_paint = std::move(handler); }
+
+    void set_ime_enabled(bool enabled) override;
+    void set_ime_cursor_rect(Rect cursor_rect) override;
+
     void on_close_requested(std::function<bool()> handler) override { m_on_close = std::move(handler); }
     void on_resized(std::function<void(Vec2 new_size)> handler) override { m_on_resized = std::move(handler); }
     void on_moved(std::function<void(Vec2 new_pos)> handler) override { m_on_moved = std::move(handler); }
@@ -106,11 +113,15 @@ private:
     RECT m_normal_rect{}; // 退出全屏时的窗口恢复坐标
 
     std::function<TitlebarHitTest(PointF)> m_titlebar_hit_test;
+    std::function<void()> m_on_paint;
     std::function<bool()> m_on_close;
     std::function<void(Vec2)> m_on_resized;
     std::function<void(Vec2)> m_on_moved;
     std::function<void(float)> m_on_dpi_changed;
     std::function<void(bool)> m_on_focus_changed;
+    std::vector<uint8_t> m_bgra_scratch;
+    Rect m_ime_cursor_rect{};
+    bool m_ime_enabled = false;
 };
 
 // Windows 原生 PAL 平台后端

@@ -29,8 +29,17 @@ DWriteTextEngine::DWriteTextEngine() {
     }
 }
 
-static HFONT create_segoe_font(float font_size, std::string_view font_family = "") {
-    std::wstring family = font_family.empty() ? L"Segoe UI" : utf8_to_wide(font_family);
+static bool is_cjk_or_non_ascii(uint32_t ch) noexcept {
+    return ch > 0x7Fu;
+}
+
+static HFONT create_system_font(float font_size, bool use_cjk_fallback, std::string_view font_family = "") {
+    std::wstring family;
+    if (!font_family.empty()) {
+        family = utf8_to_wide(font_family);
+    } else {
+        family = use_cjk_fallback ? L"Microsoft YaHei UI" : L"Segoe UI";
+    }
     int font_height = -static_cast<int>(font_size + 0.5f);
     if (font_height == 0) font_height = -12;
     return CreateFontW(
@@ -43,7 +52,7 @@ static HFONT create_segoe_font(float font_size, std::string_view font_family = "
 FontMetrics DWriteTextEngine::get_metrics(float font_size, std::string_view font_family) {
     HDC hdc = CreateCompatibleDC(nullptr);
     if (hdc) {
-        HFONT hfont = create_segoe_font(font_size, font_family);
+        HFONT hfont = create_system_font(font_size, false, font_family);
         HGDIOBJ old_font = SelectObject(hdc, hfont);
         TEXTMETRICW tm{};
         bool ok = GetTextMetricsW(hdc, &tm) != FALSE;
@@ -79,8 +88,10 @@ TextLayoutResult DWriteTextEngine::shape_text(
     result.glyphs.reserve(wide_text.size());
 
     HDC hdc = CreateCompatibleDC(nullptr);
-    HFONT hfont = hdc ? create_segoe_font(font_size, font_family) : nullptr;
-    HGDIOBJ old_font = (hdc && hfont) ? SelectObject(hdc, hfont) : nullptr;
+    HFONT hfont_latin = hdc ? create_system_font(font_size, false, font_family) : nullptr;
+    HFONT hfont_cjk   = hdc ? create_system_font(font_size, true, font_family)  : nullptr;
+    HGDIOBJ old_font  = (hdc && hfont_latin) ? SelectObject(hdc, hfont_latin) : nullptr;
+    bool current_is_cjk = false;
 
     MAT2 mat{};
     mat.eM11.value = 1;
@@ -88,13 +99,18 @@ TextLayoutResult DWriteTextEngine::shape_text(
 
     float current_x = 0.0f;
     for (wchar_t ch : wide_text) {
-        float adv = font_size * 0.5f;
+        float adv = is_cjk_or_non_ascii(ch) ? font_size : (font_size * 0.5f);
         float gw = adv;
         float gh = result.metrics.line_height;
         float bx = 0.0f;
         float by = result.metrics.ascender;
 
-        if (hdc && hfont) {
+        if (hdc && hfont_latin && hfont_cjk) {
+            bool want_cjk = is_cjk_or_non_ascii(ch);
+            if (want_cjk != current_is_cjk) {
+                SelectObject(hdc, want_cjk ? hfont_cjk : hfont_latin);
+                current_is_cjk = want_cjk;
+            }
             GLYPHMETRICS gm{};
             if (GetGlyphOutlineW(hdc, static_cast<UINT>(ch), GGO_METRICS, &gm, 0, nullptr, &mat) != GDI_ERROR) {
                 adv = static_cast<float>(gm.gmCellIncX);
@@ -122,7 +138,8 @@ TextLayoutResult DWriteTextEngine::shape_text(
 
     if (hdc) {
         if (old_font) SelectObject(hdc, old_font);
-        if (hfont) DeleteObject(hfont);
+        if (hfont_latin) DeleteObject(hfont_latin);
+        if (hfont_cjk) DeleteObject(hfont_cjk);
         DeleteDC(hdc);
     }
 
@@ -137,10 +154,11 @@ FontRasterResult DWriteTextEngine::rasterize_glyph(
     bool enable_stem_darkening)
 {
     (void)enable_stem_darkening;
-    // 使用与 shape_text 完全一致的 Windows TrueType 字形光栅化 (GGO_GRAY8_BITMAP)
+    // 使用与 shape_text 完全一致的 Windows TrueType 字形光栅化 (支持中英自动回退)
     HDC hdc = CreateCompatibleDC(nullptr);
     if (hdc) {
-        HFONT hfont = create_segoe_font(font_size);
+        bool use_cjk = is_cjk_or_non_ascii(glyph_id);
+        HFONT hfont = create_system_font(font_size, use_cjk);
         HGDIOBJ old_font = SelectObject(hdc, hfont);
 
         GLYPHMETRICS gm{};

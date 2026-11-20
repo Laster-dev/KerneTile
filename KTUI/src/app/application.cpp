@@ -30,6 +30,24 @@ Application::Application(std::unique_ptr<IPlatformBackend> backend)
 
     if (m_backend) {
         m_backend->init();
+        m_backend->set_event_callback([this](const PlatformEvent& pe) {
+            std::shared_ptr<Window> target;
+            if (pe.window_handle != nullptr) {
+                for (auto& win : m_windows) {
+                    if (win && !win->is_closed() && win->platform_window() &&
+                        win->platform_window()->get_native_handle() == pe.window_handle) {
+                        target = win;
+                        break;
+                    }
+                }
+            }
+            if (!target && !m_windows.empty()) {
+                target = m_windows.front();
+            }
+            if (target && !target->is_closed()) {
+                target->handle_platform_event(pe);
+            }
+        });
     }
 
     m_dispatcher.bind_current_thread_as_ui_thread();
@@ -53,6 +71,12 @@ int Application::run() {
     m_exit_code = 0;
 
     while (m_running) {
+        for (auto& win : m_windows) {
+            if (win && !win->is_closed() && win->needs_redraw() && win->root_render_box()) {
+                win->render_frame();
+            }
+        }
+
         pump_events(true);
         cleanup_closed_windows();
 

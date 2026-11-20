@@ -72,6 +72,15 @@ public:
     // ==================== 原生句柄 ====================
     virtual void* get_native_handle() const = 0;
 
+    // ==================== 帧呈现与重绘请求 ====================
+    virtual void present_rgba8(const uint8_t* /*rgba*/, uint32_t /*width*/, uint32_t /*height*/) {}
+    virtual void invalidate() {}
+    virtual void on_paint_requested(std::function<void()> /*handler*/) {}
+
+    // ==================== 框架级 IME 输入法控制 ====================
+    virtual void set_ime_enabled(bool /*enabled*/) {}
+    virtual void set_ime_cursor_rect(Rect /*cursor_rect*/) {}
+
     // ==================== 回调与销毁 ====================
     virtual void on_close_requested(std::function<bool()> handler) = 0;
     virtual void on_resized(std::function<void(Vec2 new_size)> handler) = 0;

@@ -50,6 +50,7 @@
 
 // 事件与焦点管线
 #include <ktui/event/event_types.hpp>
+#include <ktui/event/text_input_client.hpp>
 #include <ktui/event/hit_test_tree.hpp>
 #include <ktui/event/event_dispatcher.hpp>
 #include <ktui/event/focus_tree.hpp>
