@@ -19,4 +19,6 @@ target_include_directories(ktui_pal PUBLIC
 target_link_libraries(ktui_pal PUBLIC kernetile_core kernetile_engine)
 if (WIN32)
     target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib)
+else()
+    target_link_libraries(ktui_pal PUBLIC pthread)
 endif()

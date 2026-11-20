@@ -108,6 +108,11 @@ public:
 
 // 工厂方法: 创建 Direct3D 12 设备实现 (Windows 平台)
 // prefer_warp = true 时优先强制使用微软 WARP 多线程软件光栅驱动
+#if defined(_WIN32)
 [[nodiscard]] std::unique_ptr<GraphicsDevice> create_d3d12_device(bool prefer_warp = false);
+#endif
+
+// 工厂方法: 创建跨平台通用/回退设备 (Linux / POSIX)
+[[nodiscard]] std::unique_ptr<GraphicsDevice> create_default_device(bool prefer_warp = false);
 
 } // namespace kernetile::hal

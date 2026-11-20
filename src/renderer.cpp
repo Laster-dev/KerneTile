@@ -12,8 +12,9 @@ public:
           m_dirty_tracker(m_grid.get_total_tiles()),
           m_atlas(2048, 2048, atlas::AtlasFormat::R8_UNORM)
     {
-        // 1. 初始化图形设备 (支持自动降级至 WARP 或纯 CPU)
+        // 1. 初始化图形设备 (支持跨平台自动降级至 WARP 或纯 CPU)
         if (!m_config.force_cpu_fallback) {
+#if defined(_WIN32)
             try {
                 m_device = hal::create_d3d12_device(m_config.prefer_warp);
                 m_is_hardware = true;
@@ -23,6 +24,10 @@ public:
                 m_device.reset();
                 m_is_hardware = false;
             }
+#else
+            m_device = hal::create_default_device(m_config.prefer_warp);
+            m_is_hardware = false; // Linux 默认启用纯 CPU 极速多线程瓦片光栅器
+#endif
         } else {
             m_is_hardware = false;
         }

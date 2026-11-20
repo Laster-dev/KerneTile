@@ -13,6 +13,14 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# 完全静态链接支持 (包括 libc, libstdc++, libgcc, libm, libpthread)
+option(KERNETILE_STATIC "Enable full static linking (including libc, libstdc++)" ON)
+if (KERNETILE_STATIC AND NOT WIN32)
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    set(BUILD_SHARED_LIBS OFF)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+endif()
+
 # 核心接口库
 add_library(kernetile_core INTERFACE)
 target_include_directories(kernetile_core INTERFACE
@@ -32,19 +40,24 @@ target_link_libraries(kernetile_tile PUBLIC kernetile_core)
 
 # 硬件抽象层库 (HAL)
 set(HAL_SOURCES
-    src/hal/d3d12/d3d12_device.cpp
+    src/hal/null/null_device.cpp
 )
+if (WIN32)
+    list(APPEND HAL_SOURCES src/hal/d3d12/d3d12_device.cpp)
+endif()
 
 add_library(kernetile_hal STATIC ${HAL_SOURCES})
 target_include_directories(kernetile_hal PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/d3d12
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/null
 )
-target_link_libraries(kernetile_hal PUBLIC kernetile_core)
-
 if (WIN32)
+    target_include_directories(kernetile_hal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/d3d12)
     target_link_libraries(kernetile_hal PUBLIC d3d12.lib dxgi.lib)
+else()
+    target_link_libraries(kernetile_hal PUBLIC pthread)
 endif()
+target_link_libraries(kernetile_hal PUBLIC kernetile_core)
 
 # 文本排版与光栅化引擎库 (Text)
 set(TEXT_SOURCES
@@ -143,16 +156,22 @@ add_kernetile_test(test_premul tests/test_premul.cpp)
 # 阶段 1 测试
 add_kernetile_test(test_sdf tests/test_sdf.cpp)
 add_kernetile_test(test_shadow tests/test_shadow.cpp)
-add_kernetile_test(test_shader_compilation tests/test_shader_compilation.cpp)
+if (WIN32)
+    add_kernetile_test(test_shader_compilation tests/test_shader_compilation.cpp)
+endif()
 
-# 阶段 2 测试
-add_kernetile_test(test_hal_lifecycle tests/test_hal_lifecycle.cpp)
-add_kernetile_test(test_compute_uav_readback tests/test_compute_uav_readback.cpp)
+# 阶段 2 测试 (Windows D3D12 硬件测试)
+if (WIN32)
+    add_kernetile_test(test_hal_lifecycle tests/test_hal_lifecycle.cpp)
+    add_kernetile_test(test_compute_uav_readback tests/test_compute_uav_readback.cpp)
+endif()
 
 # 阶段 3 测试
 add_kernetile_test(test_tile_binning tests/test_tile_binning.cpp)
 add_kernetile_test(test_dirty_tracking tests/test_dirty_tracking.cpp)
-add_kernetile_test(test_gpu_tile_compute tests/test_gpu_tile_compute.cpp)
+if (WIN32)
+    add_kernetile_test(test_gpu_tile_compute tests/test_gpu_tile_compute.cpp)
+endif()
 
 # 阶段 4 测试
 add_kernetile_test(test_vring_throughput tests/test_vring_throughput.cpp)
@@ -178,7 +197,9 @@ add_kernetile_test(test_ime_state_machine tests/test_ime_state_machine.cpp)
 add_kernetile_test(test_platform_sync tests/test_platform_sync.cpp)
 
 # 阶段 9 测试
-add_kernetile_test(test_warp_adapter tests/test_warp_adapter.cpp)
+if (WIN32)
+    add_kernetile_test(test_warp_adapter tests/test_warp_adapter.cpp)
+endif()
 add_kernetile_test(test_cpu_rasterizer tests/test_cpu_rasterizer.cpp)
 add_kernetile_test(test_backend_conformance tests/test_backend_conformance.cpp)
 
