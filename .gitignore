@@ -1,0 +1,21 @@
+# Build directories
+build/
+bin/
+out/
+.cache/
+
+# IDE files
+.vs/
+.vscode/
+*.vcxproj*
+*.sln
+CMakeSettings.json
+
+# Test binaries and object files
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.ninja
+*.ninja_deps
+*.ninja_log
