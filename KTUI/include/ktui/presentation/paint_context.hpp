@@ -62,6 +62,45 @@ public:
         m_primitive_count++;
     }
 
+    // 绘制线段 (支持水平/垂直轴对齐极速路径与斜向高品质圆角端点胶囊步进插值)
+    void draw_line(PointF p1, PointF p2, Color color, float stroke_width = 1.0f) {
+        if (color.a <= 0.001f || stroke_width <= 0.0f) return;
+        float dx = p2.x - p1.x;
+        float dy = p2.y - p1.y;
+        float len = std::sqrt(dx * dx + dy * dy);
+        if (len <= 0.001f) {
+            draw_rect(Rect::from_xywh(p1.x - stroke_width * 0.5f, p1.y - stroke_width * 0.5f, stroke_width, stroke_width), color, stroke_width * 0.5f, 0.0f);
+            return;
+        }
+
+        // 水平线快速路径
+        if (std::abs(dy) < 0.001f) {
+            float min_x = std::min(p1.x, p2.x);
+            float w = std::abs(dx);
+            draw_rect(Rect::from_xywh(min_x, p1.y - stroke_width * 0.5f, w, stroke_width), color, 0.0f, 0.0f);
+            return;
+        }
+
+        // 垂直线快速路径
+        if (std::abs(dx) < 0.001f) {
+            float min_y = std::min(p1.y, p2.y);
+            float h = std::abs(dy);
+            draw_rect(Rect::from_xywh(p1.x - stroke_width * 0.5f, min_y, stroke_width, h), color, 0.0f, 0.0f);
+            return;
+        }
+
+        // 斜向线段高质量圆角胶囊采样 (完全规避锯齿)
+        float step = std::max(0.6f, stroke_width * 0.45f);
+        int steps = std::max(1, static_cast<int>(std::ceil(len / step)));
+        float rad = stroke_width * 0.5f;
+        for (int i = 0; i <= steps; ++i) {
+            float t = static_cast<float>(i) / static_cast<float>(steps);
+            float cx = p1.x + dx * t;
+            float cy = p1.y + dy * t;
+            draw_rect(Rect::from_xywh(cx - rad, cy - rad, stroke_width, stroke_width), color, rad, 0.0f);
+        }
+    }
+
     // 推入局部裁剪矩形
     void push_clip(Rect rect, float corner_radius = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
