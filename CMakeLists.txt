@@ -299,6 +299,27 @@ target_link_libraries(test_ktui_button_and_motion PRIVATE
 )
 add_test(NAME test_ktui_button_and_motion COMMAND test_ktui_button_and_motion WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# KTUI TextBox 样式移植与三层解耦单元测试
+add_executable(test_ktui_textbox tests/test_ktui_textbox.cpp)
+target_include_directories(test_ktui_textbox PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_textbox PRIVATE
+    ktui_pal
+    kernetile_engine
+    kernetile_hal
+    kernetile_tile
+    kernetile_text
+    kernetile_fx
+    kernetile_input
+    kernetile_platform
+    kernetile_cpu
+    kernetile_core
+)
+add_test(NAME test_ktui_textbox COMMAND test_ktui_textbox WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # KTUI 桌面成品可执行 Demo 应用程序
 add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
 target_include_directories(ktui_studio_demo PRIVATE
