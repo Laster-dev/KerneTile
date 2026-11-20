@@ -235,3 +235,24 @@ target_include_directories(test_ktui_flex_layout PRIVATE
 )
 target_link_libraries(test_ktui_flex_layout PRIVATE kernetile_core)
 add_test(NAME test_ktui_flex_layout COMMAND test_ktui_flex_layout WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+# KTUI 阶段 6 测试
+add_executable(test_ktui_dirty_and_render tests/test_ktui_dirty_and_render.cpp)
+target_include_directories(test_ktui_dirty_and_render PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_link_libraries(test_ktui_dirty_and_render PRIVATE
+    ktui_pal
+    kernetile_engine
+    kernetile_hal
+    kernetile_tile
+    kernetile_text
+    kernetile_fx
+    kernetile_input
+    kernetile_platform
+    kernetile_cpu
+    kernetile_core
+)
+add_test(NAME test_ktui_dirty_and_render COMMAND test_ktui_dirty_and_render WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
