@@ -39,9 +39,11 @@ const BinningResult& TileBinner::bin_primitives(
         uint32_t tx0, ty0, tx1, ty1;
         grid.get_intersecting_tiles(effective_min_x, effective_min_y, effective_max_x, effective_max_y, tx0, ty0, tx1, ty1);
 
-        // 判断该图元是否为绝对不透明实心矩形
+        // 判断该图元是否为绝对不透明实心矩形 (必须排除字形图元及任何带有裁剪约束的图元)
         bool is_solid_box = false;
         if (enable_early_occlusion_culling &&
+            !(prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph)) &&
+            (prim.clip_index == core::INVALID_INDEX_U16) &&
             prim.color_a >= 0.999f &&
             prim.border_width <= 0.0f &&
             prim.shadow_blur <= 0.0f &&
