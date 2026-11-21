@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KerneTile Studio (KTUI Web)</title>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --panel-bg: #1c1c20;
+            --border-color: #2e2e34;
+            --accent-color: #2b7fff;
+            --text-primary: #f0f0f2;
+            --text-secondary: #909098;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 24px;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin: 0 0 6px 0;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(43, 127, 255, 0.2);
+            color: var(--accent-color);
+            border: 1px solid rgba(43, 127, 255, 0.4);
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
+            background-color: #1a1a1d;
+        }
+
+        #canvas {
+            display: block;
+            outline: none;
+            cursor: default;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #4caf50;
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+        }
+
+        .status-dot.loading {
+            background-color: #ff9800;
+            box-shadow: 0 0 8px rgba(255, 152, 0, 0.6);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { opacity: 0.4; }
+            to { opacity: 1.0; }
+        }
+
+        .footer-tips {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+            max-width: 480px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">
+                KerneTile Studio
+                <span class="badge">WebAssembly</span>
+            </h1>
+            <p class="subtitle">跨平台现代 C++20 声明式 UI 框架 · Web 实时光栅化演示</p>
+        </div>
+
+        <div class="canvas-wrapper">
+            <canvas id="canvas" width="480" height="310" tabindex="0"></canvas>
+        </div>
+
+        <div class="status-bar">
+            <span id="status-dot" class="status-dot loading"></span>
+            <span id="status-text">正在加载 WebAssembly 模块...</span>
+        </div>
+
+        <div class="footer-tips">
+            💡 提示：本演示运行于纯 WebAssembly 沙盒。支持鼠标悬停、点击动效、焦点导航、双向数据绑定以及原生文本与中英文输入法。
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        var statusDot = document.getElementById('status-dot');
+        var statusText = document.getElementById('status-text');
+
+        var Module = {
+            preRun: [],
+            postRun: [function() {
+                if (statusDot) statusDot.className = 'status-dot';
+                if (statusText) statusText.textContent = '运行中 (60 FPS 响应式事件循环已就绪)';
+                var canvas = document.getElementById('canvas');
+                if (canvas) canvas.focus();
+            }],
+            print: function(text) {
+                console.log('[KerneTile Wasm stdout]', text);
+            },
+            printErr: function(text) {
+                console.error('[KerneTile Wasm stderr]', text);
+                if (text && (text.indexOf('Aborted') !== -1 || text.indexOf('Exception') !== -1) && statusText) {
+                    statusText.textContent = '异常: ' + text;
+                }
+            },
+            canvas: (function() {
+                var canvas = document.getElementById('canvas');
+                return canvas;
+            })(),
+            setStatus: function(text) {
+                if (!text) return;
+                if (statusText) statusText.textContent = text;
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function(left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                if (statusText) {
+                    statusText.textContent = left ? '加载依赖资源中 (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')...' : '初始化引擎...';
+                }
+            }
+        };
+
+        window.onerror = function(event) {
+            if (statusDot) statusDot.style.backgroundColor = '#f44336';
+            if (statusText) statusText.textContent = '运行异常: ' + event;
+        };
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

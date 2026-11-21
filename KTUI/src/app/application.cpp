@@ -2,6 +2,10 @@
 #include <ktui/pal/clipboard.hpp>
 #include <algorithm>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
+
 namespace ktui {
 
 // ==================== ThemeContext 实现 ====================
@@ -69,29 +73,100 @@ Application::~Application() {
     }
 }
 
+void Application::step_frame() {
+    for (auto& win : m_windows) {
+        if (win && !win->is_closed() && win->root_render_box()) {
+            bool needs_paint = win->needs_redraw() ||
+                win->root_render_box()->needs_paint() ||
+                win->root_render_box()->needs_layout();
+            if (needs_paint) {
+                win->render_frame();
+            }
+        }
+    }
+
+    pump_events(false, 0);
+
+    for (auto& win : m_windows) {
+        if (win && !win->is_closed() && win->has_blinking_cursor()) {
+            win->tick_blinking_cursor();
+        }
+    }
+
+    cleanup_closed_windows();
+
+#if defined(__EMSCRIPTEN__)
+    if (m_windows.empty()) {
+        quit(0);
+        emscripten_cancel_main_loop();
+    }
+#endif
+}
+
 int Application::run() {
     m_running = true;
     m_exit_code = 0;
 
+#if defined(__EMSCRIPTEN__)
+    emscripten_set_main_loop_arg([](void* arg) {
+        static_cast<Application*>(arg)->step_frame();
+    }, this, 0, 1);
+    return m_exit_code;
+#else
+    auto last_render_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(16);
+    constexpr auto kFrameInterval = std::chrono::milliseconds(16); // 60 FPS 工业基准帧率节拍
+
     while (m_running) {
-        for (auto& win : m_windows) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_since_render = now - last_render_time;
+
+        bool has_pending_render = false;
+        for (const auto& win : m_windows) {
             if (win && !win->is_closed() && win->root_render_box()) {
-                bool needs_paint = win->needs_redraw() ||
+                if (win->needs_redraw() ||
                     win->root_render_box()->needs_paint() ||
-                    win->root_render_box()->needs_layout();
-                if (needs_paint) {
-                    win->render_frame();
+                    win->root_render_box()->needs_layout()) {
+                    has_pending_render = true;
+                    break;
+                }
+            }
+        }
+
+        if (has_pending_render) {
+            if (elapsed_since_render >= kFrameInterval) {
+                // 到达或超过 16ms 帧周期，准时推进并呈现新帧
+                last_render_time = now;
+                for (auto& win : m_windows) {
+                    if (win && !win->is_closed() && win->root_render_box()) {
+                        bool needs_paint = win->needs_redraw() ||
+                            win->root_render_box()->needs_paint() ||
+                            win->root_render_box()->needs_layout();
+                        if (needs_paint) {
+                            win->render_frame();
+                        }
+                    }
                 }
             }
         }
 
         uint32_t wait_ms = compute_wait_timeout();
+        // 若有待渲染帧但未到 16ms 节拍，精准休眠到下一个 16ms 周期
+        if (has_pending_render) {
+            now = std::chrono::steady_clock::now();
+            auto remaining = kFrameInterval - (now - last_render_time);
+            if (remaining > std::chrono::milliseconds(0)) {
+                uint32_t rem_ms = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
+                wait_ms = (wait_ms == 0) ? rem_ms : std::min(wait_ms, rem_ms);
+                if (wait_ms == 0) wait_ms = 1;
+            }
+        }
+
         pump_events(true, wait_ms);
 
-        // 若光标在闪烁周期内，按需唤醒重绘
+        // 若光标闪烁周期到达，精确触发单帧翻转重绘 (绝无无脑连续 request_redraw() 导致的 60FPS 满载空转)
         for (auto& win : m_windows) {
             if (win && !win->is_closed() && win->has_blinking_cursor()) {
-                win->request_redraw();
+                win->tick_blinking_cursor();
             }
         }
 
@@ -105,11 +180,12 @@ int Application::run() {
     }
 
     return m_exit_code;
+#endif
 }
 
 uint32_t Application::compute_wait_timeout() const {
     bool has_dirty = false;
-    bool has_blinking = false;
+    uint32_t min_blink_wait = 0;
     for (const auto& win : m_windows) {
         if (win && !win->is_closed()) {
             if (win->needs_redraw()) {
@@ -121,12 +197,18 @@ uint32_t Application::compute_wait_timeout() const {
                 break;
             }
             if (win->has_blinking_cursor()) {
-                has_blinking = true;
+                uint32_t rem = win->time_until_next_blink_ms();
+                if (rem > 0) {
+                    min_blink_wait = (min_blink_wait == 0) ? rem : std::min(min_blink_wait, rem);
+                } else {
+                    has_dirty = true;
+                    break;
+                }
             }
         }
     }
-    if (has_dirty) return 1;
-    if (has_blinking) return 100;
+    if (has_dirty) return 16; // 60 FPS 工业标准帧间隔平滑推进连续动效 (水波纹、对勾展开、焦点滑条等)
+    if (min_blink_wait > 0) return min_blink_wait; // 精确休眠直到下次光标闪烁，0% CPU！
     return 0; // 完全闲置，平台消息队列彻底挂起休眠，0% CPU！
 }
 

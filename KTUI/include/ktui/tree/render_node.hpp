@@ -142,6 +142,14 @@ public:
     void clear_needs_layout() noexcept { m_needs_layout = false; }
     void clear_needs_paint() noexcept { m_needs_paint = false; }
 
+    void clear_dirty_recursive() noexcept {
+        m_needs_layout = false;
+        m_needs_paint = false;
+        for (RenderNode* child = m_first_child; child != nullptr; child = child->m_next_sibling) {
+            child->clear_dirty_recursive();
+        }
+    }
+
 protected:
     virtual void schedule_relayout() {}
 

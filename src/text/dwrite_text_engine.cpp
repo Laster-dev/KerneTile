@@ -222,6 +222,18 @@ std::unique_ptr<ITextEngine> create_text_engine() {
 } // namespace kernetile::text
 
 #else
+
+#if defined(__EMSCRIPTEN__)
+#include "web_text_engine.hpp"
+
+namespace kernetile::text {
+std::unique_ptr<ITextEngine> create_directwrite_engine() { return nullptr; }
+std::unique_ptr<ITextEngine> create_text_engine() { 
+    return create_web_text_engine(); 
+}
+}
+
+#else
 #include "vector_text_engine.hpp"
 
 namespace kernetile::text {
@@ -230,5 +242,6 @@ std::unique_ptr<ITextEngine> create_text_engine() {
     return create_vector_text_engine(); 
 }
 }
+#endif
 
 #endif

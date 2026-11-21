@@ -2,6 +2,8 @@
 #include "headless_backend.hpp"
 #if defined(_WIN32)
 #include "win32_backend.hpp"
+#elif defined(__EMSCRIPTEN__)
+#include "web_backend.hpp"
 #else
 #include "linux_backend.hpp"
 #endif
@@ -14,6 +16,8 @@ std::unique_ptr<IPlatformBackend> create_platform_backend(bool force_headless) {
     }
 #if defined(_WIN32)
     return std::make_unique<Win32Backend>();
+#elif defined(__EMSCRIPTEN__)
+    return std::make_unique<WebBackend>();
 #else
     return std::make_unique<LinuxBackend>();
 #endif

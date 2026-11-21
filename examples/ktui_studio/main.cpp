@@ -211,7 +211,106 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
     };
 }
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <dbghelp.h>
+
+static LONG WINAPI ktui_crash_handler(EXCEPTION_POINTERS* ep) {
+    if (ep->ExceptionRecord->ExceptionCode == 0xe06d7363) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    FILE* f = std::fopen("D:\\KerneTile\\crash.log", "w");
+    auto log_msg = [&](const char* fmt, auto... args) {
+        if (f) {
+            std::fprintf(f, fmt, args...);
+            std::fflush(f);
+        }
+        std::fprintf(stderr, fmt, args...);
+        std::fflush(stderr);
+    };
+
+    log_msg("=== CRASH CAUGHT BY HANDLER ===\n");
+    log_msg("Exception Code: 0x%08lX\n", ep->ExceptionRecord->ExceptionCode);
+    log_msg("Exception Address: %p\n", ep->ExceptionRecord->ExceptionAddress);
+
+    if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+        ep->ExceptionRecord->NumberParameters >= 2) {
+        ULONG_PTR access_type = ep->ExceptionRecord->ExceptionInformation[0];
+        ULONG_PTR target_addr = ep->ExceptionRecord->ExceptionInformation[1];
+        log_msg("Access Violation: %s address %p\n",
+                access_type == 0 ? "Read" : (access_type == 1 ? "Write" : "Execute"),
+                reinterpret_cast<void*>(target_addr));
+    }
+
+    HANDLE proc = GetCurrentProcess();
+    SymInitialize(proc, nullptr, TRUE);
+
+    STACKFRAME64 frame{};
+    frame.AddrPC.Offset = ep->ContextRecord->Rip;
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = ep->ContextRecord->Rsp;
+    frame.AddrStack.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = ep->ContextRecord->Rbp;
+    frame.AddrFrame.Mode = AddrModeFlat;
+
+    CONTEXT ctx = *ep->ContextRecord;
+    log_msg("\n--- Call Stack ---\n");
+
+    for (int i = 0; i < 32; ++i) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, GetCurrentThread(),
+                         &frame, &ctx, nullptr, SymFunctionTableAccess64,
+                         SymGetModuleBase64, nullptr)) {
+            break;
+        }
+
+        DWORD64 addr = frame.AddrPC.Offset;
+        if (addr == 0) break;
+
+        char symbol_buf[sizeof(SYMBOL_INFO) + 256]{};
+        SYMBOL_INFO* symbol = reinterpret_cast<SYMBOL_INFO*>(symbol_buf);
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen = 255;
+        DWORD64 displacement = 0;
+
+        IMAGEHLP_LINE64 line{};
+        line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+        DWORD line_disp = 0;
+
+        if (SymFromAddr(proc, addr, &displacement, symbol)) {
+            if (SymGetLineFromAddr64(proc, addr, &line_disp, &line)) {
+                log_msg("[%02d] %s - %s:%u (0x%llX)\n", i, symbol->Name, line.FileName, line.LineNumber, addr);
+            } else {
+                log_msg("[%02d] %s + 0x%llX (0x%llX)\n", i, symbol->Name, displacement, addr);
+            }
+        } else {
+            log_msg("[%02d] 0x%llX\n", i, addr);
+        }
+    }
+
+    HANDLE dmp = CreateFileW(L"D:\\KerneTile\\crash.dmp", GENERIC_WRITE, 0, nullptr,
+                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (dmp != INVALID_HANDLE_VALUE) {
+        MINIDUMP_EXCEPTION_INFORMATION mei{};
+        mei.ThreadId = GetCurrentThreadId();
+        mei.ExceptionPointers = ep;
+        mei.ClientPointers = FALSE;
+        MiniDumpWriteDump(proc, GetCurrentProcessId(), dmp, MiniDumpNormal, &mei, nullptr, nullptr);
+        CloseHandle(dmp);
+        log_msg("\nMinidump written to D:\\KerneTile\\crash.dmp\n");
+    }
+
+    if (f) std::fclose(f);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#endif
+
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
+    AddVectoredExceptionHandler(1, ktui_crash_handler);
+    SetUnhandledExceptionFilter(ktui_crash_handler);
+#endif
     std::setlocale(LC_ALL, "");
     bool capture_only = false;
     for (int i = 1; i < argc; ++i) {
@@ -221,8 +320,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // 1. 启动 KTUI 框架宿主
-    Application app(create_platform_backend(capture_only));
+    // 1. 启动 KTUI 框架宿主 (使用静态生命周期，保障 WebAssembly 异步帧循环中上下文安全)
+    static Application app(create_platform_backend(capture_only));
 
     constexpr float kWidth = 480.0f;
     constexpr float kHeight = 310.0f;
@@ -239,12 +338,14 @@ int main(int argc, char* argv[]) {
     }
 
     // 2. 声明式挂载精简工作台 UI (按钮计数、Checkbox、文本框)
-    SimpleDemoViewModel vm;
+    static SimpleDemoViewModel vm;
     window->set_content(build_simple_ui(vm, window, kWidth, kHeight));
 
-    // 3. 导出首帧预览图
+    // 3. 导出首帧预览图 (Web 平台下直接呈现)
     window->render_frame();
+#if !defined(__EMSCRIPTEN__)
     window->export_bmp("KTUI_Studio_Preview.bmp");
+#endif
 
     if (capture_only) {
         std::cout << "[Done] Preview exported: KTUI_Studio_Preview.bmp" << std::endl;

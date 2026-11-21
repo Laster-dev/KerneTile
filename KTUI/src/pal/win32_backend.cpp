@@ -286,30 +286,36 @@ void Win32Window::update_window_style() {
 }
 
 void Win32Window::present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) {
-    if (!m_hwnd || !rgba || width == 0 || height == 0) return;
+    present_rgba8_region(rgba, width, height, 0, 0, width, height);
+}
+
+void Win32Window::present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
+                                       uint32_t dirty_x, uint32_t dirty_y,
+                                       uint32_t dirty_w, uint32_t dirty_h) {
+    if (!m_hwnd || !rgba || width == 0 || height == 0 || dirty_w == 0 || dirty_h == 0) return;
 
     HDC hdc = GetDC(m_hwnd);
     if (!hdc) return;
 
-    BITMAPINFO bmi{};
+    struct {
+        BITMAPINFOHEADER bmiHeader;
+        DWORD bmiColors[3];
+    } bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = static_cast<LONG>(width);
     bmi.bmiHeader.biHeight = -static_cast<LONG>(height); // top-down
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
+    bmi.bmiHeader.biCompression = BI_BITFIELDS;
+    bmi.bmiColors[0] = 0x000000FF; // Red
+    bmi.bmiColors[1] = 0x0000FF00; // Green
+    bmi.bmiColors[2] = 0x00FF0000; // Blue
 
-    const size_t pixel_count = static_cast<size_t>(width) * height;
-    m_bgra_scratch.resize(pixel_count * 4);
-    for (size_t i = 0; i < pixel_count; ++i) {
-        m_bgra_scratch[i * 4 + 0] = rgba[i * 4 + 2];
-        m_bgra_scratch[i * 4 + 1] = rgba[i * 4 + 1];
-        m_bgra_scratch[i * 4 + 2] = rgba[i * 4 + 0];
-        m_bgra_scratch[i * 4 + 3] = 255;
-    }
-
-    SetDIBitsToDevice(hdc, 0, 0, width, height, 0, 0, 0, height,
-                      m_bgra_scratch.data(), &bmi, DIB_RGB_COLORS);
+    // 针对局部脏区极速拷贝：ySrc 计算严格依据 top-down DIB 规范: height - dirty_y - dirty_h
+    int ySrc = static_cast<int>(height) - static_cast<int>(dirty_y) - static_cast<int>(dirty_h);
+    SetDIBitsToDevice(hdc, dirty_x, dirty_y, dirty_w, dirty_h,
+                      dirty_x, ySrc, 0, height,
+                      rgba, reinterpret_cast<const BITMAPINFO*>(&bmi), DIB_RGB_COLORS);
     ReleaseDC(m_hwnd, hdc);
 }
 
@@ -631,6 +637,7 @@ void Win32Backend::wait_events(uint32_t timeout_ms) {
         if (GetMessageW(&msg, nullptr, 0, 0)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+            poll_events();
         }
     } else {
         MsgWaitForMultipleObjects(0, nullptr, FALSE, timeout_ms, QS_ALLINPUT);

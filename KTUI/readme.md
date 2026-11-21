@@ -9,7 +9,9 @@
 - **C++20 指定初始化器声明式语法 (Designated Initializers)**：
   告别冗余样板代码，参数具名自解释，天然类似 QML / Flutter，无任何宏或外部预处理器依赖。
 - **纯粹跨平台抽象层 (PAL: Platform Abstraction Layer)**：
-  解耦单一系统。支持 Windows (Win32/D3D12/IMM32)、Linux (Wayland/Vulkan/FreeType)、macOS (Cocoa/Metal/CoreText) 与 **Headless（纯内存虚拟无头测试驱动，全平台 100% CI 自动化）**。
+  解耦单一系统。支持 Windows (Win32/D3D12/IMM32)、Linux (X11/Wayland/FreeType/POSIX)、Web (WebAssembly/HTML5 Canvas 2D/IME 桥接) 与 **Headless（纯内存虚拟无头测试驱动，全平台 100% CI 自动化）**。
+- **Web 端 (WebAssembly) 原生级体验**：
+  基于 Emscripten 离线编译为高性能 Wasm 模块（体积仅 ~380KB），60 FPS 响应式事件循环、无锁脏瓦片 CPU 光栅呈现、HTML5 鼠标/触控手势全覆盖，并支持浏览器原生中英文输入法（IME）悬浮跟随与剪贴板同步。
 - **工业级数据绑定体系 (Data Binding Engine)**：
   统一 `bind(...)` 语法：输入框/复选框双向绑定自动回写并内置 **Transaction Token 防死锁环路熔断机制**；只读展示单向投影；Lambda 转换器绑定。
 - **SOTA 物理弹簧动画系统 (Spring-first & Velocity Preservation)**：
@@ -122,3 +124,34 @@ WidgetPtr build_todo_view(TodoViewModel& vm) {
 | **阶段 5** | [phase_05_render_tree_and_flex_layout.md](file:///d:/KerneTile/KTUI/docs/phase_05_render_tree_and_flex_layout.md) | 保留式 RenderTree 场景树、BoxConstraints 与纯 C++20 双通道 Flex 布局引擎 |
 | **阶段 6** | [phase_06_dirty_pipeline_and_kerne_tile_integration.md](file:///d:/KerneTile/KTUI/docs/phase_06_dirty_pipeline_and_kerne_tile_integration.md) | 双级脏区计算、Capture/Bubble 路由、IME 状态机与 KerneTile 16×16 瓦片渲染闭环 |
 | **阶段 7** | [phase_07_designated_initializer_widgets_and_e2e.md](file:///d:/KerneTile/KTUI/docs/phase_07_designated_initializer_widgets_and_e2e.md) | C++20 指定初始化器控件库与端到端综合应用压测 |
+
+---
+
+## 跨平台构建与运行指南 (Windows / Linux / Web)
+
+### 1. Web 端 (WebAssembly) 构建
+```bash
+# Windows 环境一键构建 (自动探测 Emscripten、CMake、Ninja 与 Node.js):
+scripts\build_web.bat
+
+# Linux / macOS 环境构建:
+bash scripts/build_web.sh
+
+# 启动本地预览服务器并在浏览器中打开:
+python -m http.server 8080 --directory build-web
+# 浏览器访问: http://localhost:8080/ktui_studio_demo.html
+```
+
+### 2. Windows 原生端构建 (Direct3D 12 / Win32)
+```powershell
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+.\build\examples\ktui_studio\Release\ktui_studio_demo.exe
+```
+
+### 3. Linux 原生端构建 (POSIX / X11 / 纯静态分发)
+```bash
+bash scripts/setup_linux_env.sh
+./build-linux/ktui_studio_demo
+```
+

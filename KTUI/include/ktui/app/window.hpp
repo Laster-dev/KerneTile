@@ -197,6 +197,24 @@ public:
         return false;
     }
 
+    bool tick_blinking_cursor() {
+        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+            if (client->accepts_text_input()) {
+                return client->tick_cursor_blink();
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] uint32_t time_until_next_blink_ms() const noexcept {
+        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+            if (client->accepts_text_input()) {
+                return client->time_until_next_blink_ms();
+            }
+        }
+        return 0;
+    }
+
     [[nodiscard]] static Window* active_window() noexcept {
         return s_active_window;
     }
@@ -222,21 +240,37 @@ public:
         BoxConstraints constraints = BoxConstraints::tight(Vec2{static_cast<float>(w), static_cast<float>(h)});
         m_root_render_box->layout(constraints);
 
-        // 2. 绘制图元
+        // 2. 清理上一帧的历史脏标记 (必须在 paint() 之前清空)
+        // 这样任何正在播放动效的子控件（Checkbox 对勾生长、TextBox 底部焦点线滑动、Button 水波纹等）
+        // 在 paint() 内部步进动效时调用的 mark_needs_paint() 将被正确保留，
+        // 从而驱动主循环继续推进下一帧，彻底解决鼠标静止时动效中途卡住“留尾巴”的问题！
+        if (m_root_render_box) {
+            m_root_render_box->clear_dirty_recursive();
+        }
+        clear_redraw_flag();
+
+        // 3. 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
         m_renderer->begin_frame();
         PaintContext ctx(m_renderer.get());
         m_root_render_box->paint(ctx);
-        // 2.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
+        // 3.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
         m_overlay_manager.layout_and_paint(ctx, Vec2{static_cast<float>(w), static_cast<float>(h)});
         m_renderer->end_frame();
 
-        // 3. 光栅化输出 RGBA8
+        // 4. 光栅化输出 RGBA8
         m_framebuffer.resize(static_cast<size_t>(w) * h * 4);
         m_renderer->render_to_rgba8(m_framebuffer.data());
 
-        // 4. 呈现到平台窗口
-        m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
-        clear_redraw_flag();
+        // 5. 呈现到平台窗口 (仅对发生实际像素变动的局部脏区提交物理呈现，消除全屏传输开销)
+        const auto& stats = m_renderer->get_last_frame_stats();
+        if (stats.dirty_tiles > 0) {
+            uint32_t dirty_x = 0, dirty_y = 0, dirty_w = w, dirty_h = h;
+            if (m_renderer->get_last_dirty_bounds(dirty_x, dirty_y, dirty_w, dirty_h)) {
+                m_platform_window->present_rgba8_region(m_framebuffer.data(), w, h, dirty_x, dirty_y, dirty_w, dirty_h);
+            } else {
+                m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
+            }
+        }
     }
 
     // 跨平台导出当前帧为 32-bit BMP 位图（零平台 API 依赖）
@@ -346,9 +380,7 @@ public:
                         }
                     }
                     m_platform_window->set_cursor(cursor);
-                    m_platform_window->invalidate();
                 }
-                request_redraw();
                 break;
             }
             case PlatformEventType::PointerScroll: {

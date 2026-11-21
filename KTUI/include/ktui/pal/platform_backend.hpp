@@ -73,7 +73,12 @@ public:
     virtual void* get_native_handle() const = 0;
 
     // ==================== 帧呈现与重绘请求 ====================
-    virtual void present_rgba8(const uint8_t* /*rgba*/, uint32_t /*width*/, uint32_t /*height*/) {}
+    virtual void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) {
+        present_rgba8_region(rgba, width, height, 0, 0, width, height);
+    }
+    virtual void present_rgba8_region(const uint8_t* /*rgba*/, uint32_t /*width*/, uint32_t /*height*/,
+                                      uint32_t /*dirty_x*/, uint32_t /*dirty_y*/,
+                                      uint32_t /*dirty_w*/, uint32_t /*dirty_h*/) {}
     virtual void invalidate() {}
     virtual void on_paint_requested(std::function<void()> /*handler*/) {}
 

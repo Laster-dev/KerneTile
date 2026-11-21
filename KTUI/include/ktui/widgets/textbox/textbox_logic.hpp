@@ -292,6 +292,7 @@ public:
             float dt = std::chrono::duration<float>(now - m_last_tick_time).count();
             m_last_tick_time = now;
             m_focus_line_tween.tick(dt);
+            mark_needs_paint();
         }
 
         auto style = resolve_current_style();
@@ -329,7 +330,7 @@ public:
 
         context.push_clip(content_rect, 0.0f);
 
-        std::string display_text = get_display_text();
+        std::string_view display_text = get_display_text();
         float font_sz = style.font_size;
         float text_y = bounds().min_y + (bounds().height() - font_sz) * 0.5f - 1.0f;
         float start_x = content_rect.min_x - m_scroll_offset_x;
@@ -338,8 +339,8 @@ public:
         if (m_state.is_focused && has_selection() && !display_text.empty()) {
             size_t sel_s = selection_start();
             size_t sel_e = selection_end();
-            float sel_x1 = start_x + TextMeasure::measure_width(std::string_view(display_text).substr(0, sel_s), font_sz);
-            float sel_x2 = start_x + TextMeasure::measure_width(std::string_view(display_text).substr(0, sel_e), font_sz);
+            float sel_x1 = start_x + TextMeasure::measure_width(display_text.substr(0, sel_s), font_sz);
+            float sel_x2 = start_x + TextMeasure::measure_width(display_text.substr(0, sel_e), font_sz);
             Rect sel_rect = Rect::from_xywh(
                 sel_x1,
                 content_rect.min_y,
@@ -407,10 +408,10 @@ public:
 
     [[nodiscard]] Rect get_ime_cursor_rect() const override {
         auto style = resolve_current_style();
-        std::string display_text = get_display_text();
+        std::string_view display_text = get_display_text();
         float font_sz = style.font_size;
         float start_x = bounds().min_x + style.padding.left - m_scroll_offset_x;
-        float cursor_x = start_x + TextMeasure::measure_width(std::string_view(display_text).substr(0, m_cursor_index), font_sz);
+        float cursor_x = start_x + TextMeasure::measure_width(display_text.substr(0, m_cursor_index), font_sz);
         float caret_h = font_sz + 2.0f;
         float caret_y = bounds().min_y + (bounds().height() - caret_h) * 0.5f;
         return Rect::from_xywh(cursor_x, caret_y, style.caret_width, caret_h);
@@ -639,7 +640,7 @@ private:
             auto style = resolve_current_style();
             float start_x = style.padding.left - m_scroll_offset_x;
             float click_x = ev.local_position.x - start_x;
-            std::string display_text = get_display_text();
+            std::string_view display_text = get_display_text();
 
             if (m_click_count == 2) {
                 select_word_at(click_x, display_text, style.font_size);
@@ -665,7 +666,7 @@ private:
                 auto style = resolve_current_style();
                 float start_x = style.padding.left - m_scroll_offset_x;
                 float click_x = ev.local_position.x - start_x;
-                std::string display_text = get_display_text();
+                std::string_view display_text = get_display_text();
                 m_cursor_index = get_char_index_at(click_x, display_text, style.font_size);
                 ensure_cursor_visible();
                 mark_needs_paint();
@@ -681,31 +682,57 @@ private:
         };
     }
 
-    void update_blink_state(uint32_t blink_rate_ms) {
+    bool tick_cursor_blink() override {
         if (!m_state.is_focused) {
-            m_blink_visible = false;
-            return;
+            if (m_blink_visible) {
+                m_blink_visible = false;
+                mark_needs_paint();
+                return true;
+            }
+            return false;
         }
+        auto style = resolve_current_style();
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_blink_time).count();
-        if (elapsed >= blink_rate_ms) {
+        if (elapsed >= style.caret_blink_ms) {
             m_blink_visible = !m_blink_visible;
             m_last_blink_time = now;
             mark_needs_paint();
+            return true;
         }
+        return false;
     }
 
-    [[nodiscard]] std::string get_display_text() const {
+    [[nodiscard]] uint32_t time_until_next_blink_ms() const noexcept override {
+        if (!m_state.is_focused) return 0;
+        auto style = resolve_current_style();
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_blink_time).count();
+        if (elapsed >= style.caret_blink_ms) return 0;
+        return static_cast<uint32_t>(style.caret_blink_ms - elapsed);
+    }
+
+    void update_blink_state(uint32_t /*blink_rate_ms*/) {
+        tick_cursor_blink();
+    }
+
+    [[nodiscard]] std::string_view get_display_text() const {
         if (m_data.is_password && !m_data.is_password_revealed) {
-            // 密码掩码: 每个字符转换为黑圆点 • (U+2022 UTF-8: E2 80 A2)
-            std::string masked;
-            size_t count = count_utf8_chars(m_data.text);
-            for (size_t i = 0; i < count; ++i) {
-                masked += "\xE2\x80\xA2";
-            }
-            return masked;
+            update_password_mask_cache();
+            return m_cached_password_mask;
         }
         return m_data.text;
+    }
+
+    void update_password_mask_cache() const {
+        size_t count = count_utf8_chars(m_data.text);
+        if (m_cached_password_mask.size() != count * 3) {
+            m_cached_password_mask.clear();
+            m_cached_password_mask.reserve(count * 3);
+            for (size_t i = 0; i < count; ++i) {
+                m_cached_password_mask += "\xE2\x80\xA2";
+            }
+        }
     }
 
     void insert_text_internal(const std::string& str) {
@@ -749,8 +776,8 @@ private:
         float reveal_btn_w = (m_data.is_password && m_data.show_reveal_button) ? 22.0f : 0.0f;
         float avail_w = std::max(10.0f, m_size.x - style.padding.horizontal() - reveal_btn_w);
 
-        std::string display_text = get_display_text();
-        float cursor_rel_x = TextMeasure::measure_width(std::string_view(display_text).substr(0, m_cursor_index), font_sz);
+        std::string_view display_text = get_display_text();
+        float cursor_rel_x = TextMeasure::measure_width(display_text.substr(0, m_cursor_index), font_sz);
         if (cursor_rel_x - m_scroll_offset_x > avail_w - 4.0f) {
             m_scroll_offset_x = cursor_rel_x - avail_w + 12.0f;
         } else if (cursor_rel_x - m_scroll_offset_x < 0.0f) {
@@ -758,7 +785,7 @@ private:
         }
     }
 
-    void select_word_at(float click_x, const std::string& str, float font_sz) {
+    void select_word_at(float click_x, std::string_view str, float font_sz) {
         size_t idx = get_char_index_at(click_x, str, font_sz);
         if (str.empty()) return;
 
@@ -777,14 +804,14 @@ private:
         m_cursor_index = end;
     }
 
-    [[nodiscard]] size_t get_char_index_at(float x, const std::string& str, float font_sz) const {
+    [[nodiscard]] size_t get_char_index_at(float x, std::string_view str, float font_sz) const {
         if (x <= 0.0f || str.empty()) return 0;
         size_t byte_pos = 0;
         float prev_w = 0.0f;
 
         while (byte_pos < str.length()) {
             size_t next_pos = next_utf8_char_index(str, byte_pos);
-            float curr_w = TextMeasure::measure_width(std::string_view(str).substr(0, next_pos), font_sz);
+            float curr_w = TextMeasure::measure_width(str.substr(0, next_pos), font_sz);
             float mid_x = (prev_w + curr_w) * 0.5f;
             if (x < mid_x) {
                 return byte_pos;
@@ -799,7 +826,7 @@ private:
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
     }
 
-    static size_t prev_utf8_char_index(const std::string& str, size_t index) noexcept {
+    static size_t prev_utf8_char_index(std::string_view str, size_t index) noexcept {
         if (index == 0) return 0;
         size_t pos = index - 1;
         while (pos > 0 && (static_cast<unsigned char>(str[pos]) & 0xC0) == 0x80) {
@@ -808,7 +835,7 @@ private:
         return pos;
     }
 
-    static size_t next_utf8_char_index(const std::string& str, size_t index) noexcept {
+    static size_t next_utf8_char_index(std::string_view str, size_t index) noexcept {
         if (index >= str.length()) return str.length();
         size_t pos = index + 1;
         while (pos < str.length() && (static_cast<unsigned char>(str[pos]) & 0xC0) == 0x80) {
@@ -817,7 +844,7 @@ private:
         return pos;
     }
 
-    static size_t count_utf8_chars(const std::string& str) noexcept {
+    static size_t count_utf8_chars(std::string_view str) noexcept {
         size_t count = 0;
         size_t pos = 0;
         while (pos < str.length()) {
@@ -827,6 +854,7 @@ private:
         return count;
     }
 
+    mutable std::string m_cached_password_mask{};
     TextBoxData m_data;
     TextBoxInteractiveState m_state;
 

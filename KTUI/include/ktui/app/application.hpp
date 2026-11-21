@@ -85,6 +85,9 @@ public:
     [[nodiscard]] Dispatcher& dispatcher() noexcept { return m_dispatcher; }
     [[nodiscard]] IPlatformBackend& backend() noexcept { return *m_backend; }
 
+    // 驱动单帧渲染与事件派发 (供 WebAssembly 主循环与宿主调度使用)
+    void step_frame();
+
 private:
     void cleanup_closed_windows();
 

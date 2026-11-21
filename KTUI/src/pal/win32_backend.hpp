@@ -77,6 +77,9 @@ public:
     void* get_native_handle() const override { return static_cast<void*>(m_hwnd); }
 
     void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override;
+    void present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
+                              uint32_t dirty_x, uint32_t dirty_y,
+                              uint32_t dirty_w, uint32_t dirty_h) override;
     void invalidate() override;
     void on_paint_requested(std::function<void()> handler) override { m_on_paint = std::move(handler); }
 

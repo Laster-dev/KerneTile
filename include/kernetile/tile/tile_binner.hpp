@@ -21,13 +21,18 @@ public:
         m_tile_bins.resize(initial_tile_capacity);
     }
 
-    [[nodiscard]] BinningResult bin_primitives(
+    [[nodiscard]] const BinningResult& bin_primitives(
         const TileGrid& grid,
         std::span<const core::UiPrimitive> primitives,
         bool enable_early_occlusion_culling = true);
 
+    [[nodiscard]] const BinningResult& get_result() const noexcept {
+        return m_result;
+    }
+
 private:
     std::vector<std::vector<uint32_t>> m_tile_bins;
+    BinningResult m_result;
 };
 
 } // namespace kernetile::tile

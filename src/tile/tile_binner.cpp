@@ -1,9 +1,10 @@
 #include "kernetile/tile/tile_binner.hpp"
 #include <algorithm>
+#include <cstring>
 
 namespace kernetile::tile {
 
-BinningResult TileBinner::bin_primitives(
+const BinningResult& TileBinner::bin_primitives(
     const TileGrid& grid,
     std::span<const core::UiPrimitive> primitives,
     bool enable_early_occlusion_culling)
@@ -74,9 +75,14 @@ BinningResult TileBinner::bin_primitives(
         }
     }
 
-    // 2. 扁平化构建 TileHeader 与 TileIndices 连续数组
-    BinningResult result;
-    result.headers.resize(total_tiles);
+    // 2. 扁平化构建 TileHeader 与 TileIndices 连续数组 (单次预分配 + 零重分配 memcpy)
+    size_t total_indices = 0;
+    for (uint32_t t = 0; t < total_tiles; ++t) {
+        total_indices += m_tile_bins[t].size();
+    }
+
+    m_result.headers.resize(total_tiles);
+    m_result.indices.resize(total_indices);
 
     size_t running_offset = 0;
     uint32_t max_count = 0;
@@ -85,7 +91,7 @@ BinningResult TileBinner::bin_primitives(
         const auto& bin = m_tile_bins[t];
         uint16_t count = static_cast<uint16_t>(bin.size());
 
-        result.headers[t] = core::TileHeader{
+        m_result.headers[t] = core::TileHeader{
             .primitive_offset = static_cast<uint32_t>(running_offset),
             .primitive_count = count,
             .flags = 0
@@ -95,13 +101,15 @@ BinningResult TileBinner::bin_primitives(
             max_count = count;
         }
 
-        result.indices.insert(result.indices.end(), bin.begin(), bin.end());
-        running_offset += count;
+        if (count > 0) {
+            std::memcpy(m_result.indices.data() + running_offset, bin.data(), count * sizeof(uint32_t));
+            running_offset += count;
+        }
     }
 
-    result.max_primitives_per_tile = max_count;
-    result.total_indices_count = result.indices.size();
-    return result;
+    m_result.max_primitives_per_tile = max_count;
+    m_result.total_indices_count = total_indices;
+    return m_result;
 }
 
 } // namespace kernetile::tile

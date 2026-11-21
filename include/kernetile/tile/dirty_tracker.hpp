@@ -34,11 +34,15 @@ public:
     }
 
     // 更新帧图元并检测脏瓦片
-    [[nodiscard]] DirtyTrackingResult update(
+    [[nodiscard]] const DirtyTrackingResult& update(
         const TileGrid& grid,
         std::span<const core::TileHeader> headers,
         std::span<const uint32_t> indices,
         std::span<const core::UiPrimitive> primitives);
+
+    [[nodiscard]] const DirtyTrackingResult& get_result() const noexcept {
+        return m_result;
+    }
 
     void reset() {
         std::fill(m_prev_signatures.begin(), m_prev_signatures.end(), 0);
@@ -46,6 +50,8 @@ public:
 
 private:
     std::vector<uint64_t> m_prev_signatures;
+    std::vector<uint64_t> m_prim_signatures;
+    DirtyTrackingResult m_result;
 };
 
 } // namespace kernetile::tile

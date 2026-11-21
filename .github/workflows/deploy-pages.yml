@@ -1,0 +1,68 @@
+name: Deploy WebAssembly Demo to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Ninja
+        uses: ashutosh-varma/setup-ninja@master
+        with:
+          version: 1.11.1
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.56
+
+      - name: Verify Emscripten
+        run: |
+          emcc -v
+
+      - name: Configure CMake for Web
+        run: |
+          emcmake cmake -B build-web -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=20
+
+      - name: Build WebAssembly Demo
+        run: |
+          cmake --build build-web --target ktui_studio_demo
+
+      - name: Prepare GitHub Pages Distribution
+        run: |
+          mkdir -p dist
+          cp build-web/ktui_studio_demo.html dist/index.html
+          cp build-web/ktui_studio_demo.js dist/ktui_studio_demo.js
+          cp build-web/ktui_studio_demo.wasm dist/ktui_studio_demo.wasm
+          touch dist/.nojekyll
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

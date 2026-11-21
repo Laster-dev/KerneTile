@@ -85,6 +85,12 @@ public:
     // 性能指标查询
     virtual const FrameStats& get_last_frame_stats() const = 0;
 
+    // 获取上一帧脏区域外接矩形 (像素坐标)，若无脏区则返回 false
+    virtual bool get_last_dirty_bounds(uint32_t& out_x, uint32_t& out_y, uint32_t& out_w, uint32_t& out_h) const {
+        (void)out_x; (void)out_y; (void)out_w; (void)out_h;
+        return false;
+    }
+
     // 获取底层设备
     virtual hal::GraphicsDevice* get_device() const = 0;
     virtual bool is_hardware_accelerated() const = 0;
