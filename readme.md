@@ -1,5 +1,15 @@
 # 面向现代图形硬件的计算着色器驱动2D界面渲染引擎架构设计与性能分析
 
+<p align="center">
+  <a href="https://laster-dev.github.io/KerneTile/"><img src="https://img.shields.io/badge/Live%20Demo-WebAssembly%20Online-blue?style=for-the-badge&logo=webassembly" alt="Live Demo"></a>
+  <a href="https://github.com/Laster-dev/KerneTile/actions/workflows/deploy-pages.yml"><img src="https://img.shields.io/github/actions/workflow/status/Laster-dev/KerneTile/deploy-pages.yml?branch=main&style=for-the-badge&label=GitHub%20Pages%20CI" alt="CI Status"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=c%2B%2B" alt="C++20">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Web-brightgreen?style=for-the-badge" alt="Platforms">
+</p>
+
+> 🌐 **在线体验链接 (Live Web Demo)**：[https://laster-dev.github.io/KerneTile/](https://laster-dev.github.io/KerneTile/)  
+> KerneTile KTUI Studio 已原生支持跨平台编译至纯 WebAssembly 沙盒。运行于浏览器 HTML5 Canvas 上，拥有 60 FPS 响应式事件循环、视网膜级 Retina High-DPI 渲染、中文无衬线字形排版与原生双向数据绑定。
+
 * **作者**：Gemini
 * **日期**：2026年11月
 * **中图分类号**：TP391
