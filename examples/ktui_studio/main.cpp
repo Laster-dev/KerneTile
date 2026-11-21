@@ -33,16 +33,20 @@ static void set_all_buttons_disabled(RenderNode* node, bool disabled) {
 }
 
 // 构建极简桌面工作台 UI (只保留：按钮计数、Checkbox、文本框)
-static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window> win, float win_w, float win_h) {
+static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window> win, float win_w, float win_h, float dpi = 1.0f) {
+    auto s = [dpi](float v) -> float {
+        return std::round(v * dpi);
+    };
+
     return Box {
         .width = win_w,
         .height = win_h,
         .background_color = Color{0.11f, 0.11f, 0.13f, 1.0f},
-        .padding = EdgeInsets(16.0f, 18.0f),
+        .padding = EdgeInsets(s(16.0f), s(18.0f)),
         .child = VStack {
             .justify = JustifyContent::FlexStart,
             .align_items = AlignItems::Stretch,
-            .spacing = 14.0f,
+            .spacing = s(14.0f),
             .padding = EdgeInsets::zero(),
             .content = {
                 // -----------------------------------------------------
@@ -51,38 +55,38 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                 Box {
                     .background_color = Color{0.15f, 0.15f, 0.18f, 1.0f},
                     .border_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
-                    .border_width = 1.0f,
-                    .corner_radius = 5.0f,
-                    .padding = EdgeInsets(12.0f, 14.0f),
+                    .border_width = s(1.0f),
+                    .corner_radius = s(5.0f),
+                    .padding = EdgeInsets(s(12.0f), s(14.0f)),
                     .child = VStack {
                         .justify = JustifyContent::FlexStart,
                         .align_items = AlignItems::FlexStart,
-                        .spacing = 10.0f,
+                        .spacing = s(10.0f),
                         .padding = EdgeInsets::zero(),
                         .content = {
                             Text {
                                 .text = "当前计数: 0   (步长: 1)",
                                 .bind_text = bind(vm.count_text),
-                                .font_size = 14.0f,
+                                .font_size = s(14.0f),
                                 .color = Color{0.95f, 0.95f, 0.98f, 1.0f}
                             },
                             HStack {
                                 .justify = JustifyContent::FlexStart,
                                 .align_items = AlignItems::Center,
-                                .spacing = 8.0f,
+                                .spacing = s(8.0f),
                                 .padding = EdgeInsets::zero(),
                                 .content = {
                                     Button {
                                         .text = "+ 增加",
-                                        .height = 26.0f,
-                                        .corner_radius = 3.0f,
-                                        .padding = EdgeInsets(4.0f, 14.0f),
+                                        .height = s(26.0f),
+                                        .corner_radius = s(3.0f),
+                                        .padding = EdgeInsets(s(4.0f), s(14.0f)),
                                         .background_color = Color{0.15f, 0.45f, 0.85f, 1.0f},
                                         .hover_color = Color{0.20f, 0.52f, 0.92f, 1.0f},
                                         .active_color = Color{0.10f, 0.35f, 0.70f, 1.0f},
                                         .text_color = Color::white(),
                                         .border_width = 0.0f,
-                                        .font_size = 13.0f,
+                                        .font_size = s(13.0f),
                                         .on_click = [&vm]() {
                                             if (vm.lock_buttons.get()) return;
                                             vm.count += vm.step_ten.get() ? 10 : 1;
@@ -91,14 +95,14 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                                     },
                                     Button {
                                         .text = "- 减少",
-                                        .height = 26.0f,
-                                        .corner_radius = 3.0f,
-                                        .padding = EdgeInsets(4.0f, 14.0f),
+                                        .height = s(26.0f),
+                                        .corner_radius = s(3.0f),
+                                        .padding = EdgeInsets(s(4.0f), s(14.0f)),
                                         .background_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
                                         .hover_color = Color{0.28f, 0.28f, 0.34f, 1.0f},
                                         .text_color = Color{0.90f, 0.90f, 0.94f, 1.0f},
                                         .border_width = 0.0f,
-                                        .font_size = 13.0f,
+                                        .font_size = s(13.0f),
                                         .on_click = [&vm]() {
                                             if (vm.lock_buttons.get()) return;
                                             vm.count -= vm.step_ten.get() ? 10 : 1;
@@ -107,14 +111,14 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                                     },
                                     Button {
                                         .text = "重置",
-                                        .height = 26.0f,
-                                        .corner_radius = 3.0f,
-                                        .padding = EdgeInsets(4.0f, 12.0f),
+                                        .height = s(26.0f),
+                                        .corner_radius = s(3.0f),
+                                        .padding = EdgeInsets(s(4.0f), s(12.0f)),
                                         .background_color = Color{0.26f, 0.18f, 0.20f, 1.0f},
                                         .hover_color = Color{0.36f, 0.22f, 0.24f, 1.0f},
                                         .text_color = Color{0.95f, 0.80f, 0.80f, 1.0f},
                                         .border_width = 0.0f,
-                                        .font_size = 13.0f,
+                                        .font_size = s(13.0f),
                                         .on_click = [&vm]() {
                                             if (vm.lock_buttons.get()) return;
                                             vm.count = 0;
@@ -133,29 +137,29 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                 Box {
                     .background_color = Color{0.15f, 0.15f, 0.18f, 1.0f},
                     .border_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
-                    .border_width = 1.0f,
-                    .corner_radius = 5.0f,
-                    .padding = EdgeInsets(10.0f, 14.0f),
+                    .border_width = s(1.0f),
+                    .corner_radius = s(5.0f),
+                    .padding = EdgeInsets(s(10.0f), s(14.0f)),
                     .child = HStack {
                         .justify = JustifyContent::FlexStart,
                         .align_items = AlignItems::Center,
-                        .spacing = 20.0f,
+                        .spacing = s(20.0f),
                         .padding = EdgeInsets::zero(),
                         .content = {
                             Checkbox {
                                 .checked = false,
                                 .bind_checked = bind(vm.step_ten),
                                 .label = "步长 10 (+10)",
-                                .size = 15.0f,
-                                .font_size = 13.0f,
+                                .size = s(15.0f),
+                                .font_size = s(13.0f),
                                 .on_change = [&vm](bool) { vm.update_count_label(); }
                             },
                             Checkbox {
                                 .checked = false,
                                 .bind_checked = bind(vm.lock_buttons),
                                 .label = "锁定按钮",
-                                .size = 15.0f,
-                                .font_size = 13.0f,
+                                .size = s(15.0f),
+                                .font_size = s(13.0f),
                                 .on_change = [&vm, win](bool locked) {
                                     set_all_buttons_disabled(win->root_render_box(), locked);
                                     vm.update_count_label();
@@ -171,28 +175,28 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                 Box {
                     .background_color = Color{0.15f, 0.15f, 0.18f, 1.0f},
                     .border_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
-                    .border_width = 1.0f,
-                    .corner_radius = 5.0f,
-                    .padding = EdgeInsets(12.0f, 14.0f),
+                    .border_width = s(1.0f),
+                    .corner_radius = s(5.0f),
+                    .padding = EdgeInsets(s(12.0f), s(14.0f)),
                     .child = VStack {
                         .justify = JustifyContent::FlexStart,
                         .align_items = AlignItems::Stretch,
-                        .spacing = 8.0f,
+                        .spacing = s(8.0f),
                         .padding = EdgeInsets::zero(),
                         .content = {
                             Text {
                                 .text = "单行文本输入 (支持撤销/重做、双向绑定):",
-                                .font_size = 12.5f,
+                                .font_size = s(12.5f),
                                 .color = Color{0.78f, 0.80f, 0.84f, 1.0f}
                             },
                             TextInput {
                                 .text = "KerneTile KTUI",
                                 .placeholder = "键入中文或英文...",
                                 .bind_text = bind(vm.input_text),
-                                .height = 28.0f,
-                                .corner_radius = 3.0f,
-                                .padding = EdgeInsets(4.0f, 8.0f),
-                                .font_size = 13.0f,
+                                .height = s(28.0f),
+                                .corner_radius = s(3.0f),
+                                .padding = EdgeInsets(s(4.0f), s(8.0f)),
+                                .font_size = s(13.0f),
                                 .on_change = [&vm](const std::string& val) {
                                     vm.input_preview.set(val.empty() ? "输入预览: (空)" : "输入预览: " + val);
                                 }
@@ -200,7 +204,7 @@ static WidgetPtr build_simple_ui(SimpleDemoViewModel& vm, std::shared_ptr<Window
                             Text {
                                 .text = "输入预览: KerneTile KTUI",
                                 .bind_text = bind(vm.input_preview),
-                                .font_size = 12.5f,
+                                .font_size = s(12.5f),
                                 .color = Color{0.38f, 0.78f, 0.98f, 1.0f}
                             }
                         }
@@ -339,7 +343,28 @@ int main(int argc, char* argv[]) {
 
     // 2. 声明式挂载精简工作台 UI (按钮计数、Checkbox、文本框)
     static SimpleDemoViewModel vm;
-    window->set_content(build_simple_ui(vm, window, kWidth, kHeight));
+
+#if defined(__EMSCRIPTEN__)
+    float dpi = window->dpi_scale();
+    if (dpi < 1.0f || !std::isfinite(dpi)) dpi = 1.0f;
+    if (dpi > 2.0f) dpi = 2.0f;
+    float phys_w = std::round(kWidth * dpi);
+    float phys_h = std::round(kHeight * dpi);
+    window->set_size(Vec2{phys_w, phys_h});
+    window->set_content(build_simple_ui(vm, window, phys_w, phys_h, dpi));
+
+    window->on_dpi_changed([window](float new_dpi) {
+        if (new_dpi < 1.0f || !std::isfinite(new_dpi)) new_dpi = 1.0f;
+        if (new_dpi > 2.0f) new_dpi = 2.0f;
+        float pw = std::round(kWidth * new_dpi);
+        float ph = std::round(kHeight * new_dpi);
+        window->set_size(Vec2{pw, ph});
+        window->set_content(build_simple_ui(vm, window, pw, ph, new_dpi));
+        window->render_frame(true);
+    });
+#else
+    window->set_content(build_simple_ui(vm, window, kWidth, kHeight, 1.0f));
+#endif
 
     // 3. 导出首帧预览图 (Web 平台下直接呈现)
     window->render_frame();

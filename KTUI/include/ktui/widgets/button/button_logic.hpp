@@ -253,12 +253,7 @@ public:
             context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
         }
 
-        // 5. 绘制 Fluent 焦点环指示器 (当通过键盘 Tab 聚焦时显现)
-        if (m_state.is_focused && style.focus_ring.a > 0.001f) {
-            context.draw_rect(bounds(), style.focus_ring, style.corner_radius, 1.5f);
-        }
-
-        // 6. 居中绘制图标与文本 (硬件视口裁剪，防止极端溢出)
+        // 5. 居中绘制图标与文本 (硬件视口裁剪，防止极端溢出)
         if (!m_data.text.empty() || !m_data.icon.empty()) {
             context.push_clip(bounds(), style.corner_radius);
 

@@ -220,7 +220,9 @@ public:
     }
 
     // 渲染当前帧并自动呈现到物理窗口
-    void render_frame() {
+    // force_full_present = true 用于响应系统 WM_PAINT / X11 Expose 等外部重绘请求，
+    // 即使脏瓦片为 0，也必须将现有帧缓冲完整提交到物理窗口表面，彻底避免首帧/遮挡恢复后白屏。
+    void render_frame(bool force_full_present = false) {
         if (!m_root_render_box || !m_platform_window) return;
         Vec2 sz = m_platform_window->size();
         uint32_t w = static_cast<uint32_t>(sz.x);
@@ -230,10 +232,23 @@ public:
         ensure_renderer();
         if (!m_renderer) return;
 
+        // 极速曝光恢复路径：系统要求重绘表面但 UI 状态零变动，直接将已有帧缓冲提交给窗口，免除重复排版与光栅化
+        if (force_full_present &&
+            m_renderer_w == w && m_renderer_h == h &&
+            m_framebuffer.size() == static_cast<size_t>(w) * h * 4 &&
+            !needs_redraw() &&
+            !m_root_render_box->needs_paint() &&
+            !m_root_render_box->needs_layout())
+        {
+            m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
+            return;
+        }
+
         if (m_renderer_w != w || m_renderer_h != h) {
             m_renderer->resize(w, h);
             m_renderer_w = w;
             m_renderer_h = h;
+            force_full_present = true;
         }
 
         // 1. 布局
@@ -261,9 +276,11 @@ public:
         m_framebuffer.resize(static_cast<size_t>(w) * h * 4);
         m_renderer->render_to_rgba8(m_framebuffer.data());
 
-        // 5. 呈现到平台窗口 (仅对发生实际像素变动的局部脏区提交物理呈现，消除全屏传输开销)
+        // 5. 呈现到平台窗口 (外部曝光强制全量提交；动效/交互仅对发生实际像素变动的局部脏区提交物理呈现)
         const auto& stats = m_renderer->get_last_frame_stats();
-        if (stats.dirty_tiles > 0) {
+        if (force_full_present) {
+            m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
+        } else if (stats.dirty_tiles > 0) {
             uint32_t dirty_x = 0, dirty_y = 0, dirty_w = w, dirty_h = h;
             if (m_renderer->get_last_dirty_bounds(dirty_x, dirty_y, dirty_w, dirty_h)) {
                 m_platform_window->present_rgba8_region(m_framebuffer.data(), w, h, dirty_x, dirty_y, dirty_w, dirty_h);
@@ -565,7 +582,7 @@ private:
         if (!m_platform_window) return;
 
         m_platform_window->on_paint_requested([this]() {
-            render_frame();
+            render_frame(true);
         });
 
         m_platform_window->on_resized([this](Vec2 sz) {
