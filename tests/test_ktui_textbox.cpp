@@ -110,7 +110,7 @@ void test_textbox_backward_compatibility_aliases() {
 
     // 采用历史写法 TextInput 声明
     TextInput legacy_desc{
-        .bind_text = bind(search_query)
+        .text = Bind(search_query)
     };
 
     auto w = static_cast<WidgetPtr>(legacy_desc);

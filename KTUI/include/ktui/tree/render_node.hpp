@@ -112,6 +112,11 @@ public:
         m_needs_layout = true;
 
         if (m_is_relayout_boundary || m_parent == nullptr) {
+            RenderNode* ancestor = m_parent;
+            while (ancestor && !ancestor->m_child_needs_layout) {
+                ancestor->m_child_needs_layout = true;
+                ancestor = ancestor->m_parent;
+            }
             schedule_relayout();
         } else {
             m_parent->mark_needs_layout();
@@ -128,6 +133,7 @@ public:
     }
 
     [[nodiscard]] bool needs_layout() const noexcept { return m_needs_layout; }
+    [[nodiscard]] bool child_needs_layout() const noexcept { return m_child_needs_layout; }
     [[nodiscard]] bool needs_paint() const noexcept { return m_needs_paint; }
     [[nodiscard]] bool is_relayout_boundary() const noexcept { return m_is_relayout_boundary; }
 
@@ -144,6 +150,7 @@ public:
 
     void clear_dirty_recursive() noexcept {
         m_needs_layout = false;
+        m_child_needs_layout = false;
         m_needs_paint = false;
         for (RenderNode* child = m_first_child; child != nullptr; child = child->m_next_sibling) {
             child->clear_dirty_recursive();
@@ -161,6 +168,7 @@ protected:
     size_t m_child_count{0};
 
     bool m_needs_layout{true};
+    bool m_child_needs_layout{false};
     bool m_needs_paint{true};
     bool m_is_relayout_boundary{false};
     bool m_force_relayout_boundary{false};

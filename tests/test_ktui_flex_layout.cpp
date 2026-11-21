@@ -203,6 +203,15 @@ void test_relayout_boundary_isolation() {
     assert(middle->needs_layout());
     // 关键契约: root 的 needs_layout 必须依然为 false！重排必须被 middle 边界完全阻断！
     assert(!root->needs_layout());
+    assert(root->child_needs_layout());
+
+    // 从根节点再次触发 layout 时，必须穿透到达脏边界并完成 leaf 的重排
+    root->layout(BoxConstraints::loose(Vec2{800.0f, 600.0f}));
+    assert(!root->needs_layout());
+    assert(!root->child_needs_layout());
+    assert(!middle->needs_layout());
+    assert(!leaf->needs_layout());
+    assert(leaf->size() == Vec2(80.0f, 80.0f));
 
     std::cout << "  -> 核心 Relayout Boundary 成功阻断冒泡，根节点未被污染 (Zero Cascade)!" << std::endl;
 }

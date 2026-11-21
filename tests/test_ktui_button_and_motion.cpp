@@ -204,8 +204,8 @@ void test_button_reactive_bindings() {
     Property<bool> lock_prop(false);
 
     Button desc{
-        .bind_text = bind(label_prop),
-        .bind_disabled = bind(lock_prop)
+        .text = Bind(label_prop),
+        .disabled = Bind(lock_prop)
     };
 
     auto widget = static_cast<WidgetPtr>(desc);

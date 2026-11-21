@@ -304,6 +304,19 @@ public:
         m_border_width_explicit = border_w_explicit;
     }
 
+    void set_custom_height(float h) { m_custom_height = (h > 0.0f) ? std::optional<float>(h) : std::nullopt; mark_needs_layout(); }
+    void set_custom_corner_radius(float r) { m_custom_radius = (r > 0.0f) ? std::optional<float>(r) : std::nullopt; mark_needs_paint(); }
+    void set_custom_padding(EdgeInsets pad) { m_custom_padding = (pad.left >= 0.0f) ? std::optional<EdgeInsets>(pad) : std::nullopt; mark_needs_layout(); }
+    void set_custom_background(Color c) { m_custom_bg = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_hover_color(Color c) { m_custom_hover = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_active_color(Color c) { m_custom_active = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_text_color(Color c) { m_custom_text = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_border_color(Color c) { m_custom_border = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_border_width(float bw) { m_border_width = bw; m_border_width_explicit = (bw >= 0.0f); mark_needs_layout(); }
+    void set_custom_font_size(float fs) { m_custom_font_size = (fs > 0.0f) ? std::optional<float>(fs) : std::nullopt; mark_needs_layout(); }
+    void set_focusable(bool f) { m_data.focusable = f; is_focusable = f; }
+    void set_enable_ripple(bool e) { m_data.enable_ripple = e; }
+
     void set_click_handler(std::function<void()> cb) {
         m_data.on_click = std::move(cb);
     }
@@ -403,33 +416,30 @@ private:
 class ButtonWidget;
 
 // C++20 指定初始化器专业桌面按钮 (Button DSL Wrapper)
-// 桌面专业标准：默认 28px 高度，3px 硬朗微圆角，支持 Accent/Standard/Subtle/Danger 变体，内置 Fluent 水波纹
+// 桌面专业标准：默认 28px 高度，3px 硬朗微圆角，支持 Accent/Standard/Subtle/Danger 变体，内置 Fluent 水波纹，全属性支持 Bind(...)
 struct Button {
-    std::string text{""};
-    std::string icon{""};
-    ButtonVariant variant{ButtonVariant::Standard};
-    ButtonSize size{ButtonSize::Normal};
+    Bindable<std::string> text{""};
+    Bindable<std::string> icon{""};
+    Bindable<ButtonVariant> variant{ButtonVariant::Standard};
+    Bindable<ButtonSize> size{ButtonSize::Normal};
 
     // 显式覆盖样式参数 (若指定则优先于变体默认值，实现 100% 自由定制与向下兼容)
-    float height{0.0f};
-    float corner_radius{0.0f};
-    EdgeInsets padding{EdgeInsets(-1.0f, -1.0f)}; // 负值代表采用主题/尺寸解析默认值
-    Color background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}}; // r < 0 代表未显式指定
-    Color hover_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color active_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    float border_width{-1.0f};                    // 负值代表采用主题解析默认值
-    float font_size{0.0f};
+    Bindable<float> height{0.0f};
+    Bindable<float> corner_radius{0.0f};
+    Bindable<EdgeInsets> padding{EdgeInsets(-1.0f, -1.0f)}; // 负值代表采用主题/尺寸解析默认值
+    Bindable<Color> background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}}; // r < 0 代表未显式指定
+    Bindable<Color> hover_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> active_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<float> border_width{-1.0f};                    // 负值代表采用主题解析默认值
+    Bindable<float> font_size{0.0f};
 
     std::function<void()> on_click{nullptr};
-    bool disabled{false};
-    bool loading{false};
-    bool focusable{true};
-    bool enable_ripple{true};
-
-    BindRef<std::string> bind_text{nullptr};
-    BindRef<bool> bind_disabled{nullptr};
+    Bindable<bool> disabled{false};
+    Bindable<bool> loading{false};
+    Bindable<bool> focusable{true};
+    Bindable<bool> enable_ripple{true};
 
     operator WidgetPtr() const;
 };
@@ -438,10 +448,7 @@ struct Button {
 class ButtonWidget : public Widget {
 public:
     explicit ButtonWidget(const Button& desc) : m_desc(desc) {}
-
-    ~ButtonWidget() override {
-        unsubscribe();
-    }
+    ~ButtonWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = std::make_shared<RenderButton>();
@@ -460,68 +467,67 @@ public:
     [[nodiscard]] const Button& desc() const noexcept { return m_desc; }
 
 private:
-    void apply_desc_to_node(std::shared_ptr<RenderButton> node) {
-        std::string initial_text = m_desc.bind_text ? m_desc.bind_text->get() : m_desc.text;
-        node->set_text(initial_text);
-        node->set_icon(m_desc.icon);
-        node->set_variant(m_desc.variant);
-        node->set_size_mode(m_desc.size);
+    void apply_desc_to_node(const std::shared_ptr<RenderButton>& node) {
+        node->set_text(m_desc.text.get());
+        node->set_icon(m_desc.icon.get());
+        node->set_variant(m_desc.variant.get());
+        node->set_size_mode(m_desc.size.get());
         node->set_click_handler(m_desc.on_click);
-        node->set_loading(m_desc.loading);
+        node->set_loading(m_desc.loading.get());
+        node->set_disabled(m_desc.disabled.get());
+        node->set_focusable(m_desc.focusable.get());
+        node->set_enable_ripple(m_desc.enable_ripple.get());
 
-        bool is_dis = m_desc.bind_disabled ? m_desc.bind_disabled->get() : m_desc.disabled;
-        node->set_disabled(is_dis);
+        Color bg_c = m_desc.background_color.get();
+        Color hov_c = m_desc.hover_color.get();
+        Color act_c = m_desc.active_color.get();
+        Color txt_c = m_desc.text_color.get();
+        Color brd_c = m_desc.border_color.get();
+        float h_v = m_desc.height.get();
+        float rad_v = m_desc.corner_radius.get();
+        EdgeInsets pad_v = m_desc.padding.get();
+        float fs_v = m_desc.font_size.get();
+        float bw_v = m_desc.border_width.get();
 
-        // 应用显式样式覆盖
-        std::optional<Color> bg = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
-        std::optional<Color> hover = (m_desc.hover_color.r >= 0.0f) ? std::optional<Color>(m_desc.hover_color) : std::nullopt;
-        std::optional<Color> active = (m_desc.active_color.r >= 0.0f) ? std::optional<Color>(m_desc.active_color) : std::nullopt;
-        std::optional<Color> txt = (m_desc.text_color.r >= 0.0f) ? std::optional<Color>(m_desc.text_color) : std::nullopt;
-        std::optional<Color> border = (m_desc.border_color.r >= 0.0f) ? std::optional<Color>(m_desc.border_color) : std::nullopt;
-        std::optional<float> h = (m_desc.height > 0.0f) ? std::optional<float>(m_desc.height) : std::nullopt;
-        std::optional<float> radius = (m_desc.corner_radius > 0.0f) ? std::optional<float>(m_desc.corner_radius) : std::nullopt;
-        std::optional<EdgeInsets> pad = (m_desc.padding.left >= 0.0f) ? std::optional<EdgeInsets>(m_desc.padding) : std::nullopt;
-        std::optional<float> font_sz = (m_desc.font_size > 0.0f) ? std::optional<float>(m_desc.font_size) : std::nullopt;
-        bool border_w_explicit = (m_desc.border_width >= 0.0f);
+        std::optional<Color> bg = (bg_c.r >= 0.0f) ? std::optional<Color>(bg_c) : std::nullopt;
+        std::optional<Color> hover = (hov_c.r >= 0.0f) ? std::optional<Color>(hov_c) : std::nullopt;
+        std::optional<Color> active = (act_c.r >= 0.0f) ? std::optional<Color>(act_c) : std::nullopt;
+        std::optional<Color> txt = (txt_c.r >= 0.0f) ? std::optional<Color>(txt_c) : std::nullopt;
+        std::optional<Color> border = (brd_c.r >= 0.0f) ? std::optional<Color>(brd_c) : std::nullopt;
+        std::optional<float> h = (h_v > 0.0f) ? std::optional<float>(h_v) : std::nullopt;
+        std::optional<float> radius = (rad_v > 0.0f) ? std::optional<float>(rad_v) : std::nullopt;
+        std::optional<EdgeInsets> pad = (pad_v.left >= 0.0f) ? std::optional<EdgeInsets>(pad_v) : std::nullopt;
+        std::optional<float> font_sz = (fs_v > 0.0f) ? std::optional<float>(fs_v) : std::nullopt;
+        bool border_w_explicit = (bw_v >= 0.0f);
 
-        node->apply_custom_overrides(bg, hover, active, txt, border, h, radius, pad, font_sz, m_desc.border_width, border_w_explicit);
+        node->apply_custom_overrides(bg, hover, active, txt, border, h, radius, pad, font_sz, bw_v, border_w_explicit);
         node->mark_needs_layout();
     }
 
-    void unsubscribe() {
-        if (m_text_token != 0 && m_desc.bind_text) {
-            m_desc.bind_text->unsubscribe(m_text_token);
-            m_text_token = 0;
-        }
-        if (m_disabled_token != 0 && m_desc.bind_disabled) {
-            m_desc.bind_disabled->unsubscribe(m_disabled_token);
-            m_disabled_token = 0;
-        }
-    }
-
-    void setup_bindings(std::shared_ptr<RenderButton> node) {
-        unsubscribe();
-        if (m_desc.bind_text) {
-            std::weak_ptr<RenderButton> weak_node = node;
-            m_text_token = m_desc.bind_text->subscribe([weak_node](const std::string& new_val) {
-                if (auto btn = weak_node.lock()) {
-                    btn->set_text(new_val);
-                }
-            });
-        }
-        if (m_desc.bind_disabled) {
-            std::weak_ptr<RenderButton> weak_node = node;
-            m_disabled_token = m_desc.bind_disabled->subscribe([weak_node](const bool& new_val) {
-                if (auto btn = weak_node.lock()) {
-                    btn->set_disabled(new_val);
-                }
-            });
-        }
+    void setup_bindings(const std::shared_ptr<RenderButton>& node) {
+        m_bindings.clear();
+        m_bindings.attach(m_desc.text, node, [](RenderButton& n, const std::string& v) { n.set_text(v); });
+        m_bindings.attach(m_desc.icon, node, [](RenderButton& n, const std::string& v) { n.set_icon(v); });
+        m_bindings.attach(m_desc.variant, node, [](RenderButton& n, ButtonVariant v) { n.set_variant(v); });
+        m_bindings.attach(m_desc.size, node, [](RenderButton& n, ButtonSize v) { n.set_size_mode(v); });
+        m_bindings.attach(m_desc.height, node, [](RenderButton& n, float v) { n.set_custom_height(v); });
+        m_bindings.attach(m_desc.corner_radius, node, [](RenderButton& n, float v) { n.set_custom_corner_radius(v); });
+        m_bindings.attach(m_desc.padding, node, [](RenderButton& n, EdgeInsets v) { n.set_custom_padding(v); });
+        m_bindings.attach(m_desc.background_color, node, [](RenderButton& n, Color v) { n.set_custom_background(v); });
+        m_bindings.attach(m_desc.hover_color, node, [](RenderButton& n, Color v) { n.set_custom_hover_color(v); });
+        m_bindings.attach(m_desc.active_color, node, [](RenderButton& n, Color v) { n.set_custom_active_color(v); });
+        m_bindings.attach(m_desc.text_color, node, [](RenderButton& n, Color v) { n.set_custom_text_color(v); });
+        m_bindings.attach(m_desc.border_color, node, [](RenderButton& n, Color v) { n.set_custom_border_color(v); });
+        m_bindings.attach(m_desc.border_width, node, [](RenderButton& n, float v) { n.set_custom_border_width(v); });
+        m_bindings.attach(m_desc.font_size, node, [](RenderButton& n, float v) { n.set_custom_font_size(v); });
+        m_bindings.attach(m_desc.disabled, node, [](RenderButton& n, bool v) { n.set_disabled(v); });
+        m_bindings.attach(m_desc.loading, node, [](RenderButton& n, bool v) { n.set_loading(v); });
+        m_bindings.attach(m_desc.focusable, node, [](RenderButton& n, bool v) { n.set_focusable(v); });
+        m_bindings.attach(m_desc.enable_ripple, node, [](RenderButton& n, bool v) { n.set_enable_ripple(v); });
     }
 
     Button m_desc;
-    uint64_t m_text_token{0};
-    uint64_t m_disabled_token{0};
+    BindingGroup m_bindings;
 };
 
 inline Button::operator WidgetPtr() const {

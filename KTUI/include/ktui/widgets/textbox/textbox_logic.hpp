@@ -889,33 +889,42 @@ private:
     std::optional<float> m_custom_radius;
     std::optional<EdgeInsets> m_custom_padding;
     std::optional<float> m_custom_font_size;
+
+public:
+    void set_custom_background(Color c) { m_custom_bg = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_border_color(Color c) { m_custom_border = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_focused_border_color(Color c) { m_custom_focused_border = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_text_color(Color c) { m_custom_text = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_placeholder_color(Color c) { m_custom_placeholder = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_height(float h) { m_custom_height = (h > 0.0f) ? std::optional<float>(h) : std::nullopt; mark_needs_layout(); }
+    void set_custom_corner_radius(float r) { m_custom_radius = (r > 0.0f) ? std::optional<float>(r) : std::nullopt; mark_needs_paint(); }
+    void set_custom_padding(EdgeInsets pad) { m_custom_padding = (pad.left >= 0.0f) ? std::optional<EdgeInsets>(pad) : std::nullopt; mark_needs_layout(); }
+    void set_custom_font_size(float fs) { m_custom_font_size = (fs > 0.0f) ? std::optional<float>(fs) : std::nullopt; mark_needs_layout(); }
+    void set_show_reveal_button(bool show) { m_data.show_reveal_button = show; mark_needs_paint(); }
 };
 
 class TextBoxWidget;
 
-// C++20 指定初始化器声明式单行文本框 (TextBox DSL Wrapper)
+// C++20 指定初始化器声明式单行文本框 (TextBox DSL Wrapper - 全属性支持 Bind(...))
 // 桌面专业标准：默认 28px 高度，3px 硬朗微圆角，支持双向绑定响应式同步
 struct TextBox {
-    std::string text{""};
-    std::string placeholder{""};
-    BindRef<std::string> bind_text{nullptr};
-    BindRef<bool> bind_disabled{nullptr};
-    BindRef<bool> bind_read_only{nullptr};
+    Bindable<std::string> text{""};
+    Bindable<std::string> placeholder{""};
 
-    float height{0.0f};           // 0 表示按主题解析默认值 28px (支持显式传递 26px 向下兼容)
-    float corner_radius{0.0f};    // 0 表示按主题解析默认值 3px
-    EdgeInsets padding{EdgeInsets(-1.0f, -1.0f)}; // 负值代表采用主题解析默认值
-    Color background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color focused_border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color placeholder_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    float font_size{0.0f};
+    Bindable<float> height{0.0f};           // 0 表示按主题解析默认值 28px
+    Bindable<float> corner_radius{0.0f};    // 0 表示按主题解析默认值 3px
+    Bindable<EdgeInsets> padding{EdgeInsets(-1.0f, -1.0f)}; // 负值代表采用主题解析默认值
+    Bindable<Color> background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> focused_border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> placeholder_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<float> font_size{0.0f};
 
-    bool is_password{false};
-    bool is_read_only{false};
-    bool disabled{false};
-    bool show_reveal_button{false};
+    Bindable<bool> is_password{false};
+    Bindable<bool> is_read_only{false};
+    Bindable<bool> disabled{false};
+    Bindable<bool> show_reveal_button{false};
 
     std::function<void(const std::string&)> on_change{nullptr};
     std::function<void(const std::string&)> on_submit{nullptr};
@@ -927,10 +936,7 @@ struct TextBox {
 class TextBoxWidget : public Widget {
 public:
     explicit TextBoxWidget(const TextBox& desc) : m_desc(desc) {}
-
-    ~TextBoxWidget() override {
-        unsubscribe();
-    }
+    ~TextBoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = std::make_shared<RenderTextBox>();
@@ -949,71 +955,78 @@ public:
     [[nodiscard]] const TextBox& desc() const noexcept { return m_desc; }
 
 private:
-    void apply_desc_to_node(std::shared_ptr<RenderTextBox> node) {
-        std::string init_text = m_desc.bind_text ? m_desc.bind_text->get() : m_desc.text;
+    void apply_desc_to_node(const std::shared_ptr<RenderTextBox>& node) {
+        std::string init_text = m_desc.text.get();
+        std::string init_ph = m_desc.placeholder.get();
         node->set_text(init_text);
-        node->set_placeholder(m_desc.placeholder);
-        node->set_is_password(m_desc.is_password);
-        node->set_read_only(m_desc.is_read_only);
+        node->set_placeholder(init_ph);
+        node->set_is_password(m_desc.is_password.get());
+        node->set_read_only(m_desc.is_read_only.get());
+        node->set_disabled(m_desc.disabled.get());
+        node->set_show_reveal_button(m_desc.show_reveal_button.get());
 
-        bool is_dis = m_desc.bind_disabled ? m_desc.bind_disabled->get() : m_desc.disabled;
-        node->set_disabled(is_dis);
+        Color bg_c = m_desc.background_color.get();
+        Color brd_c = m_desc.border_color.get();
+        Color fbrd_c = m_desc.focused_border_color.get();
+        Color txt_c = m_desc.text_color.get();
+        Color ph_c = m_desc.placeholder_color.get();
+        float h_v = m_desc.height.get();
+        float rad_v = m_desc.corner_radius.get();
+        EdgeInsets pad_v = m_desc.padding.get();
+        float fs_v = m_desc.font_size.get();
 
-        // 应用显式覆盖样式
-        std::optional<Color> bg = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
-        std::optional<Color> border = (m_desc.border_color.r >= 0.0f) ? std::optional<Color>(m_desc.border_color) : std::nullopt;
-        std::optional<Color> focus_border = (m_desc.focused_border_color.r >= 0.0f) ? std::optional<Color>(m_desc.focused_border_color) : std::nullopt;
-        std::optional<Color> txt = (m_desc.text_color.r >= 0.0f) ? std::optional<Color>(m_desc.text_color) : std::nullopt;
-        std::optional<Color> ph = (m_desc.placeholder_color.r >= 0.0f) ? std::optional<Color>(m_desc.placeholder_color) : std::nullopt;
-        std::optional<float> h = (m_desc.height > 0.0f) ? std::optional<float>(m_desc.height) : std::nullopt;
-        std::optional<float> radius = (m_desc.corner_radius > 0.0f) ? std::optional<float>(m_desc.corner_radius) : std::nullopt;
-        std::optional<EdgeInsets> pad = (m_desc.padding.left >= 0.0f) ? std::optional<EdgeInsets>(m_desc.padding) : std::nullopt;
-        std::optional<float> font_sz = (m_desc.font_size > 0.0f) ? std::optional<float>(m_desc.font_size) : std::nullopt;
+        std::optional<Color> bg = (bg_c.r >= 0.0f) ? std::optional<Color>(bg_c) : std::nullopt;
+        std::optional<Color> border = (brd_c.r >= 0.0f) ? std::optional<Color>(brd_c) : std::nullopt;
+        std::optional<Color> focus_border = (fbrd_c.r >= 0.0f) ? std::optional<Color>(fbrd_c) : std::nullopt;
+        std::optional<Color> txt = (txt_c.r >= 0.0f) ? std::optional<Color>(txt_c) : std::nullopt;
+        std::optional<Color> ph = (ph_c.r >= 0.0f) ? std::optional<Color>(ph_c) : std::nullopt;
+        std::optional<float> h = (h_v > 0.0f) ? std::optional<float>(h_v) : std::nullopt;
+        std::optional<float> radius = (rad_v > 0.0f) ? std::optional<float>(rad_v) : std::nullopt;
+        std::optional<EdgeInsets> pad = (pad_v.left >= 0.0f) ? std::optional<EdgeInsets>(pad_v) : std::nullopt;
+        std::optional<float> font_sz = (fs_v > 0.0f) ? std::optional<float>(fs_v) : std::nullopt;
 
         node->apply_custom_overrides(bg, border, focus_border, txt, ph, h, radius, pad, font_sz);
 
         // 挂接双向通知代理
-        auto on_ch = [this, weak_node = std::weak_ptr<RenderTextBox>(node)](const std::string& val) {
+        auto on_ch = [this](const std::string& val) {
             m_is_internal_update = true;
-            if (m_desc.bind_text) {
-                m_desc.bind_text->set(val);
-            }
+            m_desc.text.set_bound(val);
             if (m_desc.on_change) {
                 m_desc.on_change(val);
             }
             m_is_internal_update = false;
         };
 
-        node->set_properties(init_text, m_desc.placeholder,
+        node->set_properties(init_text, init_ph,
                              h.value_or(28.0f), radius.value_or(3.0f),
                              pad.value_or(EdgeInsets(4.0f, 8.0f)),
-                             m_desc.background_color, m_desc.border_color, m_desc.focused_border_color,
-                             m_desc.text_color, m_desc.placeholder_color,
+                             bg_c, brd_c, fbrd_c, txt_c, ph_c,
                              font_sz.value_or(13.0f), on_ch, m_desc.on_submit);
     }
 
-    void unsubscribe() {
-        if (m_binding_token != 0 && m_desc.bind_text) {
-            m_desc.bind_text->unsubscribe(m_binding_token);
-            m_binding_token = 0;
-        }
-    }
-
-    void setup_bindings(std::shared_ptr<RenderTextBox> node) {
-        unsubscribe();
-        if (m_desc.bind_text) {
-            std::weak_ptr<RenderTextBox> weak_box = node;
-            m_binding_token = m_desc.bind_text->subscribe([this, weak_box](const std::string& new_val) {
-                if (m_is_internal_update) return; // 避免双向死循环
-                if (auto box = weak_box.lock()) {
-                    box->set_text(new_val);
-                }
-            });
-        }
+    void setup_bindings(const std::shared_ptr<RenderTextBox>& node) {
+        m_bindings.clear();
+        m_bindings.attach(m_desc.text, node, [this](RenderTextBox& n, const std::string& new_val) {
+            if (!m_is_internal_update) n.set_text(new_val);
+        });
+        m_bindings.attach(m_desc.placeholder, node, [](RenderTextBox& n, const std::string& v) { n.set_placeholder(v); });
+        m_bindings.attach(m_desc.height, node, [](RenderTextBox& n, float v) { n.set_custom_height(v); });
+        m_bindings.attach(m_desc.corner_radius, node, [](RenderTextBox& n, float v) { n.set_custom_corner_radius(v); });
+        m_bindings.attach(m_desc.padding, node, [](RenderTextBox& n, EdgeInsets v) { n.set_custom_padding(v); });
+        m_bindings.attach(m_desc.background_color, node, [](RenderTextBox& n, Color v) { n.set_custom_background(v); });
+        m_bindings.attach(m_desc.border_color, node, [](RenderTextBox& n, Color v) { n.set_custom_border_color(v); });
+        m_bindings.attach(m_desc.focused_border_color, node, [](RenderTextBox& n, Color v) { n.set_custom_focused_border_color(v); });
+        m_bindings.attach(m_desc.text_color, node, [](RenderTextBox& n, Color v) { n.set_custom_text_color(v); });
+        m_bindings.attach(m_desc.placeholder_color, node, [](RenderTextBox& n, Color v) { n.set_custom_placeholder_color(v); });
+        m_bindings.attach(m_desc.font_size, node, [](RenderTextBox& n, float v) { n.set_custom_font_size(v); });
+        m_bindings.attach(m_desc.is_password, node, [](RenderTextBox& n, bool v) { n.set_is_password(v); });
+        m_bindings.attach(m_desc.is_read_only, node, [](RenderTextBox& n, bool v) { n.set_read_only(v); });
+        m_bindings.attach(m_desc.disabled, node, [](RenderTextBox& n, bool v) { n.set_disabled(v); });
+        m_bindings.attach(m_desc.show_reveal_button, node, [](RenderTextBox& n, bool v) { n.set_show_reveal_button(v); });
     }
 
     TextBox m_desc;
-    uint64_t m_binding_token{0};
+    BindingGroup m_bindings;
     bool m_is_internal_update{false};
 };
 

@@ -341,29 +341,36 @@ private:
     std::optional<float> m_custom_box_size;
     std::optional<float> m_custom_radius;
     std::optional<float> m_custom_font_size;
+
+public:
+    void set_custom_background(Color c) { m_custom_bg_normal = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_checked_background(Color c) { m_custom_bg_checked = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_border_color(Color c) { m_custom_border = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_check_mark_color(Color c) { m_custom_check_mark = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_text_color(Color c) { m_custom_text = (c.r >= 0.0f) ? std::optional<Color>(c) : std::nullopt; mark_needs_paint(); }
+    void set_custom_box_size(float sz) { m_custom_box_size = (sz > 0.0f) ? std::optional<float>(sz) : std::nullopt; mark_needs_layout(); }
+    void set_custom_corner_radius(float r) { m_custom_radius = (r >= 0.0f) ? std::optional<float>(r) : std::nullopt; mark_needs_paint(); }
+    void set_custom_font_size(float fs) { m_custom_font_size = (fs > 0.0f) ? std::optional<float>(fs) : std::nullopt; mark_needs_layout(); }
 };
 
 class CheckboxWidget;
 
-// C++20 指定初始化器声明式复选框 (Checkbox DSL Wrapper)
+// C++20 指定初始化器声明式复选框 (Checkbox DSL Wrapper - 全属性支持 Bind(...))
 struct Checkbox {
-    bool checked{false};
-    CheckState state{CheckState::Unchecked};
-    bool is_three_state{false};
-    BindRef<bool> bind_checked{nullptr};
-    BindRef<CheckState> bind_state{nullptr};
-    BindRef<bool> bind_disabled{nullptr};
-    std::string label{""};
+    Bindable<bool> checked{false};
+    Bindable<CheckState> state{CheckState::Unchecked};
+    Bindable<bool> is_three_state{false};
+    Bindable<std::string> label{""};
 
-    float size{0.0f};           // 0 表示按主题解析默认值 18px (兼容外部传递 14.0f 等)
-    float corner_radius{-1.0f}; // 负值代表采用主题解析默认值 3px
-    Color background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color checked_background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color check_mark_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    float font_size{0.0f};
-    bool disabled{false};
+    Bindable<float> size{0.0f};           // 0 表示按主题解析默认值 18px
+    Bindable<float> corner_radius{-1.0f}; // 负值代表采用主题解析默认值 3px
+    Bindable<Color> background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> checked_background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> check_mark_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<Color> text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Bindable<float> font_size{0.0f};
+    Bindable<bool> disabled{false};
 
     std::function<void(bool)> on_change{nullptr};
     std::function<void(CheckState)> on_state_change{nullptr};
@@ -375,10 +382,7 @@ struct Checkbox {
 class CheckboxWidget : public Widget {
 public:
     explicit CheckboxWidget(const Checkbox& desc) : m_desc(desc) {}
-
-    ~CheckboxWidget() override {
-        unsubscribe();
-    }
+    ~CheckboxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = std::make_shared<RenderCheckbox>();
@@ -397,58 +401,51 @@ public:
     [[nodiscard]] const Checkbox& desc() const noexcept { return m_desc; }
 
 private:
-    void apply_desc_to_node(std::shared_ptr<RenderCheckbox> node) {
-        node->set_three_state(m_desc.is_three_state);
-        node->set_label(m_desc.label);
+    void apply_desc_to_node(const std::shared_ptr<RenderCheckbox>& node) {
+        node->set_three_state(m_desc.is_three_state.get());
+        node->set_label(m_desc.label.get());
 
-        CheckState init_state = m_desc.state;
-        if (m_desc.bind_state) {
-            init_state = m_desc.bind_state->get();
-        } else if (m_desc.bind_checked) {
-            init_state = m_desc.bind_checked->get() ? CheckState::Checked : CheckState::Unchecked;
-        } else if (m_desc.checked) {
-            init_state = CheckState::Checked;
-        }
+        CheckState init_state = m_desc.state.is_bound()
+            ? m_desc.state.get()
+            : (m_desc.checked.get() ? CheckState::Checked : m_desc.state.get());
         node->set_state(init_state);
+        node->set_disabled(m_desc.disabled.get());
 
-        bool is_dis = m_desc.bind_disabled ? m_desc.bind_disabled->get() : m_desc.disabled;
-        node->set_disabled(is_dis);
+        Color bg_c = m_desc.background_color.get();
+        Color chk_c = m_desc.checked_background_color.get();
+        Color brd_c = m_desc.border_color.get();
+        Color mrk_c = m_desc.check_mark_color.get();
+        Color txt_c = m_desc.text_color.get();
+        float sz_v = m_desc.size.get();
+        float rad_v = m_desc.corner_radius.get();
+        float fs_v = m_desc.font_size.get();
 
-        // 应用自定义覆盖参数
-        std::optional<Color> bg_norm = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
-        std::optional<Color> bg_chk = (m_desc.checked_background_color.r >= 0.0f) ? std::optional<Color>(m_desc.checked_background_color) : std::nullopt;
-        std::optional<Color> border = (m_desc.border_color.r >= 0.0f) ? std::optional<Color>(m_desc.border_color) : std::nullopt;
-        std::optional<Color> mark = (m_desc.check_mark_color.r >= 0.0f) ? std::optional<Color>(m_desc.check_mark_color) : std::nullopt;
-        std::optional<Color> txt = (m_desc.text_color.r >= 0.0f) ? std::optional<Color>(m_desc.text_color) : std::nullopt;
-        std::optional<float> sz = (m_desc.size > 0.0f) ? std::optional<float>(m_desc.size) : std::nullopt;
-        std::optional<float> radius = (m_desc.corner_radius >= 0.0f) ? std::optional<float>(m_desc.corner_radius) : std::nullopt;
-        std::optional<float> font_sz = (m_desc.font_size > 0.0f) ? std::optional<float>(m_desc.font_size) : std::nullopt;
+        std::optional<Color> bg_norm = (bg_c.r >= 0.0f) ? std::optional<Color>(bg_c) : std::nullopt;
+        std::optional<Color> bg_chk = (chk_c.r >= 0.0f) ? std::optional<Color>(chk_c) : std::nullopt;
+        std::optional<Color> border = (brd_c.r >= 0.0f) ? std::optional<Color>(brd_c) : std::nullopt;
+        std::optional<Color> mark = (mrk_c.r >= 0.0f) ? std::optional<Color>(mrk_c) : std::nullopt;
+        std::optional<Color> txt = (txt_c.r >= 0.0f) ? std::optional<Color>(txt_c) : std::nullopt;
+        std::optional<float> sz = (sz_v > 0.0f) ? std::optional<float>(sz_v) : std::nullopt;
+        std::optional<float> radius = (rad_v >= 0.0f) ? std::optional<float>(rad_v) : std::nullopt;
+        std::optional<float> font_sz = (fs_v > 0.0f) ? std::optional<float>(fs_v) : std::nullopt;
 
         node->apply_custom_overrides(bg_norm, bg_chk, border, mark, txt, sz, radius, font_sz);
 
         // 挂接双向通知代理
-        auto on_ch = [this, weak_node = std::weak_ptr<RenderCheckbox>(node)](bool is_chk) {
+        auto on_ch = [this](bool is_chk) {
             m_is_internal_update = true;
-            if (m_desc.bind_checked) {
-                m_desc.bind_checked->set(is_chk);
-            }
-            if (m_desc.bind_state) {
-                m_desc.bind_state->set(is_chk ? CheckState::Checked : CheckState::Unchecked);
-            }
+            m_desc.checked.set_bound(is_chk);
+            m_desc.state.set_bound(is_chk ? CheckState::Checked : CheckState::Unchecked);
             if (m_desc.on_change) {
                 m_desc.on_change(is_chk);
             }
             m_is_internal_update = false;
         };
 
-        auto on_st_ch = [this, weak_node = std::weak_ptr<RenderCheckbox>(node)](CheckState st) {
+        auto on_st_ch = [this](CheckState st) {
             m_is_internal_update = true;
-            if (m_desc.bind_state) {
-                m_desc.bind_state->set(st);
-            }
-            if (m_desc.bind_checked) {
-                m_desc.bind_checked->set(st == CheckState::Checked);
-            }
+            m_desc.state.set_bound(st);
+            m_desc.checked.set_bound(st == CheckState::Checked);
             if (m_desc.on_state_change) {
                 m_desc.on_state_change(st);
             }
@@ -459,56 +456,30 @@ private:
         node->set_state_change_handler(on_st_ch);
     }
 
-    void setup_bindings(std::shared_ptr<RenderCheckbox> node) {
-        unsubscribe();
-
-        if (m_desc.bind_checked) {
-            m_checked_token = m_desc.bind_checked->subscribe([weak_node = std::weak_ptr<RenderCheckbox>(node), this](bool val) {
-                if (m_is_internal_update) return;
-                if (auto n = weak_node.lock()) {
-                    n->set_checked(val);
-                }
-            });
-        }
-
-        if (m_desc.bind_state) {
-            m_state_token = m_desc.bind_state->subscribe([weak_node = std::weak_ptr<RenderCheckbox>(node), this](CheckState st) {
-                if (m_is_internal_update) return;
-                if (auto n = weak_node.lock()) {
-                    n->set_state(st);
-                }
-            });
-        }
-
-        if (m_desc.bind_disabled) {
-            m_disabled_token = m_desc.bind_disabled->subscribe([weak_node = std::weak_ptr<RenderCheckbox>(node)](bool dis) {
-                if (auto n = weak_node.lock()) {
-                    n->set_disabled(dis);
-                }
-            });
-        }
-    }
-
-    void unsubscribe() {
-        if (m_checked_token != 0 && m_desc.bind_checked) {
-            m_desc.bind_checked->unsubscribe(m_checked_token);
-            m_checked_token = 0;
-        }
-        if (m_state_token != 0 && m_desc.bind_state) {
-            m_desc.bind_state->unsubscribe(m_state_token);
-            m_state_token = 0;
-        }
-        if (m_disabled_token != 0 && m_desc.bind_disabled) {
-            m_desc.bind_disabled->unsubscribe(m_disabled_token);
-            m_disabled_token = 0;
-        }
+    void setup_bindings(const std::shared_ptr<RenderCheckbox>& node) {
+        m_bindings.clear();
+        m_bindings.attach(m_desc.checked, node, [this](RenderCheckbox& n, bool val) {
+            if (!m_is_internal_update) n.set_checked(val);
+        });
+        m_bindings.attach(m_desc.state, node, [this](RenderCheckbox& n, CheckState st) {
+            if (!m_is_internal_update) n.set_state(st);
+        });
+        m_bindings.attach(m_desc.is_three_state, node, [](RenderCheckbox& n, bool v) { n.set_three_state(v); });
+        m_bindings.attach(m_desc.label, node, [](RenderCheckbox& n, const std::string& v) { n.set_label(v); });
+        m_bindings.attach(m_desc.size, node, [](RenderCheckbox& n, float v) { n.set_custom_box_size(v); });
+        m_bindings.attach(m_desc.corner_radius, node, [](RenderCheckbox& n, float v) { n.set_custom_corner_radius(v); });
+        m_bindings.attach(m_desc.background_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_background(v); });
+        m_bindings.attach(m_desc.checked_background_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_checked_background(v); });
+        m_bindings.attach(m_desc.border_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_border_color(v); });
+        m_bindings.attach(m_desc.check_mark_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_check_mark_color(v); });
+        m_bindings.attach(m_desc.text_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_text_color(v); });
+        m_bindings.attach(m_desc.font_size, node, [](RenderCheckbox& n, float v) { n.set_custom_font_size(v); });
+        m_bindings.attach(m_desc.disabled, node, [](RenderCheckbox& n, bool v) { n.set_disabled(v); });
     }
 
     Checkbox m_desc;
     bool m_is_internal_update{false};
-    uint64_t m_checked_token{0};
-    uint64_t m_state_token{0};
-    uint64_t m_disabled_token{0};
+    BindingGroup m_bindings;
 };
 
 inline Checkbox::operator WidgetPtr() const {

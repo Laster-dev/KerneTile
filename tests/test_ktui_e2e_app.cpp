@@ -86,7 +86,7 @@ void test_view_model_reactive_binding_and_two_way_sync() {
 
     // 1. 测试 TextInput 双向绑定
     TextInput input_desc{
-        .bind_text = bind(vm.search_query),
+        .text = Bind(vm.search_query),
         .height = 26.0f
     };
     auto input_widget = std::dynamic_pointer_cast<TextInputWidget>(static_cast<WidgetPtr>(input_desc));
@@ -111,7 +111,7 @@ void test_view_model_reactive_binding_and_two_way_sync() {
 
     // 2. 测试 Checkbox 双向绑定
     Checkbox check_desc{
-        .bind_checked = bind(vm.build_on_save),
+        .checked = Bind(vm.build_on_save),
         .label = "Auto Build"
     };
     auto check_widget = std::dynamic_pointer_cast<CheckboxWidget>(static_cast<WidgetPtr>(check_desc));

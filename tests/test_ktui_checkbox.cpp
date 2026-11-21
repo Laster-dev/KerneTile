@@ -102,9 +102,9 @@ void test_checkbox_reactive_binding() {
     Property<bool> dis_prop{false};
 
     Checkbox desc{
-        .bind_checked = bind(check_prop),
-        .bind_disabled = bind(dis_prop),
-        .label = "Synchronize"
+        .checked = Bind(check_prop),
+        .label = "Synchronize",
+        .disabled = Bind(dis_prop)
     };
 
     auto widget = static_cast<WidgetPtr>(desc);

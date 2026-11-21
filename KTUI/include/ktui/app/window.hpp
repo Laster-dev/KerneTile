@@ -290,59 +290,6 @@ public:
         }
     }
 
-    // 跨平台导出当前帧为 32-bit BMP 位图（零平台 API 依赖）
-    bool export_bmp(const std::string& filepath) {
-        if (m_framebuffer.empty() || m_renderer_w == 0 || m_renderer_h == 0) {
-            render_frame();
-        }
-        if (m_framebuffer.empty() || m_renderer_w == 0 || m_renderer_h == 0) return false;
-
-#pragma pack(push, 1)
-        struct BmpHeader {
-            uint16_t bfType{0x4D42};
-            uint32_t bfSize{0};
-            uint16_t bfReserved1{0};
-            uint16_t bfReserved2{0};
-            uint32_t bfOffBits{54};
-            uint32_t biSize{40};
-            int32_t  biWidth{0};
-            int32_t  biHeight{0};
-            uint16_t biPlanes{1};
-            uint16_t biBitCount{32};
-            uint32_t biCompression{0};
-            uint32_t biSizeImage{0};
-            int32_t  biXPelsPerMeter{2835};
-            int32_t  biYPelsPerMeter{2835};
-            uint32_t biClrUsed{0};
-            uint32_t biClrImportant{0};
-        };
-#pragma pack(pop)
-
-        const uint32_t w = m_renderer_w;
-        const uint32_t h = m_renderer_h;
-        BmpHeader header;
-        header.biWidth = static_cast<int32_t>(w);
-        header.biHeight = -static_cast<int32_t>(h);
-        header.biSizeImage = w * h * 4;
-        header.bfSize = 54 + header.biSizeImage;
-
-        std::vector<uint8_t> bgra(static_cast<size_t>(w) * h * 4);
-        const size_t count = static_cast<size_t>(w) * h;
-        for (size_t i = 0; i < count; ++i) {
-            bgra[i * 4 + 0] = m_framebuffer[i * 4 + 2];
-            bgra[i * 4 + 1] = m_framebuffer[i * 4 + 1];
-            bgra[i * 4 + 2] = m_framebuffer[i * 4 + 0];
-            bgra[i * 4 + 3] = 255;
-        }
-
-        FILE* fp = std::fopen(filepath.c_str(), "wb");
-        if (!fp) return false;
-        std::fwrite(&header, sizeof(header), 1, fp);
-        std::fwrite(bgra.data(), 1, bgra.size(), fp);
-        std::fclose(fp);
-        return true;
-    }
-
     // 框架级平台事件统一路由（指针、焦点、键盘、IME 全部自动托管）
     void handle_platform_event(const PlatformEvent& pe) {
         s_active_window = this;

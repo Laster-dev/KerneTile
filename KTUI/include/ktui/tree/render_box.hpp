@@ -30,12 +30,23 @@ public:
         m_is_relayout_boundary = is_boundary;
 
         if (!m_needs_layout && constraints == m_constraints) {
+            if (m_child_needs_layout) {
+                for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
+                    if (auto* child_box = dynamic_cast<RenderBox*>(child)) {
+                        if (child_box->needs_layout() || child_box->child_needs_layout()) {
+                            child_box->layout(child_box->constraints(), !child_box->is_relayout_boundary());
+                        }
+                    }
+                }
+                m_child_needs_layout = false;
+            }
             return; // 约束未变且非脏状态，跳过重复布局
         }
 
         m_constraints = constraints;
         perform_layout();
         m_needs_layout = false;
+        m_child_needs_layout = false;
         mark_needs_paint();
     }
 

@@ -176,9 +176,7 @@ target_link_libraries(ktui_studio_demo PRIVATE
     kernetile_cpu
     kernetile_core
 )
-if (WIN32)
-    target_link_libraries(ktui_studio_demo PRIVATE dbghelp)
-elseif (EMSCRIPTEN)
+if (EMSCRIPTEN)
     set_target_properties(ktui_studio_demo PROPERTIES
         SUFFIX ".html"
     )
