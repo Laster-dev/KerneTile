@@ -912,6 +912,7 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
         auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
         if (cs && cs->lpCreateParams) {
             auto* win = static_cast<Win32Window*>(cs->lpCreateParams);
+            win->attach_hwnd(hwnd);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(win));
             if (s_instance) {
                 s_instance->m_window_map[hwnd] = win;

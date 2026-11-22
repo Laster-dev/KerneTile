@@ -97,6 +97,7 @@ public:
     void close() override;
 
     HWND hwnd() const { return m_hwnd; }
+    void attach_hwnd(HWND hwnd) noexcept { m_hwnd = hwnd; }
     LRESULT handle_message(UINT msg, WPARAM wparam, LPARAM lparam);
 
 private:
