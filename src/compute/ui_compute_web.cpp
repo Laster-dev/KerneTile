@@ -171,11 +171,15 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
         device.queue.submit([encoder.finish()]);
 
         var target = state.target;
-        canvas.style.left = target.offsetLeft + 'px';
-        canvas.style.top = target.offsetTop + 'px';
-        canvas.style.width = target.clientWidth + 'px';
-        canvas.style.height = target.clientHeight + 'px';
-        canvas.style.display = 'block';
+        var left = target.offsetLeft + 'px';
+        var top = target.offsetTop + 'px';
+        var cssW = target.clientWidth + 'px';
+        var cssH = target.clientHeight + 'px';
+        if (canvas.style.left !== left) canvas.style.left = left;
+        if (canvas.style.top !== top) canvas.style.top = top;
+        if (canvas.style.width !== cssW) canvas.style.width = cssW;
+        if (canvas.style.height !== cssH) canvas.style.height = cssH;
+        if (canvas.style.display !== 'block') canvas.style.display = 'block';
         return 1;
     } catch (error) {
         state.ready = false;

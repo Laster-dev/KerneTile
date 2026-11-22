@@ -74,6 +74,14 @@ Application::~Application() {
 }
 
 void Application::step_frame() {
+    pump_events(false, 0);
+
+    for (auto& win : m_windows) {
+        if (win && !win->is_closed() && win->has_blinking_cursor()) {
+            win->tick_blinking_cursor();
+        }
+    }
+
     for (auto& win : m_windows) {
         if (win && !win->is_closed() && win->root_render_box()) {
             bool needs_paint = win->needs_redraw() ||
@@ -82,14 +90,6 @@ void Application::step_frame() {
             if (needs_paint) {
                 win->render_frame();
             }
-        }
-    }
-
-    pump_events(false, 0);
-
-    for (auto& win : m_windows) {
-        if (win && !win->is_closed() && win->has_blinking_cursor()) {
-            win->tick_blinking_cursor();
         }
     }
 

@@ -13,6 +13,10 @@ out/
 *.sln
 CMakeSettings.json
 
+# Crash dumps
+dumps/
+*.dmp
+
 # Test binaries and object files
 *.exe
 *.obj

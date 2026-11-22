@@ -158,15 +158,18 @@ public:
     // 绘制管道
     void paint(PaintContext& context) override {
         // 1. 步进由动效管理器托管的补间驱动器 (无控件私有硬编码算法)
-        auto now = std::chrono::steady_clock::now();
-        float dt = std::chrono::duration<float>(now - m_last_tick_time).count();
-        m_last_tick_time = now;
-        if (dt > 0.0f && dt < 0.2f) {
-            bool animating = false;
-            if (m_fill_tween.is_active()) { m_fill_tween.tick(dt); animating = true; }
-            if (m_check_tween.is_active()) { m_check_tween.tick(dt); animating = true; }
-            if (m_indeterminate_tween.is_active()) { m_indeterminate_tween.tick(dt); animating = true; }
-            if (animating) {
+        bool has_active = m_fill_tween.is_active() || m_check_tween.is_active() || m_indeterminate_tween.is_active();
+        if (has_active) {
+            auto now = std::chrono::steady_clock::now();
+            float dt = std::chrono::duration<float>(now - m_last_tick_time).count();
+            m_last_tick_time = now;
+            if (dt > 0.0f) {
+                dt = std::min(dt, 0.1f);
+                if (m_fill_tween.is_active()) m_fill_tween.tick(dt);
+                if (m_check_tween.is_active()) m_check_tween.tick(dt);
+                if (m_indeterminate_tween.is_active()) m_indeterminate_tween.tick(dt);
+            }
+            if (m_fill_tween.is_active() || m_check_tween.is_active() || m_indeterminate_tween.is_active()) {
                 mark_needs_paint();
             }
         }

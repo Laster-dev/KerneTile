@@ -6,11 +6,14 @@
 #include <ktui/presentation/ui_compositor.hpp>
 #include <ktui/tree/render_flex.hpp>
 #include <ktui/tree/overlay.hpp>
+#include <ktui/widgets/checkbox/checkbox_logic.hpp>
 #include <kernetile/renderer.hpp>
 #include <iostream>
 #include <cassert>
 #include <vector>
 #include <cmath>
+#include <thread>
+#include <chrono>
 
 using namespace ktui;
 
@@ -324,6 +327,36 @@ void test_overlay_requests_followup_frames() {
     assert(!manager.needs_redraw());
 }
 
+void test_checkbox_animation_survives_zero_and_large_dt() {
+    std::cout << "[Test 7] Checkbox 动效在 dt==0 与 dt>=0.2s 卡顿下不中断且完整收敛至终态..." << std::endl;
+    RenderCheckbox cb;
+    cb.layout(BoxConstraints::loose(Vec2{200.0f, 40.0f}));
+
+    PaintContext ctx;
+    cb.set_checked(true);
+    // 立即在同一时刻重绘（模拟 Web 粗粒度时钟或同步重绘下 dt == 0）
+    cb.clear_dirty_recursive();
+    cb.paint(ctx);
+    assert(cb.needs_paint() && "Checkbox animation must stay dirty when dt == 0");
+
+    // 模拟 250ms 浏览器卡顿（dt >= 0.2s），动效不应被丢弃冻结
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    cb.clear_dirty_recursive();
+    cb.paint(ctx);
+    assert(cb.needs_paint() && "Checkbox animation must survive frame hitches >= 0.2s");
+
+    // 继续推进直到动效完整收敛
+    int frames = 0;
+    while (cb.needs_paint() && frames < 40) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        cb.clear_dirty_recursive();
+        cb.paint(ctx);
+        ++frames;
+    }
+    assert(!cb.needs_paint() && "Checkbox animation must settle cleanly");
+    std::cout << "  -> Checkbox 动效零卡帧、完整收敛测试通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 6: 双级脏区、事件焦点与 KerneTile 闭环  " << std::endl;
@@ -336,6 +369,7 @@ int main() {
     test_focus_manager_tab_navigation();
     test_compositor_dirty_union_and_tile_snapping();
     test_paint_context_and_kernetile_integration();
+    test_checkbox_animation_survives_zero_and_large_dt();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 6 双级脏区与渲染闭环 100% 测试通过!  " << std::endl;

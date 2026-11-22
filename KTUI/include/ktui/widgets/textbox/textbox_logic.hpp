@@ -170,7 +170,8 @@ public:
             cursor_shape = m_state.is_disabled ? CursorShape::Forbidden : CursorShape::IBeam;
             if (m_state.is_disabled) {
                 m_state.is_focused = false;
-                m_focus_line_tween.start(1.0f, 0.0f, 0.15f, Easing::EaseOutCubic);
+                m_focus_line_tween.start(m_focus_line_tween.current_value(), 0.0f, 0.15f, Easing::EaseOutCubic);
+                m_last_tick_time = std::chrono::steady_clock::now();
             }
             mark_needs_paint();
         }
@@ -292,10 +293,14 @@ public:
         // 1. 如果底部活动高亮线补间正处于运行中，推进动效管理器步进
         if (m_focus_line_tween.is_active()) {
             auto now = std::chrono::steady_clock::now();
-            float dt = std::chrono::duration<float>(now - m_last_tick_time).count();
+            float dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
             m_last_tick_time = now;
-            m_focus_line_tween.tick(dt);
-            mark_needs_paint();
+            if (dt > 0.0f) {
+                m_focus_line_tween.tick(dt);
+            }
+            if (m_focus_line_tween.is_active()) {
+                mark_needs_paint();
+            }
         }
 
         auto style = resolve_current_style();

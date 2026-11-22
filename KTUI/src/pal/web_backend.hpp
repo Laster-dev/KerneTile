@@ -125,23 +125,48 @@ EM_JS(void, ktui_js_set_canvas_size, (int w, int h), {
     }
 });
 
-EM_JS(void, ktui_js_present_rgba8, (const uint8_t* rgba, int width, int height), {
+EM_JS(void, ktui_js_present_rgba8_region, (const uint8_t* rgba, int width, int height,
+                                           int dirty_x, int dirty_y, int dirty_w, int dirty_h), {
     var canvas = document.getElementById('canvas');
     if (!canvas) return;
-    if (canvas.width !== width || canvas.height !== height) {
+    var resized = (canvas.width !== width || canvas.height !== height);
+    if (resized) {
         canvas.width = width;
         canvas.height = height;
     }
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    if (!window._ktui_img_data || window._ktui_img_data.width !== width || window._ktui_img_data.height !== height) {
+    var recreated = !window._ktui_img_data ||
+        window._ktui_img_data.width !== width ||
+        window._ktui_img_data.height !== height;
+    if (recreated) {
         window._ktui_img_data = ctx.createImageData(width, height);
     }
     var data = window._ktui_img_data.data;
-    var src = HEAPU8.subarray(rgba, rgba + width * height * 4);
-    data.set(src);
-    ctx.putImageData(window._ktui_img_data, 0, 0);
+
+    if (resized || recreated || (dirty_x === 0 && dirty_y === 0 && dirty_w >= width && dirty_h >= height)) {
+        var src = HEAPU8.subarray(rgba, rgba + width * height * 4);
+        data.set(src);
+        ctx.putImageData(window._ktui_img_data, 0, 0);
+        return;
+    }
+
+    var x0 = Math.max(0, Math.min(dirty_x, width));
+    var y0 = Math.max(0, Math.min(dirty_y, height));
+    var x1 = Math.max(x0, Math.min(dirty_x + dirty_w, width));
+    var y1 = Math.max(y0, Math.min(dirty_y + dirty_h, height));
+    var rw = x1 - x0;
+    var rh = y1 - y0;
+    if (rw <= 0 || rh <= 0) return;
+
+    var rowBytes = width * 4;
+    var copyBytes = rw * 4;
+    for (var y = y0; y < y1; ++y) {
+        var rowOffset = y * rowBytes + x0 * 4;
+        data.set(HEAPU8.subarray(rgba + rowOffset, rgba + rowOffset + copyBytes), rowOffset);
+    }
+    ctx.putImageData(window._ktui_img_data, 0, 0, x0, y0, rw, rh);
 });
 
 EM_JS(void, ktui_js_set_cursor, (const char* cursor_style), {
@@ -381,17 +406,22 @@ public:
     // ==================== 帧呈现与重绘请求 ====================
     void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override {
         if (!rgba || width == 0 || height == 0) return;
-        ktui_js_present_rgba8(rgba, static_cast<int>(width), static_cast<int>(height));
+        ktui_js_present_rgba8_region(rgba, static_cast<int>(width), static_cast<int>(height),
+                                     0, 0, static_cast<int>(width), static_cast<int>(height));
     }
 
     void present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
-                              uint32_t /*dirty_x*/, uint32_t /*dirty_y*/,
-                              uint32_t /*dirty_w*/, uint32_t /*dirty_h*/) override {
-        present_rgba8(rgba, width, height);
+                              uint32_t dirty_x, uint32_t dirty_y,
+                              uint32_t dirty_w, uint32_t dirty_h) override {
+        if (!rgba || width == 0 || height == 0 || dirty_w == 0 || dirty_h == 0) return;
+        ktui_js_present_rgba8_region(rgba, static_cast<int>(width), static_cast<int>(height),
+                                     static_cast<int>(dirty_x), static_cast<int>(dirty_y),
+                                     static_cast<int>(dirty_w), static_cast<int>(dirty_h));
     }
 
     void invalidate() override {
-        if (m_paint_handler) m_paint_handler();
+        // Web 端由 requestAnimationFrame (Application::step_frame) 统一按 VSync 节拍驱动重绘，
+        // 避免在 DOM 输入事件回调中同步调用 render_frame(true) 导致帧外重复提交、微卡顿及 dt==0。
     }
     void on_paint_requested(std::function<void()> handler) override {
         m_paint_handler = std::move(handler);

@@ -221,9 +221,18 @@ public:
         // 1. 如果水波纹正处于运行中，推进动效管理器步进
         if (m_ripple_active) {
             auto now = std::chrono::steady_clock::now();
-            float dt = std::chrono::duration<float>(now - m_last_tick_time).count();
+            float dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
             m_last_tick_time = now;
-            tick_ripple(dt);
+            if (dt > 0.0f) {
+                bool r_active = m_ripple_radius_tween.tick(dt);
+                bool o_active = m_ripple_opacity_tween.tick(dt);
+                m_ripple_radius = m_ripple_radius_tween.current_value();
+                m_ripple_opacity = m_ripple_opacity_tween.current_value();
+                m_ripple_active = r_active || o_active;
+            }
+            if (m_ripple_active) {
+                mark_needs_paint();
+            }
         }
 
         auto style = resolve_current_style();
