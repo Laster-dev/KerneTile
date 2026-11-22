@@ -6,6 +6,7 @@
 #include <ktui/presentation/ui_compositor.hpp>
 #include <ktui/tree/render_flex.hpp>
 #include <ktui/tree/overlay.hpp>
+#include <ktui/app/window_titlebar.hpp>
 #include <ktui/widgets/checkbox/checkbox_logic.hpp>
 #include <kernetile/renderer.hpp>
 #include <iostream>
@@ -357,6 +358,51 @@ void test_checkbox_animation_survives_zero_and_large_dt() {
     std::cout << "  -> Checkbox 动效零卡帧、完整收敛测试通过！" << std::endl;
 }
 
+void test_frameless_titlebar_hittest_and_buttons() {
+    std::cout << "[Test 8] 无边框窗口自绘标题栏命中测试与按钮交互测试..." << std::endl;
+    WindowDesc desc;
+    assert(desc.decorated == false && "Default window must be frameless");
+    assert(desc.custom_titlebar == true);
+
+    WindowTitlebar tb;
+    const Vec2 sz{500.0f, 360.0f};
+
+    // 边缘拉伸命中
+    assert(tb.hit_test({1.0f, 1.0f}, sz, true, false) == TitlebarHitTest::BorderTopLeft);
+    assert(tb.hit_test({499.0f, 359.0f}, sz, true, false) == TitlebarHitTest::BorderBottomRight);
+    assert(tb.hit_test({2.0f, 180.0f}, sz, true, false) == TitlebarHitTest::BorderLeft);
+    // 最大化后边缘不再触发拉伸
+    assert(tb.hit_test({1.0f, 1.0f}, sz, true, true) == TitlebarHitTest::Caption);
+
+    // 标题栏按钮与拖拽区
+    assert(tb.hit_test({100.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Caption);
+    assert(tb.hit_test({480.0f, 16.0f}, sz, true, false) == TitlebarHitTest::CloseBtn);
+    assert(tb.hit_test({436.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
+    assert(tb.hit_test({392.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MinimizeBtn);
+    assert(tb.hit_test({100.0f, 80.0f}, sz, true, false) == TitlebarHitTest::Client);
+
+    // 按钮点击回调验证
+    int min_hits = 0, max_hits = 0, close_hits = 0;
+    tb.on_minimize = [&]() { ++min_hits; };
+    tb.on_maximize_toggle = [&]() { ++max_hits; };
+    tb.on_close = [&]() { ++close_hits; };
+
+    bool dirty = false;
+    assert(tb.handle_pointer_down({480.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(tb.handle_pointer_up({480.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(close_hits == 1);
+
+    assert(tb.handle_pointer_down({436.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(tb.handle_pointer_up({436.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(max_hits == 1);
+
+    assert(tb.handle_pointer_down({392.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(tb.handle_pointer_up({392.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
+    assert(min_hits == 1);
+
+    std::cout << "  -> 无边框默认态、八向边缘命中与自绘标题栏按钮验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 6: 双级脏区、事件焦点与 KerneTile 闭环  " << std::endl;
@@ -370,6 +416,7 @@ int main() {
     test_compositor_dirty_union_and_tile_snapping();
     test_paint_context_and_kernetile_integration();
     test_checkbox_animation_survives_zero_and_large_dt();
+    test_frameless_titlebar_hittest_and_buttons();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 6 双级脏区与渲染闭环 100% 测试通过!  " << std::endl;

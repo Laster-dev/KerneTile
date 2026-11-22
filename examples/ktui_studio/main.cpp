@@ -1,5 +1,6 @@
 #include <ktui/ktui.hpp>
 #include <clocale>
+#include <memory>
 #include <string>
 
 using namespace ktui;
@@ -11,13 +12,16 @@ int main() {
 
     WindowDesc desc;
     desc.title = "KerneTile Studio";
-    desc.size = Vec2{480.0f, 300.0f};
-    desc.resizable = false;
+    desc.size = Vec2{520.0f, 380.0f};
+    desc.min_size = Vec2{380.0f, 320.0f};
+    desc.resizable = true;
 
     auto window = app.create_window(desc);
     if (!window) return 1;
 
     int count = 0;
+    int child_window_seq = 1;
+    std::vector<std::shared_ptr<Property<std::string>>> child_notes;
     Property<std::string> count_text{"当前计数: 0   (步长: 1)"};
     Property<bool> step_ten{false};
     Property<bool> locked{false};
@@ -30,7 +34,7 @@ int main() {
                        (locked.get() ? "  [已锁定]" : ""));
     };
 
-    auto card = [&](WidgetPtr child) {
+    auto card = [](WidgetPtr child) {
         return Box {
             .background_color = Color{0.15f, 0.15f, 0.18f, 1.0f},
             .border_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
@@ -39,6 +43,59 @@ int main() {
             .padding = EdgeInsets(12.0f, 14.0f),
             .child = std::move(child)
         };
+    };
+
+    auto spawn_child_window = [&]() {
+        int idx = child_window_seq++;
+        WindowDesc child_desc;
+        child_desc.title = "工具窗口 #" + std::to_string(idx);
+        child_desc.size = Vec2{360.0f, 240.0f};
+        child_desc.min_size = Vec2{260.0f, 180.0f};
+        child_desc.resizable = true;
+
+        auto child_win = app.create_window(child_desc);
+        if (!child_win) return;
+
+        auto note = std::make_shared<Property<std::string>>("窗口 #" + std::to_string(idx) + " 独立输入");
+        child_notes.push_back(note);
+        child_win->set_content(Box {
+            .background_color = Color{0.11f, 0.11f, 0.13f, 1.0f},
+            .padding = EdgeInsets(14.0f, 16.0f),
+            .child = VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    card(VStack {
+                        .align_items = AlignItems::Stretch,
+                        .spacing = 8.0f,
+                        .content = {
+                            Text { .text = "独立无边框子窗口 (共享全局计数绑定)", .color = Color{0.78f, 0.80f, 0.85f, 1.0f} },
+                            Text { .text = Bind(count_text), .font_size = 14.0f },
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 8.0f,
+                                .content = {
+                                    Button {
+                                        .text = "+1",
+                                        .variant = ButtonVariant::Accent,
+                                        .on_click = [&]() { count += 1; refresh_count(); }
+                                    },
+                                    Button {
+                                        .text = "-1",
+                                        .on_click = [&]() { count -= 1; refresh_count(); }
+                                    }
+                                }
+                            }
+                        }
+                    }),
+                    TextInput {
+                        .text = Bind(*note),
+                        .placeholder = "在此窗口独立输入..."
+                    }
+                }
+            }
+        });
+        child_win->show();
     };
 
     window->set_content(Box {
@@ -72,6 +129,10 @@ int main() {
                                     .variant = ButtonVariant::Danger,
                                     .on_click = [&]() { count = 0; refresh_count(); },
                                     .disabled = Bind(locked)
+                                },
+                                Button {
+                                    .text = "+ 新建窗口",
+                                    .on_click = spawn_child_window
                                 }
                             }
                         }

@@ -3,114 +3,110 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>KerneTile Studio (KTUI Web)</title>
+    <title>KerneTile Studio (KTUI Web Desktop)</title>
     <style>
-        :root {
-            --bg-color: #121214;
-            --panel-bg: #1c1c20;
-            --border-color: #2e2e34;
-            --accent-color: #2b7fff;
-            --text-primary: #f0f0f2;
-            --text-secondary: #909098;
-        }
-
         * {
             box-sizing: border-box;
             user-select: none;
             -webkit-user-select: none;
         }
 
-        body {
+        html, body {
             margin: 0;
             padding: 0;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-family: system-ui;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-            padding: 24px;
-        }
-
-        .header {
-            text-align: center;
-        }
-
-        .title {
-            font-size: 22px;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            margin: 0 0 6px 0;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .badge {
-            font-size: 11px;
-            font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 4px;
-            background: rgba(43, 127, 255, 0.2);
-            color: var(--accent-color);
-            border: 1px solid rgba(43, 127, 255, 0.4);
-            text-transform: uppercase;
-        }
-
-        .subtitle {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin: 0;
-        }
-
-        .canvas-wrapper {
-            position: relative;
-            border-radius: 8px;
+            width: 100vw;
+            height: 100vh;
             overflow: hidden;
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
-            background-color: #1a1a1d;
-            width: fit-content;
+            font-family: system-ui, -apple-system, sans-serif;
+            background:
+                radial-gradient(circle at 18% 22%, rgba(43, 127, 255, 0.24), transparent 46%),
+                radial-gradient(circle at 82% 76%, rgba(124, 58, 237, 0.20), transparent 48%),
+                radial-gradient(circle at 60% 18%, rgba(14, 165, 233, 0.14), transparent 42%),
+                linear-gradient(145deg, #0d0f15 0%, #131622 52%, #0c0e14 100%);
+            color: #eef0f6;
         }
 
-        #canvas {
-            display: block;
-            outline: none;
-            cursor: default;
-            width: 480px;
-            height: 300px;
+        #ktui-desktop {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
         }
 
-        .status-bar {
+        .desktop-watermark {
+            position: fixed;
+            left: 20px;
+            top: 16px;
+            z-index: 1;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            opacity: 0.72;
+        }
+
+        .desktop-title {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: 0.4px;
             display: flex;
             align-items: center;
             gap: 8px;
+        }
+
+        .badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(43, 127, 255, 0.22);
+            color: #60a5fa;
+            border: 1px solid rgba(96, 165, 250, 0.35);
+            text-transform: uppercase;
+        }
+
+        .desktop-sub {
             font-size: 12px;
-            color: var(--text-secondary);
+            color: rgba(200, 206, 224, 0.65);
+        }
+
+        #ktui-taskbar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 40px;
+            z-index: 900000;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 12px;
+            background: rgba(18, 19, 24, 0.84);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .taskbar-status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 11.5px;
+            color: rgba(210, 214, 228, 0.78);
+            padding-right: 4px;
         }
 
         .status-dot {
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background-color: #4caf50;
-            box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.65);
         }
 
         .status-dot.loading {
             background-color: #ff9800;
-            box-shadow: 0 0 8px rgba(255, 152, 0, 0.6);
+            box-shadow: 0 0 8px rgba(255, 152, 0, 0.65);
             animation: pulse 1s infinite alternate;
         }
 
@@ -118,37 +114,22 @@
             from { opacity: 0.4; }
             to { opacity: 1.0; }
         }
-
-        .footer-tips {
-            font-size: 12px;
-            color: var(--text-secondary);
-            text-align: center;
-            max-width: 480px;
-            line-height: 1.5;
-        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1 class="title">
+    <div id="ktui-desktop">
+        <div class="desktop-watermark">
+            <div class="desktop-title">
                 KerneTile Studio
-                <span class="badge">WebAssembly</span>
-            </h1>
-            <p class="subtitle">跨平台现代 C++20 声明式 UI 框架 · Web 实时光栅化演示</p>
+                <span class="badge">Web Desktop</span>
+            </div>
+            <div class="desktop-sub">无边框自绘标题栏 · 多窗口桌面环境 · 拖拽 / 缩放 / 最小化至任务栏</div>
         </div>
-
-        <div class="canvas-wrapper">
-            <canvas id="canvas" width="480" height="300" tabindex="0"></canvas>
-        </div>
-
-        <div class="status-bar">
-            <span id="status-dot" class="status-dot loading"></span>
-            <span id="status-text">正在加载 WebAssembly 模块...</span>
-        </div>
-
-        <div class="footer-tips">
-            💡 提示：本演示运行于纯 WebAssembly 沙盒。支持鼠标悬停、点击动效、焦点导航、双向数据绑定以及原生文本与中英文输入法。
+        <div id="ktui-taskbar">
+            <div class="taskbar-status">
+                <span id="status-dot" class="status-dot loading"></span>
+                <span id="status-text">正在加载 WebAssembly...</span>
+            </div>
         </div>
     </div>
 
@@ -160,9 +141,7 @@
             preRun: [],
             postRun: [function() {
                 if (statusDot) statusDot.className = 'status-dot';
-                if (statusText) statusText.textContent = '运行中 (60 FPS 响应式事件循环已就绪)';
-                var canvas = document.getElementById('canvas');
-                if (canvas) canvas.focus();
+                if (statusText) statusText.textContent = '运行中 · 60 FPS';
             }],
             print: function(text) {
                 console.log('[KerneTile Wasm stdout]', text);
@@ -173,10 +152,6 @@
                     statusText.textContent = '异常: ' + text;
                 }
             },
-            canvas: (function() {
-                var canvas = document.getElementById('canvas');
-                return canvas;
-            })(),
             setStatus: function(text) {
                 if (!text) return;
                 if (statusText) statusText.textContent = text;
@@ -185,7 +160,7 @@
             monitorRunDependencies: function(left) {
                 this.totalDependencies = Math.max(this.totalDependencies, left);
                 if (statusText) {
-                    statusText.textContent = left ? '加载依赖资源中 (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')...' : '初始化引擎...';
+                    statusText.textContent = left ? '加载依赖 (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')...' : '初始化引擎...';
                 }
             }
         };

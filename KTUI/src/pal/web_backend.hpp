@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <iostream>
 #include <cstring>
+#include <cstdint>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -16,6 +17,7 @@
 namespace ktui {
 
 class WebBackend;
+class WebWindow;
 
 // ==================== C / Wasm 互操作缓存与函数导出 ====================
 namespace detail {
@@ -34,101 +36,402 @@ extern "C" {
 
     EMSCRIPTEN_KEEPALIVE
     void ktui_web_on_ime_commit(const char* text);
+
+    EMSCRIPTEN_KEEPALIVE
+    int ktui_web_hit_test(int win_id, float x, float y);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_focus_window(int win_id);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_pointer(int win_id, int type, float x, float y, int button, int mods);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_wheel(int win_id, float x, float y, float dx, float dy, int mods);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_drag_move(int win_id, float x, float y);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_drag_resize(int win_id, float x, float y, float w, float h);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_taskbar_click(int win_id);
+
+    EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_viewport_resize();
 }
 
-// JavaScript 原生画布与 DOM 桥接接口
-EM_JS(void, ktui_js_init_ime, (), {
-    var canvas = document.getElementById('canvas');
-    if (!canvas) return;
+// ==================== Web 桌面环境与多窗口 DOM 桥接 ====================
+EM_JS(void, ktui_js_init_desktop, (), {
+    // 隐藏旧版单画布占位元素（若 shell.html 中残留）
+    var legacy = document.getElementById('canvas');
+    if (legacy && !legacy.dataset.ktuiWinId) {
+        legacy.style.display = 'none';
+    }
 
-    if (document.getElementById('ktui_ime_input')) return;
-    var input = document.createElement('input');
-    input.id = 'ktui_ime_input';
-    input.type = 'text';
-    input.tabIndex = -1;
-    input.disabled = true;
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:1px;height:1px';
-    document.body.appendChild(input);
+    var desktop = document.getElementById('ktui-desktop');
+    if (!desktop) {
+        desktop = document.createElement('div');
+        desktop.id = 'ktui-desktop';
+        desktop.style.cssText = 'position:fixed;inset:0;overflow:hidden;user-select:none;-webkit-user-select:none;';
+        document.body.appendChild(desktop);
+    }
 
-    var composing = false;
-    var pendingCommit = null;
-    var send = function(text, cursor) {
-        var size = lengthBytesUTF8(text) + 1;
-        var buf = _ktui_web_get_text_buf(size);
-        stringToUTF8(text, buf, size);
-        if (cursor === undefined) _ktui_web_on_ime_commit(buf);
-        else _ktui_web_on_ime_composition(buf, lengthBytesUTF8(text.slice(0, cursor)));
-    };
-    input.ktuiIsComposing = function() { return composing; };
-    input.addEventListener('keydown', function(e) {
-        if (!composing && !e.isComposing && e.keyCode !== 229) pendingCommit = null;
-    });
-    input.addEventListener('compositionstart', function() {
-        composing = true;
-        pendingCommit = null;
-    });
-    input.addEventListener('compositionupdate', function(e) {
-        if (!composing || input.disabled) return;
-        var text = e.data || '';
-        var cursor = input.value === text ? input.selectionEnd : text.length;
-        send(text, cursor);
-    });
-    input.addEventListener('compositionend', function(e) {
-        if (!composing || input.disabled) return;
-        composing = false;
-        var text = e.data || '';
-        pendingCommit = text || null;
-        input.value = '';
-        if (text) send(text);
-        else send('', 0);
-    });
-    input.addEventListener('input', function(e) {
-        if (input.disabled || composing || e.isComposing) return;
-        var text = e.data ?? input.value;
-        var inputType = e.inputType || '';
-        var duplicate = pendingCommit !== null &&
-            (inputType === 'insertFromComposition' ||
-                ((inputType === 'insertText' || inputType === 'insertCompositionText') &&
-                    text === pendingCommit));
-        pendingCommit = null;
-        input.value = '';
-        if (text && !duplicate && !inputType.startsWith('delete')) send(text);
-    });
-    input.addEventListener('blur', function() {
-        if (composing) {
+    var taskbar = document.getElementById('ktui-taskbar');
+    if (!taskbar) {
+        taskbar = document.createElement('div');
+        taskbar.id = 'ktui-taskbar';
+        taskbar.style.cssText =
+            'position:fixed;left:0;right:0;bottom:0;height:40px;z-index:900000;' +
+            'display:flex;align-items:center;gap:6px;padding:0 12px;' +
+            'background:rgba(20,21,26,0.84);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);' +
+            'border-top:1px solid rgba(255,255,255,0.08);font-family:system-ui,sans-serif;font-size:12px;';
+        desktop.appendChild(taskbar);
+    }
+
+    if (!Module['ktuiWindows']) Module['ktuiWindows'] = new Map();
+    if (!Module['ktuiCanvases']) Module['ktuiCanvases'] = new Map();
+    if (!Module['ktuiTaskbarItems']) Module['ktuiTaskbarItems'] = new Map();
+
+    // 全局拖拽 / 缩放状态
+    if (!window._ktuiDesktopListenersInstalled) {
+        window._ktuiDesktopListenersInstalled = true;
+        window._ktuiDrag = null;
+
+        window.addEventListener('pointermove', function(e) {
+            var drag = window._ktuiDrag;
+            if (!drag) return;
+            var dx = e.clientX - drag.startX;
+            var dy = e.clientY - drag.startY;
+            if (drag.mode === 'move') {
+                var nx = drag.origX + dx;
+                var ny = Math.max(0, Math.min(window.innerHeight - 40 - 34, drag.origY + dy));
+                _ktui_web_on_drag_move(drag.winId, nx, ny);
+            } else if (drag.mode === 'resize') {
+                var x = drag.origX, y = drag.origY, w = drag.origW, h = drag.origH;
+                var ht = drag.ht;
+                // BorderLeft=5, Right=6, Top=7, Bottom=8, TL=9, TR=10, BL=11, BR=12
+                if (ht === 5 || ht === 9 || ht === 11) {
+                    var nw = Math.max(drag.minW, Math.min(drag.maxW, drag.origW - dx));
+                    x = drag.origX + (drag.origW - nw);
+                    w = nw;
+                }
+                if (ht === 6 || ht === 10 || ht === 12) {
+                    w = Math.max(drag.minW, Math.min(drag.maxW, drag.origW + dx));
+                }
+                if (ht === 7 || ht === 9 || ht === 10) {
+                    var nh = Math.max(drag.minH, Math.min(drag.maxH, drag.origH - dy));
+                    y = drag.origY + (drag.origH - nh);
+                    h = nh;
+                }
+                if (ht === 8 || ht === 11 || ht === 12) {
+                    h = Math.max(drag.minH, Math.min(drag.maxH, drag.origH + dy));
+                }
+                _ktui_web_on_drag_resize(drag.winId, x, y, w, h);
+            }
+        });
+
+        window.addEventListener('pointerup', function() {
+            window._ktuiDrag = null;
+        });
+
+        window.addEventListener('resize', function() {
+            _ktui_web_on_viewport_resize();
+        });
+    }
+
+    // 共享隐藏 IME 输入框
+    if (!document.getElementById('ktui_ime_input')) {
+        var input = document.createElement('input');
+        input.id = 'ktui_ime_input';
+        input.type = 'text';
+        input.tabIndex = -1;
+        input.disabled = true;
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;z-index:999999;';
+        document.body.appendChild(input);
+
+        var composing = false;
+        var pendingCommit = null;
+        var send = function(text, cursor) {
+            var size = lengthBytesUTF8(text) + 1;
+            var buf = _ktui_web_get_text_buf(size);
+            stringToUTF8(text, buf, size);
+            if (cursor === undefined) _ktui_web_on_ime_commit(buf);
+            else _ktui_web_on_ime_composition(buf, lengthBytesUTF8(text.slice(0, cursor)));
+        };
+        input.ktuiIsComposing = function() { return composing; };
+        input.addEventListener('keydown', function(e) {
+            if (!composing && !e.isComposing && e.keyCode !== 229) pendingCommit = null;
+        });
+        input.addEventListener('compositionstart', function() {
+            composing = true;
+            pendingCommit = null;
+        });
+        input.addEventListener('compositionupdate', function(e) {
+            if (!composing || input.disabled) return;
+            var text = e.data || '';
+            var cursor = input.value === text ? input.selectionEnd : text.length;
+            send(text, cursor);
+        });
+        input.addEventListener('compositionend', function(e) {
+            if (!composing || input.disabled) return;
             composing = false;
-            send('', 0);
+            var text = e.data || '';
+            pendingCommit = text || null;
+            input.value = '';
+            if (text) send(text);
+            else send('', 0);
+        });
+        input.addEventListener('input', function(e) {
+            if (input.disabled || composing || e.isComposing) return;
+            var text = e.data ?? input.value;
+            var inputType = e.inputType || '';
+            var duplicate = pendingCommit !== null &&
+                (inputType === 'insertFromComposition' ||
+                    ((inputType === 'insertText' || inputType === 'insertCompositionText') &&
+                        text === pendingCommit));
+            pendingCommit = null;
+            input.value = '';
+            if (text && !duplicate && !inputType.startsWith('delete')) send(text);
+        });
+        input.addEventListener('blur', function() {
+            if (composing) {
+                composing = false;
+                send('', 0);
+            }
+            pendingCommit = null;
+            input.value = '';
+        });
+        input.addEventListener('paste', function(e) {
+            if (e.clipboardData) window._ktui_clipboard = e.clipboardData.getData('text/plain');
+        });
+    }
+});
+
+EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, float y, float w, float h,
+                                    float min_w, float min_h, float max_w, float max_h, int z_index), {
+    var desktop = document.getElementById('ktui-desktop');
+    if (!desktop) return;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'ktui-win';
+    wrap.dataset.ktuiWinId = String(win_id);
+    wrap.style.cssText =
+        'position:absolute;overflow:hidden;border-radius:6px;' +
+        'box-shadow:0 18px 48px rgba(0,0,0,0.58),0 2px 10px rgba(0,0,0,0.35);' +
+        'background:#1a1b20;will-change:transform;';
+    wrap.style.left = Math.round(x) + 'px';
+    wrap.style.top = Math.round(y) + 'px';
+    wrap.style.width = Math.round(w) + 'px';
+    wrap.style.height = Math.round(h) + 'px';
+    wrap.style.zIndex = String(z_index);
+
+    var canvas = document.createElement('canvas');
+    canvas.id = 'ktui-win-' + win_id;
+    canvas.dataset.ktuiWinId = String(win_id);
+    canvas.tabIndex = 0;
+    canvas.style.cssText = 'display:block;outline:none;touch-action:none;';
+    canvas.style.width = Math.round(w) + 'px';
+    canvas.style.height = Math.round(h) + 'px';
+    wrap.appendChild(canvas);
+    desktop.appendChild(wrap);
+
+    var entry = {
+        wrap: wrap,
+        canvas: canvas,
+        imgData: null,
+        minW: min_w,
+        minH: min_h,
+        maxW: max_w,
+        maxH: max_h,
+        maximized: false,
+        resizable: true
+    };
+    Module['ktuiWindows'].set(win_id, entry);
+    Module['ktuiCanvases'].set(win_id, canvas);
+
+    var getMods = function(e) {
+        return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+    };
+    var getLocal = function(e) {
+        var r = canvas.getBoundingClientRect();
+        return [e.clientX - r.left, e.clientY - r.top];
+    };
+
+    canvas.addEventListener('pointerdown', function(e) {
+        _ktui_web_on_focus_window(win_id);
+        var pt = getLocal(e);
+        var btn = e.button === 0 ? 1 : (e.button === 2 ? 2 : (e.button === 1 ? 3 : 0));
+        if (btn === 1) {
+            var ht = _ktui_web_hit_test(win_id, pt[0], pt[1]);
+            if (ht === 1 && !entry.maximized) {
+                var rect = wrap.getBoundingClientRect();
+                window._ktuiDrag = {
+                    mode: 'move',
+                    winId: win_id,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    origX: rect.left,
+                    origY: rect.top
+                };
+                // 仍转发 PointerDown 以便支持标题栏双击最大化
+                _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e));
+                return;
+            }
+            if (ht >= 5 && ht <= 12 && entry.resizable && !entry.maximized) {
+                var rect2 = wrap.getBoundingClientRect();
+                window._ktuiDrag = {
+                    mode: 'resize',
+                    winId: win_id,
+                    ht: ht,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    origX: rect2.left,
+                    origY: rect2.top,
+                    origW: rect2.width,
+                    origH: rect2.height,
+                    minW: entry.minW,
+                    minH: entry.minH,
+                    maxW: entry.maxW,
+                    maxH: entry.maxH
+                };
+                e.preventDefault();
+                return;
+            }
         }
-        pendingCommit = null;
-        input.value = '';
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e));
     });
-    input.addEventListener('paste', function(e) {
-        if (e.clipboardData) window._ktui_clipboard = e.clipboardData.getData('text/plain');
+
+    canvas.addEventListener('pointermove', function(e) {
+        if (window._ktuiDrag) return;
+        var pt = getLocal(e);
+        _ktui_web_on_pointer(win_id, 0, pt[0], pt[1], 0, getMods(e));
     });
+
+    canvas.addEventListener('pointerup', function(e) {
+        if (window._ktuiDrag) return;
+        var pt = getLocal(e);
+        var btn = e.button === 0 ? 1 : (e.button === 2 ? 2 : (e.button === 1 ? 3 : 0));
+        _ktui_web_on_pointer(win_id, 2, pt[0], pt[1], btn, getMods(e));
+    });
+
+    canvas.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var pt = getLocal(e);
+        _ktui_web_on_wheel(win_id, pt[0], pt[1], e.deltaX, e.deltaY, getMods(e));
+    }, { passive: false });
+
+    canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    // 任务栏图标项
+    var taskbar = document.getElementById('ktui-taskbar');
+    if (taskbar) {
+        var pill = document.createElement('button');
+        pill.type = 'button';
+        pill.textContent = UTF8ToString(title) || ('Window ' + win_id);
+        pill.style.cssText =
+            'height:28px;max-width:180px;padding:0 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.10);' +
+            'background:rgba(255,255,255,0.08);color:#e8eaf0;font-size:12px;cursor:pointer;' +
+            'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background 0.12s;';
+        pill.addEventListener('click', function() {
+            _ktui_web_on_taskbar_click(win_id);
+        });
+        taskbar.appendChild(pill);
+        Module['ktuiTaskbarItems'].set(win_id, pill);
+    }
+});
+
+EM_JS(void, ktui_js_update_window_geometry, (int win_id, float x, float y, float w, float h, int z_index,
+                                             int visible, int maximized, int active, int resizable), {
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+    if (!entry) return;
+    entry.maximized = maximized !== 0;
+    entry.resizable = resizable !== 0;
+    var wrap = entry.wrap;
+    var canvas = entry.canvas;
+    wrap.style.left = Math.round(x) + 'px';
+    wrap.style.top = Math.round(y) + 'px';
+    wrap.style.width = Math.round(w) + 'px';
+    wrap.style.height = Math.round(h) + 'px';
+    wrap.style.zIndex = String(z_index);
+    wrap.style.display = visible ? 'block' : 'none';
+    wrap.style.borderRadius = maximized ? '0px' : '6px';
+    wrap.style.boxShadow = maximized
+        ? 'none'
+        : (active
+            ? '0 20px 56px rgba(0,0,0,0.65),0 2px 12px rgba(0,0,0,0.40)'
+            : '0 10px 28px rgba(0,0,0,0.42)');
+    canvas.style.width = Math.round(w) + 'px';
+    canvas.style.height = Math.round(h) + 'px';
+
+    var pill = Module['ktuiTaskbarItems'] && Module['ktuiTaskbarItems'].get(win_id);
+    if (pill) {
+        pill.style.background = (active && visible) ? 'rgba(43,127,255,0.30)' : 'rgba(255,255,255,0.06)';
+        pill.style.borderColor = (active && visible) ? 'rgba(70,150,255,0.55)' : 'rgba(255,255,255,0.08)';
+        pill.style.opacity = visible ? '1.0' : '0.55';
+    }
+});
+
+EM_JS(void, ktui_js_update_window_constraints, (int win_id, float min_w, float min_h, float max_w, float max_h), {
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+    if (!entry) return;
+    entry.minW = min_w;
+    entry.minH = min_h;
+    entry.maxW = max_w;
+    entry.maxH = max_h;
+});
+
+EM_JS(void, ktui_js_set_window_title, (int win_id, const char* title), {
+    var str = UTF8ToString(title);
+    var pill = Module['ktuiTaskbarItems'] && Module['ktuiTaskbarItems'].get(win_id);
+    if (pill) pill.textContent = str || ('Window ' + win_id);
+    if (str) document.title = str;
+});
+
+EM_JS(void, ktui_js_focus_window_canvas, (int win_id), {
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+    if (entry && entry.canvas) {
+        var ime = document.getElementById('ktui_ime_input');
+        if (!ime || document.activeElement !== ime || ime.disabled) {
+            entry.canvas.focus({ preventScroll: true });
+        }
+    }
+});
+
+EM_JS(void, ktui_js_destroy_window, (int win_id), {
+    if (Module['ktuiWindows']) {
+        var entry = Module['ktuiWindows'].get(win_id);
+        if (entry && entry.wrap) entry.wrap.remove();
+        Module['ktuiWindows'].delete(win_id);
+    }
+    if (Module['ktuiCanvases']) Module['ktuiCanvases'].delete(win_id);
+    if (Module['ktuiTaskbarItems']) {
+        var pill = Module['ktuiTaskbarItems'].get(win_id);
+        if (pill) pill.remove();
+        Module['ktuiTaskbarItems'].delete(win_id);
+    }
 });
 
 EM_JS(int, ktui_js_key_target, (), {
     var target = document.activeElement;
-    if (!target) return 0;
-    if (target.id === 'canvas') return 1;
-    if (target.id !== 'ktui_ime_input' || target.disabled || target.ktuiIsComposing()) return 0;
-    return 2;
-});
-
-EM_JS(void, ktui_js_set_canvas_size, (int w, int h), {
-    var canvas = document.getElementById('canvas');
-    if (canvas) {
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
+    if (!target) return 1;
+    if (target.dataset && target.dataset.ktuiWinId) return 1;
+    if (target.id === 'ktui_ime_input') {
+        if (target.disabled || target.ktuiIsComposing()) return 0;
+        return 2;
     }
+    return 1;
 });
 
-EM_JS(void, ktui_js_present_rgba8_region, (const uint8_t* rgba, int width, int height,
+EM_JS(void, ktui_js_present_rgba8_region, (int win_id, const uint8_t* rgba, int width, int height,
                                            int dirty_x, int dirty_y, int dirty_w, int dirty_h), {
-    var canvas = document.getElementById('canvas');
-    if (!canvas) return;
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+    if (!entry || !entry.canvas) return;
+    var canvas = entry.canvas;
     var resized = (canvas.width !== width || canvas.height !== height);
     if (resized) {
         canvas.width = width;
@@ -137,18 +440,16 @@ EM_JS(void, ktui_js_present_rgba8_region, (const uint8_t* rgba, int width, int h
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    var recreated = !window._ktui_img_data ||
-        window._ktui_img_data.width !== width ||
-        window._ktui_img_data.height !== height;
+    var recreated = !entry.imgData || entry.imgData.width !== width || entry.imgData.height !== height;
     if (recreated) {
-        window._ktui_img_data = ctx.createImageData(width, height);
+        entry.imgData = ctx.createImageData(width, height);
     }
-    var data = window._ktui_img_data.data;
+    var data = entry.imgData.data;
 
     if (resized || recreated || (dirty_x === 0 && dirty_y === 0 && dirty_w >= width && dirty_h >= height)) {
         var src = HEAPU8.subarray(rgba, rgba + width * height * 4);
         data.set(src);
-        ctx.putImageData(window._ktui_img_data, 0, 0);
+        ctx.putImageData(entry.imgData, 0, 0);
         return;
     }
 
@@ -166,21 +467,17 @@ EM_JS(void, ktui_js_present_rgba8_region, (const uint8_t* rgba, int width, int h
         var rowOffset = y * rowBytes + x0 * 4;
         data.set(HEAPU8.subarray(rgba + rowOffset, rgba + rowOffset + copyBytes), rowOffset);
     }
-    ctx.putImageData(window._ktui_img_data, 0, 0, x0, y0, rw, rh);
+    ctx.putImageData(entry.imgData, 0, 0, x0, y0, rw, rh);
 });
 
-EM_JS(void, ktui_js_set_cursor, (const char* cursor_style), {
-    var canvas = document.getElementById('canvas');
-    if (canvas) {
-        canvas.style.cursor = UTF8ToString(cursor_style);
+EM_JS(void, ktui_js_set_cursor, (int win_id, const char* cursor_style), {
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+    if (entry && entry.canvas) {
+        entry.canvas.style.cursor = UTF8ToString(cursor_style);
     }
 });
 
-EM_JS(void, ktui_js_set_title, (const char* title), {
-    document.title = UTF8ToString(title);
-});
-
-EM_JS(void, ktui_js_set_ime_enabled, (bool enabled), {
+EM_JS(void, ktui_js_set_ime_enabled, (int win_id, bool enabled), {
     var input = document.getElementById('ktui_ime_input');
     if (!input) return;
     if (enabled) {
@@ -190,17 +487,20 @@ EM_JS(void, ktui_js_set_ime_enabled, (bool enabled), {
         var wasFocused = document.activeElement === input;
         input.disabled = true;
         input.value = '';
-        if (wasFocused) document.getElementById('canvas')?.focus({preventScroll: true});
+        if (wasFocused) {
+            var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
+            if (entry && entry.canvas) entry.canvas.focus({preventScroll: true});
+        }
     }
 });
 
-EM_JS(void, ktui_js_set_ime_cursor_rect, (float x, float y, float w, float h), {
-    var canvas = document.getElementById('canvas');
+EM_JS(void, ktui_js_set_ime_cursor_rect, (int win_id, float x, float y, float w, float h), {
+    var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
     var input = document.getElementById('ktui_ime_input');
-    if (!canvas || !input) return;
-    var rect = canvas.getBoundingClientRect();
-    input.style.left = (window.scrollX + rect.left + x) + 'px';
-    input.style.top = (window.scrollY + rect.top + y + h) + 'px';
+    if (!entry || !entry.canvas || !input) return;
+    var rect = entry.canvas.getBoundingClientRect();
+    input.style.left = (rect.left + x) + 'px';
+    input.style.top = (rect.top + y + h) + 'px';
 });
 
 EM_JS(void, ktui_js_set_clipboard, (const char* text), {
@@ -302,42 +602,91 @@ public:
     }
 };
 
-// ==================== Web 物理窗口抽象实现 ====================
+// ==================== Web 虚拟桌面多窗口实现 ====================
 class WebWindow : public IPlatformWindow {
 public:
-    explicit WebWindow(const WindowDesc& desc)
-        : m_title(desc.title),
+    static constexpr float kTaskbarHeight = 40.0f;
+
+    WebWindow(int win_id, const WindowDesc& desc, int z_index,
+              std::function<void(WebWindow*)> on_activate_req,
+              std::function<void(WebWindow*)> on_destroyed)
+        : m_win_id(win_id),
+          m_title(desc.title),
           m_size(desc.size),
           m_min_size(desc.min_size),
           m_max_size(desc.max_size),
+          m_normal_size(desc.size),
+          m_z_index(z_index),
           m_resizable(desc.resizable),
-          m_decorated(desc.decorated)
+          m_decorated(desc.decorated),
+          m_always_on_top(desc.always_on_top),
+          m_on_activate_req(std::move(on_activate_req)),
+          m_on_destroyed(std::move(on_destroyed))
     {
-        ktui_js_set_title(m_title.c_str());
-        ktui_js_set_canvas_size(static_cast<int>(m_size.x), static_cast<int>(m_size.y));
+        Rect desk = work_area();
+        if (desc.position.x >= 0.0f && desc.position.y >= 0.0f) {
+            m_position = desc.position;
+        } else {
+            // 首窗居中，后续窗口依次级联偏移，贴近真实桌面体验
+            float base_x = std::max(16.0f, (desk.width() - m_size.x) * 0.5f);
+            float base_y = std::max(16.0f, (desk.height() - m_size.y) * 0.5f);
+            float cascade = static_cast<float>((win_id - 1) % 8) * 28.0f;
+            m_position.x = std::clamp(base_x + cascade, 12.0f, std::max(12.0f, desk.width() - m_size.x - 12.0f));
+            m_position.y = std::clamp(base_y + cascade, 12.0f, std::max(12.0f, desk.height() - m_size.y - 12.0f));
+        }
+        m_normal_pos = m_position;
+
+        ktui_js_create_window(m_win_id, m_title.c_str(),
+                              m_position.x, m_position.y, m_size.x, m_size.y,
+                              m_min_size.x, m_min_size.y, m_max_size.x, m_max_size.y,
+                              m_z_index);
+        sync_dom_geometry();
     }
 
     ~WebWindow() override {
         close();
+        if (m_on_destroyed) m_on_destroyed(this);
+        ktui_js_destroy_window(m_win_id);
     }
+
+    [[nodiscard]] int win_id() const noexcept { return m_win_id; }
 
     // ==================== 几何与尺寸 ====================
     Vec2 size() const override { return m_size; }
     void set_size(Vec2 new_size) override {
         m_size.x = std::clamp(new_size.x, m_min_size.x, m_max_size.x);
         m_size.y = std::clamp(new_size.y, m_min_size.y, m_max_size.y);
-        ktui_js_set_canvas_size(static_cast<int>(m_size.x), static_cast<int>(m_size.y));
+        if (m_state == WindowState::Normal) m_normal_size = m_size;
+        sync_dom_geometry();
         if (m_resize_handler) m_resize_handler(m_size);
     }
 
     Vec2 min_size() const override { return m_min_size; }
-    void set_min_size(Vec2 min_sz) override { m_min_size = min_sz; }
+    void set_min_size(Vec2 min_sz) override {
+        m_min_size = min_sz;
+        ktui_js_update_window_constraints(m_win_id, m_min_size.x, m_min_size.y, m_max_size.x, m_max_size.y);
+    }
     Vec2 max_size() const override { return m_max_size; }
-    void set_max_size(Vec2 max_sz) override { m_max_size = max_sz; }
+    void set_max_size(Vec2 max_sz) override {
+        m_max_size = max_sz;
+        ktui_js_update_window_constraints(m_win_id, m_min_size.x, m_min_size.y, m_max_size.x, m_max_size.y);
+    }
 
-    Vec2 position() const override { return Vec2{0.0f, 0.0f}; }
-    void set_position(Vec2 pos) override { (void)pos; }
-    void center_on_screen() override {}
+    Vec2 position() const override { return m_position; }
+    void set_position(Vec2 pos) override {
+        m_position = pos;
+        if (m_state == WindowState::Normal) m_normal_pos = m_position;
+        sync_dom_geometry();
+        if (m_move_handler) m_move_handler(m_position);
+    }
+
+    void center_on_screen() override {
+        Rect desk = work_area();
+        set_position(Vec2{
+            std::max(0.0f, (desk.width() - m_size.x) * 0.5f),
+            std::max(0.0f, (desk.height() - m_size.y) * 0.5f)
+        });
+    }
 
     Rect screen_bounds() const override {
         int w = 0, h = 0;
@@ -346,39 +695,102 @@ public:
     }
 
     // ==================== 呈现状态 ====================
-    void show() override { m_visible = true; }
-    void hide() override { m_visible = false; }
-    bool is_visible() const override { return m_visible; }
+    void show() override {
+        m_visible = true;
+        if (m_state == WindowState::Minimized) m_state = WindowState::Normal;
+        activate();
+        sync_dom_geometry();
+    }
+    void hide() override {
+        m_visible = false;
+        sync_dom_geometry();
+    }
+    bool is_visible() const override { return m_visible && m_state != WindowState::Minimized; }
 
-    void minimize() override { m_state = WindowState::Minimized; }
-    void maximize() override { m_state = WindowState::Maximized; }
-    void restore() override { m_state = WindowState::Normal; }
+    void minimize() override {
+        m_state = WindowState::Minimized;
+        m_active = false;
+        m_focused = false;
+        sync_dom_geometry();
+        if (m_focus_handler) m_focus_handler(false);
+    }
+
+    void maximize() override {
+        if (!m_resizable) return;
+        if (m_state == WindowState::Normal) {
+            m_normal_pos = m_position;
+            m_normal_size = m_size;
+        }
+        m_state = WindowState::Maximized;
+        Rect desk = work_area();
+        m_position = Vec2{0.0f, 0.0f};
+        m_size = Vec2{std::max(m_min_size.x, desk.width()), std::max(m_min_size.y, desk.height())};
+        sync_dom_geometry();
+        if (m_move_handler) m_move_handler(m_position);
+        if (m_resize_handler) m_resize_handler(m_size);
+    }
+
+    void restore() override {
+        m_state = WindowState::Normal;
+        m_visible = true;
+        m_position = m_normal_pos;
+        m_size = m_normal_size;
+        sync_dom_geometry();
+        if (m_move_handler) m_move_handler(m_position);
+        if (m_resize_handler) m_resize_handler(m_size);
+    }
+
     bool is_minimized() const override { return m_state == WindowState::Minimized; }
     bool is_maximized() const override { return m_state == WindowState::Maximized; }
 
     void set_fullscreen(bool fullscreen) override {
-        m_state = fullscreen ? WindowState::Fullscreen : WindowState::Normal;
+        if (fullscreen) {
+            if (m_state == WindowState::Normal) {
+                m_normal_pos = m_position;
+                m_normal_size = m_size;
+            }
+            m_state = WindowState::Fullscreen;
+            Rect sb = screen_bounds();
+            m_position = Vec2{0.0f, 0.0f};
+            m_size = Vec2{sb.width(), sb.height()};
+            sync_dom_geometry();
+            if (m_resize_handler) m_resize_handler(m_size);
+        } else {
+            restore();
+        }
     }
     bool is_fullscreen() const override { return m_state == WindowState::Fullscreen; }
 
-    void activate() override { m_active = true; m_focused = true; }
+    void activate() override {
+        if (m_on_activate_req) {
+            m_on_activate_req(this);
+        } else {
+            set_active_internal(true, m_z_index);
+        }
+    }
     bool is_active() const override { return m_active; }
-    void focus() override { m_focused = true; }
+    void focus() override { activate(); }
     bool has_focus() const override { return m_focused; }
 
-    void set_always_on_top(bool always_on_top) override { (void)always_on_top; }
-    bool is_always_on_top() const override { return false; }
+    void set_always_on_top(bool always_on_top) override {
+        m_always_on_top = always_on_top;
+        sync_dom_geometry();
+    }
+    bool is_always_on_top() const override { return m_always_on_top; }
     void flash_taskbar(bool flash) override { (void)flash; }
 
     // ==================== 外观与标题栏 ====================
     std::string title() const override { return m_title; }
     void set_title(const std::string& title) override {
         m_title = title;
-        ktui_js_set_title(title.c_str());
+        ktui_js_set_window_title(m_win_id, m_title.c_str());
     }
     void set_icon(const std::string& icon_path) override { (void)icon_path; }
 
-    void set_resizable(bool resizable) override { m_resizable = resizable; }
+    void set_resizable(bool resizable) override {
+        m_resizable = resizable;
+        sync_dom_geometry();
+    }
     bool is_resizable() const override { return m_resizable; }
 
     void set_opacity(float opacity) override { m_opacity = opacity; }
@@ -391,22 +803,20 @@ public:
     }
 
     // ==================== 显示器与 DPI ====================
-    float dpi_scale() const override {
-        return ktui_js_get_dpi_scale();
-    }
+    float dpi_scale() const override { return ktui_js_get_dpi_scale(); }
     float render_scale() const override { return dpi_scale(); }
     uint32_t refresh_rate() const override { return 60; }
 
     // ==================== 原生句柄 ====================
     void* get_compute_display() const override { return nullptr; }
     void* get_native_handle() const override {
-        return const_cast<void*>(reinterpret_cast<const void*>(this));
+        return reinterpret_cast<void*>(static_cast<uintptr_t>(m_win_id));
     }
 
     // ==================== 帧呈现与重绘请求 ====================
     void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override {
         if (!rgba || width == 0 || height == 0) return;
-        ktui_js_present_rgba8_region(rgba, static_cast<int>(width), static_cast<int>(height),
+        ktui_js_present_rgba8_region(m_win_id, rgba, static_cast<int>(width), static_cast<int>(height),
                                      0, 0, static_cast<int>(width), static_cast<int>(height));
     }
 
@@ -414,25 +824,24 @@ public:
                               uint32_t dirty_x, uint32_t dirty_y,
                               uint32_t dirty_w, uint32_t dirty_h) override {
         if (!rgba || width == 0 || height == 0 || dirty_w == 0 || dirty_h == 0) return;
-        ktui_js_present_rgba8_region(rgba, static_cast<int>(width), static_cast<int>(height),
+        ktui_js_present_rgba8_region(m_win_id, rgba, static_cast<int>(width), static_cast<int>(height),
                                      static_cast<int>(dirty_x), static_cast<int>(dirty_y),
                                      static_cast<int>(dirty_w), static_cast<int>(dirty_h));
     }
 
     void invalidate() override {
-        // Web 端由 requestAnimationFrame (Application::step_frame) 统一按 VSync 节拍驱动重绘，
-        // 避免在 DOM 输入事件回调中同步调用 render_frame(true) 导致帧外重复提交、微卡顿及 dt==0。
+        // Web 端由 requestAnimationFrame (Application::step_frame) 统一按 VSync 节拍驱动重绘
     }
     void on_paint_requested(std::function<void()> handler) override {
         m_paint_handler = std::move(handler);
     }
 
-    // ==================== 框架级 IME 输入法与光标形状控制 ====================
+    // ==================== IME 输入法与光标形状 ====================
     void set_ime_enabled(bool enabled) override {
-        ktui_js_set_ime_enabled(enabled);
+        ktui_js_set_ime_enabled(m_win_id, enabled);
     }
     void set_ime_cursor_rect(Rect cursor_rect) override {
-        ktui_js_set_ime_cursor_rect(cursor_rect.min_x, cursor_rect.min_y,
+        ktui_js_set_ime_cursor_rect(m_win_id, cursor_rect.min_x, cursor_rect.min_y,
                                     cursor_rect.width(), cursor_rect.height());
     }
     void set_cursor(CursorShape cursor) override {
@@ -451,7 +860,7 @@ public:
             case CursorShape::Forbidden:    css_cursor = "not-allowed"; break;
             default:                        css_cursor = "default"; break;
         }
-        ktui_js_set_cursor(css_cursor);
+        ktui_js_set_cursor(m_win_id, css_cursor);
     }
 
     // ==================== 回调与销毁 ====================
@@ -465,23 +874,95 @@ public:
         if (m_is_closed) return;
         if (m_close_handler && !m_close_handler()) return;
         m_is_closed = true;
+        m_visible = false;
+        sync_dom_geometry();
+    }
+
+    // ==================== 内部虚拟桌面调度辅助 ====================
+    TitlebarHitTest perform_hit_test(PointF local_pos) const {
+        if (m_hit_test_cb) return m_hit_test_cb(local_pos);
+        return TitlebarHitTest::Client;
+    }
+
+    void set_active_internal(bool active, int new_z_index) {
+        m_z_index = new_z_index;
+        bool changed = (m_active != active || m_focused != active);
+        m_active = active;
+        m_focused = active;
+        sync_dom_geometry();
+        if (active) {
+            ktui_js_focus_window_canvas(m_win_id);
+        }
+        if (changed && m_focus_handler) {
+            m_focus_handler(active);
+        }
+    }
+
+    void apply_drag_resize(float x, float y, float w, float h) {
+        m_position = Vec2{x, y};
+        m_size = Vec2{std::clamp(w, m_min_size.x, m_max_size.x),
+                      std::clamp(h, m_min_size.y, m_max_size.y)};
+        if (m_state == WindowState::Normal) {
+            m_normal_pos = m_position;
+            m_normal_size = m_size;
+        }
+        sync_dom_geometry();
+        if (m_move_handler) m_move_handler(m_position);
+        if (m_resize_handler) m_resize_handler(m_size);
+    }
+
+    void handle_viewport_resized() {
+        if (m_state == WindowState::Maximized) {
+            Rect desk = work_area();
+            m_position = Vec2{0.0f, 0.0f};
+            m_size = Vec2{std::max(m_min_size.x, desk.width()), std::max(m_min_size.y, desk.height())};
+            sync_dom_geometry();
+            if (m_resize_handler) m_resize_handler(m_size);
+        } else if (m_state == WindowState::Fullscreen) {
+            Rect sb = screen_bounds();
+            m_position = Vec2{0.0f, 0.0f};
+            m_size = Vec2{sb.width(), sb.height()};
+            sync_dom_geometry();
+            if (m_resize_handler) m_resize_handler(m_size);
+        }
     }
 
 private:
+    Rect work_area() const {
+        Rect sb = screen_bounds();
+        return Rect{0.0f, 0.0f, std::max(320.0f, sb.width()), std::max(240.0f, sb.height() - kTaskbarHeight)};
+    }
+
+    void sync_dom_geometry() {
+        int effective_z = m_always_on_top ? (m_z_index + 100000) : m_z_index;
+        int vis = (m_visible && !m_is_closed && m_state != WindowState::Minimized) ? 1 : 0;
+        int max_flag = (m_state == WindowState::Maximized || m_state == WindowState::Fullscreen) ? 1 : 0;
+        ktui_js_update_window_geometry(m_win_id, m_position.x, m_position.y, m_size.x, m_size.y,
+                                       effective_z, vis, max_flag, m_active ? 1 : 0, m_resizable ? 1 : 0);
+    }
+
+    int m_win_id{0};
     std::string m_title;
     Vec2 m_size{800.0f, 600.0f};
     Vec2 m_min_size{100.0f, 100.0f};
     Vec2 m_max_size{16384.0f, 16384.0f};
+    Vec2 m_position{40.0f, 40.0f};
+    Vec2 m_normal_pos{40.0f, 40.0f};
+    Vec2 m_normal_size{800.0f, 600.0f};
+    int m_z_index{10};
     bool m_visible{false};
-    bool m_active{true};
-    bool m_focused{true};
+    bool m_active{false};
+    bool m_focused{false};
     bool m_resizable{true};
-    bool m_decorated{true};
+    bool m_decorated{false};
+    bool m_always_on_top{false};
     bool m_is_closed{false};
     float m_opacity{1.0f};
     WindowState m_state{WindowState::Normal};
     CursorShape m_cursor{CursorShape::Arrow};
 
+    std::function<void(WebWindow*)> m_on_activate_req;
+    std::function<void(WebWindow*)> m_on_destroyed;
     std::function<TitlebarHitTest(PointF)> m_hit_test_cb;
     std::function<void()> m_paint_handler;
     std::function<bool()> m_close_handler;
@@ -491,7 +972,7 @@ private:
     std::function<void(bool)> m_focus_handler;
 };
 
-// ==================== Web 平台抽象层统一后端 ====================
+// ==================== Web 平台抽象层统一后端 (多窗口虚拟桌面) ====================
 class WebBackend : public IPlatformBackend {
 public:
     WebBackend() {
@@ -512,26 +993,11 @@ public:
     bool init() override {
         if (m_initialized) return true;
 
-        ktui_js_init_ime();
+        ktui_js_init_desktop();
 
-        // 注册 HTML5 鼠标与滚轮事件
-        emscripten_set_mousemove_callback("#canvas", this, EM_TRUE, &on_mouse_event);
-        emscripten_set_mousedown_callback("#canvas", this, EM_TRUE, &on_mouse_event);
-        emscripten_set_mouseup_callback("#canvas", this, EM_TRUE, &on_mouse_event);
-        emscripten_set_wheel_callback("#canvas", this, EM_TRUE, &on_wheel_event);
-
-        // 注册 HTML5 触控事件 (移动端 Web 完美手势支持)
-        emscripten_set_touchstart_callback("#canvas", this, EM_TRUE, &on_touch_event);
-        emscripten_set_touchmove_callback("#canvas", this, EM_TRUE, &on_touch_event);
-        emscripten_set_touchend_callback("#canvas", this, EM_TRUE, &on_touch_event);
-        emscripten_set_touchcancel_callback("#canvas", this, EM_TRUE, &on_touch_event);
-
-        // 注册 HTML5 键盘事件
+        // 注册全局 HTML5 键盘事件 (自动路由到当前激活窗口)
         emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &on_key_down_event);
         emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &on_key_up_event);
-
-        // 注册窗口尺寸响应
-        emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, this, EM_TRUE, &on_window_resize);
 
         m_initialized = true;
         return true;
@@ -547,8 +1013,16 @@ public:
     }
 
     std::unique_ptr<IPlatformWindow> create_window(const WindowDesc& desc) override {
-        auto win = std::make_unique<WebWindow>(desc);
-        m_active_window = win.get();
+        if (!m_initialized) init();
+        int win_id = m_next_win_id++;
+        int z = m_next_z_index++;
+        auto win = std::make_unique<WebWindow>(
+            win_id, desc, z,
+            [this](WebWindow* w) { activate_window(w); },
+            [this](WebWindow* w) { unregister_window(w); }
+        );
+        m_windows.push_back(win.get());
+        activate_window(win.get());
         return win;
     }
 
@@ -572,7 +1046,8 @@ public:
 
     void shutdown() override {
         m_initialized = false;
-        m_active_window = nullptr;
+        m_windows.clear();
+        m_focused_window = nullptr;
     }
 
     void dispatch_event(const PlatformEvent& pe) {
@@ -581,108 +1056,119 @@ public:
         }
     }
 
+    WebWindow* find_window(int win_id) const {
+        for (auto* w : m_windows) {
+            if (w && w->win_id() == win_id) return w;
+        }
+        return nullptr;
+    }
+
+    void activate_window(WebWindow* target) {
+        if (!target) return;
+        for (auto* w : m_windows) {
+            if (w && w != target && w->is_active()) {
+                w->set_active_internal(false, m_next_z_index - 1);
+            }
+        }
+        m_focused_window = target;
+        target->set_active_internal(true, m_next_z_index++);
+    }
+
+    void handle_taskbar_click(int win_id) {
+        WebWindow* w = find_window(win_id);
+        if (!w) return;
+        if (w->is_minimized() || !w->is_visible()) {
+            w->restore();
+            activate_window(w);
+        } else if (m_focused_window == w) {
+            w->minimize();
+            m_focused_window = nullptr;
+        } else {
+            activate_window(w);
+        }
+    }
+
+    void handle_viewport_resize() {
+        for (auto* w : m_windows) {
+            if (w) w->handle_viewport_resized();
+        }
+    }
+
     void handle_ime_composition(const char* text, size_t cursor) {
-        if (!m_active_window || !text) return;
+        if (!m_focused_window || !text) return;
         PlatformEvent pe{};
         pe.ime_cursor_byte = cursor;
         pe.type = PlatformEventType::ImeComposition;
-        pe.window_handle = m_active_window ? m_active_window->get_native_handle() : nullptr;
+        pe.window_handle = m_focused_window->get_native_handle();
         pe.text = text;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
         dispatch_event(pe);
     }
 
     void handle_ime_commit(const char* text) {
-        if (!m_active_window || !text || text[0] == '\0') return;
+        if (!m_focused_window || !text || text[0] == '\0') return;
         PlatformEvent pe{};
         pe.type = PlatformEventType::ImeCommit;
-        pe.window_handle = m_active_window ? m_active_window->get_native_handle() : nullptr;
+        pe.window_handle = m_focused_window->get_native_handle();
         pe.text = text;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
         dispatch_event(pe);
     }
 
-private:
-    static EM_BOOL on_mouse_event(int event_type, const EmscriptenMouseEvent* e, void* user_data) {
-        auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window) return EM_FALSE;
-
+    void handle_pointer(int win_id, int type, float x, float y, int button, int mods) {
+        WebWindow* w = find_window(win_id);
+        if (!w) return;
         PlatformEvent pe{};
-        pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(e->targetX), static_cast<float>(e->targetY)};
-        pe.modifiers.shift = e->shiftKey != 0;
-        pe.modifiers.ctrl  = e->ctrlKey != 0;
-        pe.modifiers.alt   = e->altKey != 0;
-        pe.modifiers.meta  = e->metaKey != 0;
+        pe.window_handle = w->get_native_handle();
+        pe.position = Vec2{x, y};
+        pe.modifiers.shift = (mods & 1) != 0;
+        pe.modifiers.ctrl  = (mods & 2) != 0;
+        pe.modifiers.alt   = (mods & 4) != 0;
+        pe.modifiers.meta  = (mods & 8) != 0;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
-
-        if (e->button == 0) pe.button = PointerButton::Primary;
-        else if (e->button == 2) pe.button = PointerButton::Secondary;
-        else if (e->button == 1) pe.button = PointerButton::Auxiliary;
-
-        if (event_type == EMSCRIPTEN_EVENT_MOUSEMOVE) {
-            pe.type = PlatformEventType::PointerMove;
-        } else if (event_type == EMSCRIPTEN_EVENT_MOUSEDOWN) {
-            pe.type = PlatformEventType::PointerDown;
-        } else if (event_type == EMSCRIPTEN_EVENT_MOUSEUP) {
-            pe.type = PlatformEventType::PointerUp;
-        }
-
-        self->dispatch_event(pe);
-        return EM_TRUE;
+        if (button == 1) pe.button = PointerButton::Primary;
+        else if (button == 2) pe.button = PointerButton::Secondary;
+        else if (button == 3) pe.button = PointerButton::Auxiliary;
+        if (type == 0) pe.type = PlatformEventType::PointerMove;
+        else if (type == 1) pe.type = PlatformEventType::PointerDown;
+        else if (type == 2) pe.type = PlatformEventType::PointerUp;
+        dispatch_event(pe);
     }
 
-    static EM_BOOL on_wheel_event(int event_type, const EmscriptenWheelEvent* e, void* user_data) {
-        (void)event_type;
-        auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window) return EM_FALSE;
-
+    void handle_wheel(int win_id, float x, float y, float dx, float dy, int mods) {
+        WebWindow* w = find_window(win_id);
+        if (!w) return;
         PlatformEvent pe{};
         pe.type = PlatformEventType::PointerScroll;
-        pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(e->mouse.targetX), static_cast<float>(e->mouse.targetY)};
-        pe.delta = Vec2{static_cast<float>(e->deltaX), static_cast<float>(e->deltaY)};
-        pe.modifiers.shift = e->mouse.shiftKey != 0;
-        pe.modifiers.ctrl  = e->mouse.ctrlKey != 0;
-        pe.modifiers.alt   = e->mouse.altKey != 0;
-        pe.modifiers.meta  = e->mouse.metaKey != 0;
+        pe.window_handle = w->get_native_handle();
+        pe.position = Vec2{x, y};
+        pe.delta = Vec2{dx, dy};
+        pe.modifiers.shift = (mods & 1) != 0;
+        pe.modifiers.ctrl  = (mods & 2) != 0;
+        pe.modifiers.alt   = (mods & 4) != 0;
+        pe.modifiers.meta  = (mods & 8) != 0;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
-
-        self->dispatch_event(pe);
-        return EM_TRUE; // 阻止浏览器网页原生滚动
+        dispatch_event(pe);
     }
 
-    static EM_BOOL on_touch_event(int event_type, const EmscriptenTouchEvent* e, void* user_data) {
-        auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window || e->numTouches == 0) return EM_FALSE;
-
-        const auto& t = e->touches[0];
-        PlatformEvent pe{};
-        pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(t.targetX), static_cast<float>(t.targetY)};
-        pe.button = PointerButton::Primary;
-        pe.modifiers.shift = e->shiftKey != 0;
-        pe.modifiers.ctrl  = e->ctrlKey != 0;
-        pe.modifiers.alt   = e->altKey != 0;
-        pe.modifiers.meta  = e->metaKey != 0;
-        pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
-
-        if (event_type == EMSCRIPTEN_EVENT_TOUCHSTART) {
-            pe.type = PlatformEventType::PointerDown;
-        } else if (event_type == EMSCRIPTEN_EVENT_TOUCHMOVE) {
-            pe.type = PlatformEventType::PointerMove;
-        } else if (event_type == EMSCRIPTEN_EVENT_TOUCHEND || event_type == EMSCRIPTEN_EVENT_TOUCHCANCEL) {
-            pe.type = PlatformEventType::PointerUp;
+private:
+    void unregister_window(WebWindow* w) {
+        std::erase(m_windows, w);
+        if (m_focused_window == w) {
+            m_focused_window = nullptr;
+            for (auto it = m_windows.rbegin(); it != m_windows.rend(); ++it) {
+                if (*it && (*it)->is_visible()) {
+                    activate_window(*it);
+                    break;
+                }
+            }
         }
-
-        self->dispatch_event(pe);
-        return EM_TRUE;
     }
 
     static EM_BOOL on_key_down_event(int event_type, const EmscriptenKeyboardEvent* e, void* user_data) {
         (void)event_type;
         auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window) return EM_FALSE;
+        if (!self || !self->m_focused_window) return EM_FALSE;
 
         const int target = ktui_js_key_target();
         if (target == 0 || e->keyCode == 229) return EM_FALSE;
@@ -694,13 +1180,11 @@ private:
         mods.meta  = e->metaKey != 0;
 
         uint32_t vk = e->keyCode;
-        // The browser inserts pasted text through the focused input's input event.
         if (target == 2 && (mods.ctrl || mods.meta) && !mods.alt && vk == 'V') return EM_FALSE;
 
-        // 1. 发送 KeyDown 事件驱动按键逻辑 (退格、删除、回车、光标移动及快捷键)
         PlatformEvent pe_down{};
         pe_down.type = PlatformEventType::KeyDown;
-        pe_down.window_handle = self->m_active_window->get_native_handle();
+        pe_down.window_handle = self->m_focused_window->get_native_handle();
         pe_down.key_code = vk;
         pe_down.modifiers = mods;
         pe_down.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
@@ -717,13 +1201,13 @@ private:
     static EM_BOOL on_key_up_event(int event_type, const EmscriptenKeyboardEvent* e, void* user_data) {
         (void)event_type;
         auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window) return EM_FALSE;
+        if (!self || !self->m_focused_window) return EM_FALSE;
 
         if (!ktui_js_key_target() || e->keyCode == 229) return EM_FALSE;
 
         PlatformEvent pe{};
         pe.type = PlatformEventType::KeyUp;
-        pe.window_handle = self->m_active_window->get_native_handle();
+        pe.window_handle = self->m_focused_window->get_native_handle();
         pe.key_code = e->keyCode;
         pe.modifiers.shift = e->shiftKey != 0;
         pe.modifiers.ctrl  = e->ctrlKey != 0;
@@ -735,28 +1219,16 @@ private:
         return EM_TRUE;
     }
 
-    static EM_BOOL on_window_resize(int event_type, const EmscriptenUiEvent* e, void* user_data) {
-        (void)event_type; (void)e;
-        auto* self = static_cast<WebBackend*>(user_data);
-        if (!self || !self->m_active_window) return EM_FALSE;
-
-        PlatformEvent pe{};
-        pe.type = PlatformEventType::WindowResize;
-        pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = self->m_active_window->size();
-        pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
-
-        self->dispatch_event(pe);
-        return EM_TRUE;
-    }
-
     inline static WebBackend* s_instance = nullptr;
 
     bool m_initialized{false};
+    int m_next_win_id{1};
+    int m_next_z_index{10};
     WebDispatcher m_dispatcher;
     WebVSyncSource m_vsync_source;
     WebFontResolver m_font_resolver;
-    WebWindow* m_active_window{nullptr};
+    std::vector<WebWindow*> m_windows;
+    WebWindow* m_focused_window{nullptr};
     std::function<void(const PlatformEvent&)> m_event_callback;
 };
 
@@ -764,16 +1236,69 @@ private:
 extern "C" {
     EMSCRIPTEN_KEEPALIVE
     inline void ktui_web_on_ime_composition(const char* text, size_t cursor) {
-        if (WebBackend::instance()) {
-            WebBackend::instance()->handle_ime_composition(text, cursor);
-        }
+        if (WebBackend::instance()) WebBackend::instance()->handle_ime_composition(text, cursor);
     }
 
     EMSCRIPTEN_KEEPALIVE
     inline void ktui_web_on_ime_commit(const char* text) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_ime_commit(text);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline int ktui_web_hit_test(int win_id, float x, float y) {
         if (WebBackend::instance()) {
-            WebBackend::instance()->handle_ime_commit(text);
+            if (auto* w = WebBackend::instance()->find_window(win_id)) {
+                return static_cast<int>(w->perform_hit_test(PointF{x, y}));
+            }
         }
+        return static_cast<int>(TitlebarHitTest::Client);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_focus_window(int win_id) {
+        if (WebBackend::instance()) {
+            if (auto* w = WebBackend::instance()->find_window(win_id)) {
+                WebBackend::instance()->activate_window(w);
+            }
+        }
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_pointer(int win_id, int type, float x, float y, int button, int mods) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_pointer(win_id, type, x, y, button, mods);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_wheel(int win_id, float x, float y, float dx, float dy, int mods) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_wheel(win_id, x, y, dx, dy, mods);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_drag_move(int win_id, float x, float y) {
+        if (WebBackend::instance()) {
+            if (auto* w = WebBackend::instance()->find_window(win_id)) {
+                w->set_position(Vec2{x, y});
+            }
+        }
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_drag_resize(int win_id, float x, float y, float w_px, float h_px) {
+        if (WebBackend::instance()) {
+            if (auto* w = WebBackend::instance()->find_window(win_id)) {
+                w->apply_drag_resize(x, y, w_px, h_px);
+            }
+        }
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_taskbar_click(int win_id) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_taskbar_click(win_id);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_viewport_resize() {
+        if (WebBackend::instance()) WebBackend::instance()->handle_viewport_resize();
     }
 }
 

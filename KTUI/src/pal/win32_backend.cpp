@@ -6,6 +6,26 @@
 
 namespace ktui {
 
+namespace {
+struct DwmMargins { int left, right, top, bottom; };
+void apply_frameless_dwm_chrome(HWND hwnd) {
+    if (!hwnd) return;
+    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    if (!dwm) return;
+    using ExtendFrameFn = HRESULT(WINAPI*)(HWND, const DwmMargins*);
+    using SetAttrFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    if (auto extend_fn = reinterpret_cast<ExtendFrameFn>(GetProcAddress(dwm, "DwmExtendFrameIntoClientArea"))) {
+        DwmMargins margins{0, 0, 1, 0};
+        extend_fn(hwnd, &margins);
+    }
+    if (auto set_attr = reinterpret_cast<SetAttrFn>(GetProcAddress(dwm, "DwmSetWindowAttribute"))) {
+        constexpr DWORD kDwmwaWindowCornerPreference = 33;
+        constexpr DWORD kDwmwcpRound = 2;
+        set_attr(hwnd, kDwmwaWindowCornerPreference, &kDwmwcpRound, sizeof(kDwmwcpRound));
+    }
+}
+} // namespace
+
 Win32Backend* Win32Backend::s_instance = nullptr;
 static const wchar_t* kWin32ClassName = L"KTUI_Window_Class";
 
@@ -45,7 +65,10 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     }
     if (!m_decorated) {
-        style = WS_POPUP | WS_THICKFRAME;
+        style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
+        if (m_resizable) {
+            style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+        }
     }
 
     DWORD ex_style = WS_EX_APPWINDOW;
@@ -61,10 +84,14 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
 
     int x = (m_position.x < 0.0f) ? CW_USEDEFAULT : static_cast<int>(m_position.x);
     int y = (m_position.y < 0.0f) ? CW_USEDEFAULT : static_cast<int>(m_position.y);
-    RECT adj{0, 0, static_cast<LONG>(m_size.x), static_cast<LONG>(m_size.y)};
-    AdjustWindowRectEx(&adj, style, FALSE, ex_style);
-    int w = adj.right - adj.left;
-    int h = adj.bottom - adj.top;
+    int w = static_cast<int>(m_size.x);
+    int h = static_cast<int>(m_size.y);
+    if (m_decorated) {
+        RECT adj{0, 0, w, h};
+        AdjustWindowRectEx(&adj, style, FALSE, ex_style);
+        w = adj.right - adj.left;
+        h = adj.bottom - adj.top;
+    }
 
     std::wstring wtitle = utf8_to_wstring(m_title);
 
@@ -81,6 +108,14 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
     );
 
     if (m_hwnd) {
+        if (!m_decorated) {
+            apply_frameless_dwm_chrome(m_hwnd);
+            SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            if (m_position.x < 0.0f && m_position.y < 0.0f) {
+                center_on_screen();
+            }
+        }
         RECT client_rect;
         GetClientRect(m_hwnd, &client_rect);
         m_size = Vec2{static_cast<float>(client_rect.right - client_rect.left),
@@ -278,9 +313,15 @@ void Win32Window::update_window_style() {
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     }
     if (!m_decorated) {
-        style = WS_POPUP | WS_THICKFRAME;
+        style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
+        if (m_resizable) {
+            style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+        }
     }
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
+    if (!m_decorated) {
+        apply_frameless_dwm_chrome(m_hwnd);
+    }
     SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 }
@@ -565,6 +606,38 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             if (m_on_focus_changed) m_on_focus_changed(false);
             return 0;
         }
+        case WM_NCCALCSIZE: {
+            if (!m_decorated && wparam == TRUE) {
+                if (IsZoomed(m_hwnd)) {
+                    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+                    HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+                    MONITORINFO mi{sizeof(mi)};
+                    if (GetMonitorInfoW(hmon, &mi)) {
+                        params->rgrc[0] = mi.rcWork;
+                    }
+                }
+                return 0;
+            }
+            break;
+        }
+        case WM_GETMINMAXINFO: {
+            auto* mmi = reinterpret_cast<MINMAXINFO*>(lparam);
+            mmi->ptMinTrackSize.x = static_cast<LONG>(m_min_size.x);
+            mmi->ptMinTrackSize.y = static_cast<LONG>(m_min_size.y);
+            mmi->ptMaxTrackSize.x = static_cast<LONG>(m_max_size.x);
+            mmi->ptMaxTrackSize.y = static_cast<LONG>(m_max_size.y);
+            if (!m_decorated) {
+                HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi{sizeof(mi)};
+                if (GetMonitorInfoW(hmon, &mi)) {
+                    mmi->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+                    mmi->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+                    mmi->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+                    mmi->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+                }
+            }
+            return 0;
+        }
         case WM_NCHITTEST: {
             if (!m_decorated && m_titlebar_hit_test) {
                 POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
@@ -572,9 +645,10 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
                 TitlebarHitTest ht = m_titlebar_hit_test(PointF{static_cast<float>(pt.x), static_cast<float>(pt.y)});
                 switch (ht) {
                     case TitlebarHitTest::Caption: return HTCAPTION;
-                    case TitlebarHitTest::CloseBtn: return HTCLOSE;
-                    case TitlebarHitTest::MaximizeBtn: return HTMAXBUTTON;
-                    case TitlebarHitTest::MinimizeBtn: return HTMINBUTTON;
+                    // 自绘标题栏按钮必须返回 HTCLIENT，确保 KTUI 接收悬停与点击事件
+                    case TitlebarHitTest::CloseBtn:
+                    case TitlebarHitTest::MaximizeBtn:
+                    case TitlebarHitTest::MinimizeBtn: return HTCLIENT;
                     case TitlebarHitTest::BorderLeft: return HTLEFT;
                     case TitlebarHitTest::BorderRight: return HTRIGHT;
                     case TitlebarHitTest::BorderTop: return HTTOP;

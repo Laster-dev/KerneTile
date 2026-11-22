@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ktui/pal/platform_backend.hpp>
+#include <ktui/app/window_titlebar.hpp>
 #include <ktui/widgets/widget.hpp>
 #include <ktui/tree/overlay.hpp>
 #include <ktui/event/event_dispatcher.hpp>
@@ -23,8 +24,10 @@ class Application;
 // 统一管理底层物理平台窗口生命周期、DPI 自适应缩放、视图树挂接与重绘调度
 class Window {
 public:
-    Window(uint32_t id, std::unique_ptr<IPlatformWindow> platform_window)
-        : m_id(id), m_platform_window(std::move(platform_window)) {
+    Window(uint32_t id, std::unique_ptr<IPlatformWindow> platform_window, bool show_titlebar = true)
+        : m_id(id),
+          m_platform_window(std::move(platform_window)),
+          m_show_titlebar(show_titlebar) {
         init_internal_hooks();
     }
 
@@ -124,6 +127,42 @@ public:
 
     void set_title(const std::string& t) {
         if (m_platform_window) m_platform_window->set_title(t);
+        request_redraw();
+    }
+
+    void set_decorated(bool decorated) {
+        if (m_platform_window) m_platform_window->set_decorated(decorated);
+        request_redraw();
+    }
+
+    [[nodiscard]] bool is_decorated() const {
+        return m_platform_window ? m_platform_window->is_decorated() : false;
+    }
+
+    void set_show_titlebar(bool show) {
+        if (m_show_titlebar != show) {
+            m_show_titlebar = show;
+            request_redraw();
+        }
+    }
+
+    [[nodiscard]] bool show_titlebar() const noexcept { return m_show_titlebar; }
+
+    [[nodiscard]] bool has_custom_titlebar() const {
+        return m_show_titlebar && !is_decorated();
+    }
+
+    [[nodiscard]] float titlebar_height() const {
+        return has_custom_titlebar() ? m_titlebar.height() : 0.0f;
+    }
+
+    void set_resizable(bool resizable) {
+        if (m_platform_window) m_platform_window->set_resizable(resizable);
+        request_redraw();
+    }
+
+    [[nodiscard]] bool is_resizable() const {
+        return m_platform_window ? m_platform_window->is_resizable() : true;
     }
 
     void set_opacity(float opacity) {
@@ -255,8 +294,10 @@ public:
             force_full_present = true;
         }
 
-        // 1. 布局
-        BoxConstraints constraints = BoxConstraints::tight(sz);
+        // 1. 布局 (无边框自绘标题栏模式下为标题栏预留顶部空间)
+        const float tb_h = titlebar_height();
+        const Vec2 client_sz{sz.x, std::max(0.0f, sz.y - tb_h)};
+        BoxConstraints constraints = BoxConstraints::tight(client_sz);
         m_root_render_box->layout(constraints);
 
         // 2. 清理上一帧的历史脏标记 (必须在 paint() 之前清空)
@@ -271,9 +312,23 @@ public:
         // 3. 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
         m_renderer->begin_frame();
         PaintContext ctx(m_renderer.get(), scale);
-        m_root_render_box->paint(ctx);
+        if (tb_h > 0.0f) {
+            ctx.push_clip(Rect::from_xywh(0.0f, tb_h, client_sz.x, client_sz.y), 0.0f);
+            {
+                PaintContext::OffsetScope client_offset(ctx, Vec2{0.0f, tb_h});
+                m_root_render_box->paint(ctx);
+            }
+            ctx.pop_clip();
+            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized());
+        } else {
+            m_root_render_box->paint(ctx);
+        }
         // 3.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
         m_overlay_manager.layout_and_paint(ctx, sz);
+        // 3.2 无边框窗口外框 1px 描边
+        if (!is_decorated()) {
+            m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
+        }
         m_renderer->end_frame();
 
         // The compute backend owns its surface and presents the composed texture.
@@ -336,15 +391,73 @@ public:
             }
         }
 
+        const float tb_h = titlebar_height();
+        const Vec2 win_sz = size();
+        const bool resizable = is_resizable();
+        const bool maximized = is_maximized();
+
+        if (tb_h > 0.0f) {
+            if (pe.type == PlatformEventType::PointerMove) {
+                if (m_titlebar.handle_pointer_move(pe.position, win_sz, resizable, maximized)) {
+                    request_redraw();
+                }
+                TitlebarHitTest ht = m_titlebar.hit_test(pe.position, win_sz, resizable, maximized);
+                if (ht != TitlebarHitTest::Client) {
+                    // 清除客户区悬停态
+                    PointerEvent leave_ev(PlatformEventType::PointerMove, PointF{-1.0f, -1.0f}, PointerButton::None);
+                    m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), leave_ev);
+                    if (m_platform_window) {
+                        CursorShape cur = CursorShape::Arrow;
+                        switch (ht) {
+                            case TitlebarHitTest::BorderLeft:
+                            case TitlebarHitTest::BorderRight:       cur = CursorShape::ResizeEW; break;
+                            case TitlebarHitTest::BorderTop:
+                            case TitlebarHitTest::BorderBottom:      cur = CursorShape::ResizeNS; break;
+                            case TitlebarHitTest::BorderTopLeft:
+                            case TitlebarHitTest::BorderBottomRight: cur = CursorShape::ResizeNWSE; break;
+                            case TitlebarHitTest::BorderTopRight:
+                            case TitlebarHitTest::BorderBottomLeft:  cur = CursorShape::ResizeNESW; break;
+                            default:                                 cur = CursorShape::Arrow; break;
+                        }
+                        m_platform_window->set_cursor(cur);
+                    }
+                    return;
+                }
+            } else if (pe.type == PlatformEventType::PointerDown) {
+                bool tb_dirty = false;
+                if (m_titlebar.handle_pointer_down(pe.position, pe.button, win_sz, resizable, maximized, tb_dirty)) {
+                    if (tb_dirty) {
+                        request_redraw();
+                        if (m_platform_window) m_platform_window->invalidate();
+                    }
+                    return;
+                }
+                if (pe.position.y < tb_h) {
+                    return;
+                }
+            } else if (pe.type == PlatformEventType::PointerUp) {
+                bool tb_dirty = false;
+                if (m_titlebar.handle_pointer_up(pe.position, pe.button, win_sz, resizable, maximized, tb_dirty)) {
+                    if (tb_dirty) {
+                        request_redraw();
+                        if (m_platform_window) m_platform_window->invalidate();
+                    }
+                    return;
+                }
+            }
+        }
+
+        const Vec2 client_pos{pe.position.x, pe.position.y - tb_h};
+
         switch (pe.type) {
             case PlatformEventType::PointerMove: {
-                PointerEvent ev(PlatformEventType::PointerMove, pe.position, pe.button);
+                PointerEvent ev(PlatformEventType::PointerMove, client_pos, pe.button);
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 // 自动同步鼠标光标形状 (Hover 按钮变手型、输入框变 I-Beam)
                 if (m_platform_window) {
                     CursorShape cursor = CursorShape::Arrow;
                     HitTestResult hit_res;
-                    if (m_root_render_box->hit_test(hit_res, pe.position)) {
+                    if (m_root_render_box->hit_test(hit_res, client_pos)) {
                         for (const auto& entry : hit_res.path()) {
                             if (entry.target && entry.target->cursor_shape != CursorShape::Arrow) {
                                 cursor = entry.target->cursor_shape;
@@ -357,7 +470,7 @@ public:
                 break;
             }
             case PlatformEventType::PointerScroll: {
-                PointerEvent ev(PlatformEventType::PointerScroll, pe.position, PointerButton::None);
+                PointerEvent ev(PlatformEventType::PointerScroll, client_pos, PointerButton::None);
                 ev.delta = pe.delta;
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 request_redraw();
@@ -368,7 +481,7 @@ public:
                 // 焦点命中测试
                 HitTestResult hit_res;
                 RenderBox* new_focus = nullptr;
-                if (m_root_render_box->hit_test(hit_res, pe.position)) {
+                if (m_root_render_box->hit_test(hit_res, client_pos)) {
                     for (const auto& entry : hit_res.path()) {
                         if (entry.target && entry.target->is_focusable) {
                             new_focus = entry.target;
@@ -382,7 +495,7 @@ public:
                     m_focus_manager.clear_focus();
                 }
 
-                PointerEvent ev(PlatformEventType::PointerDown, pe.position, pe.button);
+                PointerEvent ev(PlatformEventType::PointerDown, client_pos, pe.button);
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 sync_ime_state();
                 request_redraw();
@@ -390,7 +503,7 @@ public:
                 break;
             }
             case PlatformEventType::PointerUp: {
-                PointerEvent ev(PlatformEventType::PointerUp, pe.position, pe.button);
+                PointerEvent ev(PlatformEventType::PointerUp, client_pos, pe.button);
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 sync_ime_state();
                 request_redraw();
@@ -419,7 +532,7 @@ public:
                 if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
                     if (client->accepts_text_input()) {
                         client->on_ime_preedit(pe.text, std::min(pe.ime_cursor_byte, pe.text.size()));
-                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(client->get_ime_cursor_rect());
+                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
                         request_redraw();
                         if (m_platform_window) m_platform_window->invalidate();
                     }
@@ -431,7 +544,7 @@ public:
                 if (auto* client = dynamic_cast<ITextInputClient*>(focused)) {
                     if (client->accepts_text_input()) {
                         client->on_ime_commit(pe.text);
-                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(client->get_ime_cursor_rect());
+                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
                         request_redraw();
                         if (m_platform_window) m_platform_window->invalidate();
                         break;
@@ -525,13 +638,20 @@ private:
         m_renderer_h = h;
     }
 
+    [[nodiscard]] Rect offset_ime_rect(Rect r) const {
+        const float tb_h = titlebar_height();
+        r.min_y += tb_h;
+        r.max_y += tb_h;
+        return r;
+    }
+
     void sync_ime_state() {
         if (!m_platform_window) return;
         RenderBox* focused = m_focus_manager.focused_node();
         if (auto* client = dynamic_cast<ITextInputClient*>(focused)) {
             if (client->accepts_text_input()) {
                 m_platform_window->set_ime_enabled(true);
-                m_platform_window->set_ime_cursor_rect(client->get_ime_cursor_rect());
+                m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
                 return;
             }
         }
@@ -540,6 +660,19 @@ private:
 
     void init_internal_hooks() {
         if (!m_platform_window) return;
+
+        m_titlebar.on_minimize = [this]() { minimize(); };
+        m_titlebar.on_maximize_toggle = [this]() {
+            if (is_maximized()) restore();
+            else maximize();
+            request_redraw();
+        };
+        m_titlebar.on_close = [this]() { close(); };
+
+        m_platform_window->set_titlebar_hit_test_callback([this](PointF local_pos) -> TitlebarHitTest {
+            if (!has_custom_titlebar()) return TitlebarHitTest::Client;
+            return m_titlebar.hit_test(local_pos, size(), is_resizable(), is_maximized());
+        });
 
         m_platform_window->on_paint_requested([this]() {
             render_frame(true);
@@ -573,6 +706,11 @@ private:
         });
 
         m_platform_window->on_focus_changed([this](bool focused) {
+            m_window_focused = focused;
+            if (!focused) {
+                m_titlebar.handle_pointer_leave();
+            }
+            request_redraw();
             for (auto& cb : m_focus_callbacks) {
                 if (cb) cb(focused);
             }
@@ -584,7 +722,10 @@ private:
     bool m_is_closed{false};
     bool m_needs_redraw{true};
     bool m_compute_was_ready{false};
+    bool m_show_titlebar{true};
+    bool m_window_focused{true};
     float m_render_scale{1.0f};
+    WindowTitlebar m_titlebar;
 
     WidgetPtr m_content_widget;
     std::shared_ptr<RenderBox> m_root_render_box;

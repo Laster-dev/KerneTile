@@ -89,7 +89,8 @@ struct WindowDesc {
     Vec2 max_size = {16384.0f, 16384.0f};
     Vec2 position = {-1.0f, -1.0f}; // -1 表示居中或系统默认
     bool resizable = true;
-    bool decorated = true;          // 是否显示系统原生标题栏与边框
+    bool decorated = false;          // 默认无边框自绘；设为 true 可回退系统原生标题栏与边框
+    bool custom_titlebar = true;     // 无边框模式下是否启用框架内置自绘标题栏
     bool transparent = false;        // 是否开启透明通道
     bool always_on_top = false;
     WindowType type = WindowType::Normal;
