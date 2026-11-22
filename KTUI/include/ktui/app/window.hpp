@@ -225,16 +225,19 @@ public:
     void render_frame(bool force_full_present = false) {
         if (!m_root_render_box || !m_platform_window) return;
         Vec2 sz = m_platform_window->size();
-        uint32_t w = static_cast<uint32_t>(sz.x);
-        uint32_t h = static_cast<uint32_t>(sz.y);
-        if (w == 0 || h == 0) return;
+        if (sz.x <= 0 || sz.y <= 0) return;
+        const float scale = m_platform_window->render_scale();
+        const auto w = static_cast<uint32_t>(std::ceil(sz.x * scale));
+        const auto h = static_cast<uint32_t>(std::ceil(sz.y * scale));
 
         ensure_renderer();
         if (!m_renderer) return;
+        if (m_compute_was_ready != m_renderer->compute_ready()) force_full_present = true;
+        m_compute_was_ready = m_renderer->compute_ready();
 
         // 极速曝光恢复路径：系统要求重绘表面但 UI 状态零变动，直接将已有帧缓冲提交给窗口，免除重复排版与光栅化
-        if (force_full_present &&
-            m_renderer_w == w && m_renderer_h == h &&
+        if (force_full_present && !m_compute_was_ready &&
+            m_renderer_w == w && m_renderer_h == h && m_render_scale == scale &&
             m_framebuffer.size() == static_cast<size_t>(w) * h * 4 &&
             !needs_redraw() &&
             !m_root_render_box->needs_paint() &&
@@ -244,7 +247,8 @@ public:
             return;
         }
 
-        if (m_renderer_w != w || m_renderer_h != h) {
+        if (m_renderer_w != w || m_renderer_h != h || m_render_scale != scale) {
+            m_render_scale = scale;
             m_renderer->resize(w, h);
             m_renderer_w = w;
             m_renderer_h = h;
@@ -252,7 +256,7 @@ public:
         }
 
         // 1. 布局
-        BoxConstraints constraints = BoxConstraints::tight(Vec2{static_cast<float>(w), static_cast<float>(h)});
+        BoxConstraints constraints = BoxConstraints::tight(sz);
         m_root_render_box->layout(constraints);
 
         // 2. 清理上一帧的历史脏标记 (必须在 paint() 之前清空)
@@ -266,13 +270,18 @@ public:
 
         // 3. 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
         m_renderer->begin_frame();
-        PaintContext ctx(m_renderer.get());
+        PaintContext ctx(m_renderer.get(), scale);
         m_root_render_box->paint(ctx);
         // 3.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
-        m_overlay_manager.layout_and_paint(ctx, Vec2{static_cast<float>(w), static_cast<float>(h)});
+        m_overlay_manager.layout_and_paint(ctx, sz);
         m_renderer->end_frame();
 
-        // 4. 光栅化输出 RGBA8
+        // The compute backend owns its surface and presents the composed texture.
+        if (m_renderer->present_computed_frame(force_full_present)) {
+            m_framebuffer.clear();
+            return;
+        }
+        if (m_framebuffer.empty()) force_full_present = true;
         m_framebuffer.resize(static_cast<size_t>(w) * h * 4);
         m_renderer->render_to_rgba8(m_framebuffer.data());
 
@@ -459,7 +468,8 @@ public:
     }
 
     [[nodiscard]] bool needs_redraw() const noexcept {
-        return m_needs_redraw;
+        return m_needs_redraw || (m_renderer && (m_renderer->compute_ready() != m_compute_was_ready ||
+            m_platform_window->render_scale() != m_render_scale));
     }
 
     void clear_redraw_flag() noexcept {
@@ -470,6 +480,7 @@ public:
     void close() {
         if (!m_is_closed) {
             m_is_closed = true;
+            m_renderer.reset();
             if (m_platform_window) {
                 m_platform_window->close();
             }
@@ -501,13 +512,15 @@ private:
     void ensure_renderer() {
         if (m_renderer || !m_platform_window) return;
         Vec2 sz = m_platform_window->size();
-        uint32_t w = static_cast<uint32_t>(std::max(1.0f, sz.x));
-        uint32_t h = static_cast<uint32_t>(std::max(1.0f, sz.y));
+        m_render_scale = m_platform_window->render_scale();
+        const auto w = static_cast<uint32_t>(std::max(1.0f, std::ceil(sz.x * m_render_scale)));
+        const auto h = static_cast<uint32_t>(std::max(1.0f, std::ceil(sz.y * m_render_scale)));
         kernetile::RendererConfig cfg;
         cfg.width = w;
         cfg.height = h;
-        cfg.prefer_warp = true;
         m_renderer = kernetile::KerneTileRenderer::create(cfg);
+        m_renderer->set_compute_target(m_platform_window->get_native_handle(),
+                                       m_platform_window->get_compute_display());
         m_renderer_w = w;
         m_renderer_h = h;
     }
@@ -570,6 +583,8 @@ private:
     std::unique_ptr<IPlatformWindow> m_platform_window;
     bool m_is_closed{false};
     bool m_needs_redraw{true};
+    bool m_compute_was_ready{false};
+    float m_render_scale{1.0f};
 
     WidgetPtr m_content_widget;
     std::shared_ptr<RenderBox> m_root_render_box;

@@ -105,28 +105,17 @@ EM_JS(void, ktui_js_init_ime, (), {
 EM_JS(void, ktui_js_set_canvas_size, (int w, int h), {
     var canvas = document.getElementById('canvas');
     if (canvas) {
-        var dpr = window.devicePixelRatio || 1.0;
-        if (dpr > 2.0) dpr = 2.0;
-        canvas.width = w;
-        canvas.height = h;
-        canvas.style.width = Math.round(w / dpr) + 'px';
-        canvas.style.height = Math.round(h / dpr) + 'px';
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
     }
 });
 
 EM_JS(void, ktui_js_present_rgba8, (const uint8_t* rgba, int width, int height), {
     var canvas = document.getElementById('canvas');
     if (!canvas) return;
-    var dpr = window.devicePixelRatio || 1.0;
-    if (dpr > 2.0) dpr = 2.0;
-    var cssW = Math.round(width / dpr);
-    var cssH = Math.round(height / dpr);
-
     if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
-        canvas.style.width = cssW + 'px';
-        canvas.style.height = cssH + 'px';
     }
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -167,11 +156,9 @@ EM_JS(void, ktui_js_set_ime_cursor_rect, (float x, float y, float w, float h), {
     var canvas = document.getElementById('canvas');
     var input = document.getElementById('ktui_ime_input');
     if (!canvas || !input) return;
-    var dpr = window.devicePixelRatio || 1.0;
-    if (dpr > 2.0) dpr = 2.0;
     var rect = canvas.getBoundingClientRect();
-    input.style.left = (window.scrollX + rect.left + (x / dpr)) + 'px';
-    input.style.top = (window.scrollY + rect.top + ((y + h) / dpr)) + 'px';
+    input.style.left = (window.scrollX + rect.left + x) + 'px';
+    input.style.top = (window.scrollY + rect.top + y + h) + 'px';
 });
 
 EM_JS(void, ktui_js_set_clipboard, (const char* text), {
@@ -188,10 +175,7 @@ EM_JS(void, ktui_js_get_clipboard, (char* out_buf, int max_len), {
 });
 
 EM_JS(float, ktui_js_get_dpi_scale, (), {
-    var dpr = window.devicePixelRatio || 1.0;
-    if (dpr < 1.0) dpr = 1.0;
-    if (dpr > 2.0) dpr = 2.0;
-    return dpr;
+    return Math.max(1, window.devicePixelRatio || 1);
 });
 
 EM_JS(void, ktui_js_get_window_size, (int* out_w, int* out_h), {
@@ -368,6 +352,7 @@ public:
     float dpi_scale() const override {
         return ktui_js_get_dpi_scale();
     }
+    float render_scale() const override { return dpi_scale(); }
     uint32_t refresh_rate() const override { return 60; }
 
     // ==================== 原生句柄 ====================
@@ -573,13 +558,9 @@ private:
         auto* self = static_cast<WebBackend*>(user_data);
         if (!self || !self->m_active_window) return EM_FALSE;
 
-        float dpr = self->m_active_window->dpi_scale();
-        if (dpr < 1.0f || !std::isfinite(dpr)) dpr = 1.0f;
-        if (dpr > 2.0f) dpr = 2.0f;
-
         PlatformEvent pe{};
         pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(e->targetX) * dpr, static_cast<float>(e->targetY) * dpr};
+        pe.position = Vec2{static_cast<float>(e->targetX), static_cast<float>(e->targetY)};
         pe.modifiers.shift = e->shiftKey != 0;
         pe.modifiers.ctrl  = e->ctrlKey != 0;
         pe.modifiers.alt   = e->altKey != 0;
@@ -607,14 +588,10 @@ private:
         auto* self = static_cast<WebBackend*>(user_data);
         if (!self || !self->m_active_window) return EM_FALSE;
 
-        float dpr = self->m_active_window->dpi_scale();
-        if (dpr < 1.0f || !std::isfinite(dpr)) dpr = 1.0f;
-        if (dpr > 2.0f) dpr = 2.0f;
-
         PlatformEvent pe{};
         pe.type = PlatformEventType::PointerScroll;
         pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(e->mouse.targetX) * dpr, static_cast<float>(e->mouse.targetY) * dpr};
+        pe.position = Vec2{static_cast<float>(e->mouse.targetX), static_cast<float>(e->mouse.targetY)};
         pe.delta = Vec2{static_cast<float>(e->deltaX), static_cast<float>(e->deltaY)};
         pe.modifiers.shift = e->mouse.shiftKey != 0;
         pe.modifiers.ctrl  = e->mouse.ctrlKey != 0;
@@ -630,14 +607,10 @@ private:
         auto* self = static_cast<WebBackend*>(user_data);
         if (!self || !self->m_active_window || e->numTouches == 0) return EM_FALSE;
 
-        float dpr = self->m_active_window->dpi_scale();
-        if (dpr < 1.0f || !std::isfinite(dpr)) dpr = 1.0f;
-        if (dpr > 2.0f) dpr = 2.0f;
-
         const auto& t = e->touches[0];
         PlatformEvent pe{};
         pe.window_handle = self->m_active_window->get_native_handle();
-        pe.position = Vec2{static_cast<float>(t.targetX) * dpr, static_cast<float>(t.targetY) * dpr};
+        pe.position = Vec2{static_cast<float>(t.targetX), static_cast<float>(t.targetY)};
         pe.button = PointerButton::Primary;
         pe.modifiers.shift = e->shiftKey != 0;
         pe.modifiers.ctrl  = e->ctrlKey != 0;

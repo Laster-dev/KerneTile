@@ -601,6 +601,13 @@ public:
 
     uint32_t refresh_rate() const override { return 60; }
 
+    void* get_compute_display() const override {
+#if defined(KTUI_HAS_X11)
+        if (m_xwindow) return m_display;
+#endif
+        return nullptr;
+    }
+
     void* get_native_handle() const override { 
 #if defined(KTUI_HAS_X11)
         if (m_xwindow != 0) {

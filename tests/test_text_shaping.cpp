@@ -38,6 +38,14 @@ int main() {
     assert(layout_cjk.glyphs.size() == 7); // 7 个字符
     assert(layout_cjk.total_width > 100.0f);
 
+    const auto combining = layout_text("e\xcc\x81", 16.0f);
+    assert(combining->carets.size() == 2);
+    assert(combining->carets.back().byte == 3);
+    assert(combining->glyphs.size() == 1);
+    const auto multiline = layout_text("中文\nGPU", 16.0f);
+    assert(multiline->glyphs.size() == 5);
+    assert(multiline->glyphs[2].y > multiline->glyphs[0].y);
+
     // 3. 验证字形光栅化
     auto raster = engine->rasterize_glyph('A', 16.0f, true);
     assert(raster.width > 0);

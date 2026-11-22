@@ -1,6 +1,8 @@
 #include "kernetile/renderer.hpp"
 #include <chrono>
 #include <iostream>
+#include <cstring>
+#include "compute/ui_compute.hpp"
 
 namespace kernetile {
 
@@ -12,29 +14,10 @@ public:
           m_dirty_tracker(m_grid.get_total_tiles()),
           m_atlas(2048, 2048, atlas::AtlasFormat::R8_UNORM)
     {
-        // 1. 初始化图形设备 (支持跨平台自动降级至 WARP 或纯 CPU)
-        if (!m_config.force_cpu_fallback) {
-#if defined(_WIN32)
-            try {
-                m_device = hal::create_d3d12_device(m_config.prefer_warp);
-                m_is_hardware = true;
-            } catch (const std::exception& e) {
-                std::cerr << "[KerneTile] Direct3D 12 device creation failed (" << e.what() 
-                          << "), falling back to pure CPU rasterizer." << std::endl;
-                m_device.reset();
-                m_is_hardware = false;
-            }
-#else
-            m_device = hal::create_default_device(m_config.prefer_warp);
-            m_is_hardware = false; // Linux 默认启用纯 CPU 极速多线程瓦片光栅器
-#endif
-        } else {
-            m_is_hardware = false;
-        }
+
 
         // 2. 初始化文本与字形图集流式通道
-        m_text_engine = text::create_text_engine();
-        m_text_streamer = std::make_unique<text::TextStreamer>(*m_text_engine, m_atlas);
+        m_text_streamer = std::make_unique<text::TextStreamer>(text::shared_text_engine(), m_atlas);
     }
 
     void resize(uint32_t new_width, uint32_t new_height) override {
@@ -42,6 +25,7 @@ public:
         m_config.height = new_height;
         m_grid = tile::TileGrid(new_width, new_height);
         m_dirty_tracker = tile::DirtyTracker(m_grid.get_total_tiles());
+        m_gpu_full_frame = true;
     }
 
     void begin_frame() override {
@@ -135,6 +119,11 @@ public:
         float font_size,
         math::Color color) override
     {
+        draw_text_scaled(text, x, y, font_size, color, 1.0f);
+    }
+
+    void draw_text_scaled(std::string_view text, float x, float y, float font_size,
+                          math::Color color, float scale) override {
         if (!m_text_streamer) return;
         uint16_t clip_idx = (m_clip_stack.depth() > 0) 
             ? static_cast<uint16_t>(m_clip_stack.current_clip_index()) 
@@ -142,7 +131,7 @@ public:
 
         m_text_streamer->stream_text(
             text, x, y, font_size, color,
-            m_primitives, clip_idx);
+            m_primitives, clip_idx, scale);
     }
 
     void end_frame() override {
@@ -155,6 +144,14 @@ public:
             m_config.enable_occlusion_culling);
 
         auto t1 = std::chrono::high_resolution_clock::now();
+
+        const auto& clips = m_clip_stack.get_clips();
+        if (clips.size() != m_previous_clips.size() ||
+            (!clips.empty() && std::memcmp(clips.data(), m_previous_clips.data(),
+                clips.size() * sizeof(core::ClipRect)) != 0)) {
+            m_dirty_tracker.reset();
+            m_previous_clips = clips;
+        }
 
         // 2. FNV-1a 脏瓦片哈希追踪
         m_last_dirty_result = m_dirty_tracker.update(
@@ -170,6 +167,58 @@ public:
         m_last_stats.dirty_tiles = m_last_dirty_result.dirty_count;
         m_last_stats.culling_ratio = m_last_dirty_result.culling_ratio * 100.0;
         m_last_stats.cpu_binning_time_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
+    }
+
+    void set_compute_target(void* window, void* display) override {
+        m_backend = m_config.force_cpu_fallback ? nullptr : compute::create(window, display);
+        m_gpu_full_frame = true;
+        m_gpu_active = false;
+    }
+
+    bool compute_ready() const noexcept override { return m_backend && m_backend->ready(); }
+
+    bool present_computed_frame(bool force_present) override {
+        if (compute_ready()) {
+            const auto& dirty = m_last_dirty_result.dirty_tiles;
+            if (!m_gpu_full_frame && dirty.empty() && !force_present) return m_gpu_active;
+            m_compute_tiles.clear();
+            auto append = [this](uint32_t x, uint32_t y, uint32_t id) {
+                const auto& tile = m_last_binning.headers[id];
+                m_compute_tiles.push_back({x, y, tile.primitive_offset, tile.primitive_count});
+            };
+            if (m_gpu_full_frame) {
+                for (uint32_t id = 0; id < m_grid.get_total_tiles(); ++id) {
+                    const auto coord = m_grid.get_tile_coord(id);
+                    append(coord.x, coord.y, id);
+                }
+            } else {
+                for (const auto& tile : dirty) append(tile.tx, tile.ty, tile.tile_id);
+            }
+            const uint32_t atlas_width = m_atlas.get_width();
+            const uint32_t atlas_height = m_atlas.get_height();
+            const compute::Frame frame{m_config.width, m_config.height, m_primitives,
+                m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
+                {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
+                atlas_height, m_atlas.get_dirty_rects()};
+            const auto start = std::chrono::steady_clock::now();
+            if (m_backend->submit(frame)) {
+                m_atlas.clear_dirty_rects();
+                m_gpu_full_frame = false;
+                m_gpu_active = true;
+                m_last_stats.render_time_us =
+                    std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+                return true;
+            }
+        }
+        if (m_gpu_active) {
+            m_dirty_tracker.reset();
+            m_last_dirty_result = m_dirty_tracker.update(m_grid, m_last_binning.headers,
+                m_last_binning.indices, m_primitives);
+            m_last_stats.dirty_tiles = m_last_dirty_result.dirty_count;
+        }
+        m_gpu_full_frame = true;
+        m_gpu_active = false;
+        return false;
     }
 
     void render_to_rgba8(uint8_t* dst_buffer) override {
@@ -226,11 +275,14 @@ public:
     }
 
     hal::GraphicsDevice* get_device() const override {
+        if (!m_config.force_cpu_fallback && !m_device) {
+            m_device = hal::create_default_device(m_config.prefer_warp);
+        }
         return m_device.get();
     }
 
     bool is_hardware_accelerated() const override {
-        return m_is_hardware;
+        return m_gpu_active && compute_ready();
     }
 
 private:
@@ -241,9 +293,13 @@ private:
     fx::ClipStack m_clip_stack{};
     atlas::DynamicAtlas m_atlas;
 
-    std::unique_ptr<text::ITextEngine> m_text_engine{};
     std::unique_ptr<text::TextStreamer> m_text_streamer{};
-    std::unique_ptr<hal::GraphicsDevice> m_device{};
+    mutable std::unique_ptr<hal::GraphicsDevice> m_device;
+    std::unique_ptr<compute::Backend> m_backend;
+    std::vector<compute::Tile> m_compute_tiles;
+    std::vector<core::ClipRect> m_previous_clips;
+    bool m_gpu_full_frame = true;
+    bool m_gpu_active = false;
 
     std::vector<core::UiPrimitive> m_primitives{};
     std::vector<uint32_t> m_dirty_tile_ids{};
@@ -251,7 +307,7 @@ private:
     tile::DirtyTrackingResult m_last_dirty_result{};
 
     uint32_t m_frame_index{0};
-    bool m_is_hardware{false};
+
     FrameStats m_last_stats{};
 };
 

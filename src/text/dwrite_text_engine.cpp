@@ -211,13 +211,7 @@ std::unique_ptr<ITextEngine> create_directwrite_engine() {
     return std::make_unique<DWriteTextEngine>();
 }
 
-std::unique_ptr<ITextEngine> create_text_engine() {
-    try {
-        return create_directwrite_engine();
-    } catch (...) {
-        return create_builtin_engine();
-    }
-}
+
 
 } // namespace kernetile::text
 
@@ -228,9 +222,7 @@ std::unique_ptr<ITextEngine> create_text_engine() {
 
 namespace kernetile::text {
 std::unique_ptr<ITextEngine> create_directwrite_engine() { return nullptr; }
-std::unique_ptr<ITextEngine> create_text_engine() { 
-    return create_web_text_engine(); 
-}
+
 }
 
 #else
@@ -238,9 +230,7 @@ std::unique_ptr<ITextEngine> create_text_engine() {
 
 namespace kernetile::text {
 std::unique_ptr<ITextEngine> create_directwrite_engine() { return nullptr; }
-std::unique_ptr<ITextEngine> create_text_engine() { 
-    return create_vector_text_engine(); 
-}
+
 }
 #endif
 

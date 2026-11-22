@@ -1,0 +1,5 @@
+#pragma once
+
+namespace kernetile::compute {
+inline constexpr char shader_source[] = R"KTWGSL(@KT_UI_SHADER@)KTWGSL";
+}

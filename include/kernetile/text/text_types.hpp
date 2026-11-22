@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@ struct GlyphPlacement {
     float height{0.0f};          // 光栅化字形高度 (像素)
     float bearing_x{0.0f};       // 水平前导距离 (Bearing X)
     float bearing_y{0.0f};       // 垂直基线距离 (Bearing Y, 从基线向上为正)
+    size_t cluster{0};
 };
 
 struct FontMetrics {
@@ -25,11 +27,17 @@ struct FontMetrics {
     float line_height{18.0f};    // 推荐行高
 };
 
+struct CaretStop {
+    size_t byte;
+    float x;
+};
+
 struct TextLayoutResult {
     std::vector<GlyphPlacement> glyphs;
     float total_width{0.0f};
     float total_height{0.0f};
     FontMetrics metrics;
+    std::vector<CaretStop> carets;
 };
 
 struct FontRasterResult {

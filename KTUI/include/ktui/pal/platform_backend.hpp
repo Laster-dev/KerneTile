@@ -67,10 +67,12 @@ public:
 
     // ==================== 显示器与 DPI ====================
     virtual float dpi_scale() const = 0;
+    virtual float render_scale() const { return 1.0f; }
     virtual uint32_t refresh_rate() const = 0;
 
     // ==================== 原生句柄 ====================
     virtual void* get_native_handle() const = 0;
+    virtual void* get_compute_display() const { return nullptr; }
 
     // ==================== 帧呈现与重绘请求 ====================
     virtual void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) {

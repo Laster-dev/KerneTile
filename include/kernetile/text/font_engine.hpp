@@ -37,4 +37,8 @@ public:
 // 自动工厂: 根据当前操作系统与驱动环境选择最优引擎
 [[nodiscard]] std::unique_ptr<ITextEngine> create_text_engine();
 
+ITextEngine& shared_text_engine();
+std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float size);
+std::vector<size_t> grapheme_boundaries(std::string_view text);
+
 } // namespace kernetile::text

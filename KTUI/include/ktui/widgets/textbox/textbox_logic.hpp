@@ -100,6 +100,9 @@ public:
     }
 
     void append_chars(const std::string& str) {
+        if (str.empty()) return;
+        m_cursor_index = m_data.text.size();
+        m_selection_anchor = m_cursor_index;
         insert_text_internal(str);
     }
 
@@ -330,21 +333,23 @@ public:
 
         context.push_clip(content_rect, 0.0f);
 
-        std::string_view display_text = get_display_text();
+        const std::string display_text = composed_display_text();
+        const size_t preedit_start = to_display_offset(m_cursor_index);
         float font_sz = style.font_size;
-        float text_y = bounds().min_y + (bounds().height() - font_sz) * 0.5f - 1.0f;
+        float line_height = TextMeasure::measure(display_text, font_sz).y;
+        float text_y = content_rect.min_y + (content_rect.height() - line_height) * 0.5f;
         float start_x = content_rect.min_x - m_scroll_offset_x;
 
         // 6. 绘制选区高亮色块 (半透明 Fluent Accent)
-        if (m_state.is_focused && has_selection() && !display_text.empty()) {
+        if (m_state.is_focused && has_selection() && m_ime_preedit.empty() && !display_text.empty()) {
             size_t sel_s = selection_start();
             size_t sel_e = selection_end();
-            float sel_x1 = start_x + TextMeasure::measure_width(display_text.substr(0, sel_s), font_sz);
-            float sel_x2 = start_x + TextMeasure::measure_width(display_text.substr(0, sel_e), font_sz);
+            float sel_x1 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_s));
+            float sel_x2 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_e));
             Rect sel_rect = Rect::from_xywh(
-                sel_x1,
+                std::min(sel_x1, sel_x2),
                 content_rect.min_y,
-                sel_x2 - sel_x1,
+                std::abs(sel_x2 - sel_x1),
                 content_rect.height()
             );
             context.draw_rect(sel_rect, style.selection, 0.0f, 0.0f);
@@ -359,19 +364,16 @@ public:
 
         // 8. 绘制 IME 输入法预编辑组合态下划线 (如拼音 "nihao")
         if (!m_ime_preedit.empty()) {
-            float preedit_start_x = start_x + TextMeasure::measure_width(std::string_view(display_text).substr(0, m_cursor_index), font_sz);
-            float preedit_w = TextMeasure::measure_width(m_ime_preedit, font_sz);
+            float preedit_start_x = start_x + TextMeasure::cursor_x(display_text, font_sz, preedit_start);
+            float preedit_end_x = start_x + TextMeasure::cursor_x(display_text, font_sz, preedit_start + m_ime_preedit.size());
             float underline_y = bounds().max_y - style.padding.bottom - 1.0f;
-            context.draw_rect(Rect::from_xywh(preedit_start_x, underline_y, preedit_w, 1.5f), style.focus_indicator, 0.0f, 0.0f);
+            context.draw_rect(Rect::from_xywh(std::min(preedit_start_x, preedit_end_x), underline_y, std::abs(preedit_end_x - preedit_start_x), 1.5f), style.focus_indicator, 0.0f, 0.0f);
         }
 
         // 9. 绘制精致 1.5px 闪烁光标
         if (m_state.is_focused && m_blink_visible && !m_state.is_disabled) {
-            size_t visual_cursor = m_cursor_index;
-            float cursor_x = start_x + TextMeasure::measure_width(std::string_view(display_text).substr(0, visual_cursor), font_sz);
-            if (!m_ime_preedit.empty()) {
-                cursor_x += TextMeasure::measure_width(std::string_view(m_ime_preedit).substr(0, m_ime_preedit_cursor), font_sz);
-            }
+            size_t visual_cursor = preedit_start + std::min(m_ime_preedit_cursor, m_ime_preedit.size());
+            float cursor_x = start_x + TextMeasure::cursor_x(display_text, font_sz, visual_cursor);
             float caret_h = font_sz + 2.0f;
             float caret_y = bounds().min_y + (bounds().height() - caret_h) * 0.5f;
             context.draw_rect(Rect::from_xywh(cursor_x, caret_y, style.caret_width, caret_h), style.caret, 0.0f, 0.0f);
@@ -408,10 +410,11 @@ public:
 
     [[nodiscard]] Rect get_ime_cursor_rect() const override {
         auto style = resolve_current_style();
-        std::string_view display_text = get_display_text();
+        const std::string display_text = composed_display_text();
         float font_sz = style.font_size;
         float start_x = bounds().min_x + style.padding.left - m_scroll_offset_x;
-        float cursor_x = start_x + TextMeasure::measure_width(display_text.substr(0, m_cursor_index), font_sz);
+        const size_t cursor = to_display_offset(m_cursor_index) + std::min(m_ime_preedit_cursor, m_ime_preedit.size());
+        float cursor_x = start_x + TextMeasure::cursor_x(display_text, font_sz, cursor);
         float caret_h = font_sz + 2.0f;
         float caret_y = bounds().min_y + (bounds().height() - caret_h) * 0.5f;
         return Rect::from_xywh(cursor_x, caret_y, style.caret_width, caret_h);
@@ -724,8 +727,20 @@ private:
         return m_data.text;
     }
 
+    size_t to_display_offset(size_t offset) const {
+        if (!m_data.is_password || m_data.is_password_revealed) return offset;
+        const auto stops = kernetile::text::grapheme_boundaries(m_data.text);
+        return 3 * (std::upper_bound(stops.begin(), stops.end(), offset) - stops.begin() - 1);
+    }
+
+    std::string composed_display_text() const {
+        std::string result(get_display_text());
+        result.insert(std::min(to_display_offset(m_cursor_index), result.size()), m_ime_preedit);
+        return result;
+    }
+
     void update_password_mask_cache() const {
-        size_t count = count_utf8_chars(m_data.text);
+        size_t count = kernetile::text::grapheme_boundaries(m_data.text).size() - 1;
         if (m_cached_password_mask.size() != count * 3) {
             m_cached_password_mask.clear();
             m_cached_password_mask.reserve(count * 3);
@@ -776,8 +791,9 @@ private:
         float reveal_btn_w = (m_data.is_password && m_data.show_reveal_button) ? 22.0f : 0.0f;
         float avail_w = std::max(10.0f, m_size.x - style.padding.horizontal() - reveal_btn_w);
 
-        std::string_view display_text = get_display_text();
-        float cursor_rel_x = TextMeasure::measure_width(display_text.substr(0, m_cursor_index), font_sz);
+        const auto display_text = composed_display_text();
+        const size_t cursor = to_display_offset(m_cursor_index) + std::min(m_ime_preedit_cursor, m_ime_preedit.size());
+        float cursor_rel_x = TextMeasure::cursor_x(display_text, font_sz, cursor);
         if (cursor_rel_x - m_scroll_offset_x > avail_w - 4.0f) {
             m_scroll_offset_x = cursor_rel_x - avail_w + 12.0f;
         } else if (cursor_rel_x - m_scroll_offset_x < 0.0f) {
@@ -787,6 +803,7 @@ private:
 
     void select_word_at(float click_x, std::string_view str, float font_sz) {
         size_t idx = get_char_index_at(click_x, str, font_sz);
+        str = m_data.text;
         if (str.empty()) return;
 
         size_t start = idx;
@@ -805,53 +822,26 @@ private:
     }
 
     [[nodiscard]] size_t get_char_index_at(float x, std::string_view str, float font_sz) const {
-        if (x <= 0.0f || str.empty()) return 0;
-        size_t byte_pos = 0;
-        float prev_w = 0.0f;
-
-        while (byte_pos < str.length()) {
-            size_t next_pos = next_utf8_char_index(str, byte_pos);
-            float curr_w = TextMeasure::measure_width(str.substr(0, next_pos), font_sz);
-            float mid_x = (prev_w + curr_w) * 0.5f;
-            if (x < mid_x) {
-                return byte_pos;
-            }
-            prev_w = curr_w;
-            byte_pos = next_pos;
-        }
-        return str.length();
+        const auto offset = TextMeasure::hit_test_cursor(str, font_sz, x);
+        if (!m_data.is_password || m_data.is_password_revealed) return offset;
+        const auto stops = kernetile::text::grapheme_boundaries(m_data.text);
+        return stops[std::min(offset / 3, stops.size() - 1)];
     }
 
     static bool is_word_char(char c) noexcept {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
     }
 
-    static size_t prev_utf8_char_index(std::string_view str, size_t index) noexcept {
-        if (index == 0) return 0;
-        size_t pos = index - 1;
-        while (pos > 0 && (static_cast<unsigned char>(str[pos]) & 0xC0) == 0x80) {
-            pos--;
-        }
-        return pos;
+    static size_t prev_utf8_char_index(std::string_view str, size_t index) {
+        const auto stops = kernetile::text::grapheme_boundaries(str);
+        const auto stop = std::lower_bound(stops.begin(), stops.end(), index);
+        return stop == stops.begin() ? 0 : *std::prev(stop);
     }
 
-    static size_t next_utf8_char_index(std::string_view str, size_t index) noexcept {
-        if (index >= str.length()) return str.length();
-        size_t pos = index + 1;
-        while (pos < str.length() && (static_cast<unsigned char>(str[pos]) & 0xC0) == 0x80) {
-            pos++;
-        }
-        return pos;
-    }
-
-    static size_t count_utf8_chars(std::string_view str) noexcept {
-        size_t count = 0;
-        size_t pos = 0;
-        while (pos < str.length()) {
-            pos = next_utf8_char_index(str, pos);
-            count++;
-        }
-        return count;
+    static size_t next_utf8_char_index(std::string_view str, size_t index) {
+        const auto stops = kernetile::text::grapheme_boundaries(str);
+        const auto stop = std::upper_bound(stops.begin(), stops.end(), index);
+        return stop == stops.end() ? str.size() : *stop;
     }
 
     mutable std::string m_cached_password_mask{};

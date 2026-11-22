@@ -79,8 +79,17 @@ public:
         float font_size,
         math::Color color) = 0;
 
+    virtual void draw_text_scaled(std::string_view text, float x, float y, float font_size,
+                                  math::Color color, float scale) {
+        draw_text(text, x * scale, y * scale, font_size * scale, color);
+    }
+
     // 离屏渲染呈现输出至内存缓冲 (RGBA8 格式)
     virtual void render_to_rgba8(uint8_t* dst_buffer) = 0;
+
+    virtual void set_compute_target(void* window, void* display = nullptr) { (void)window; (void)display; }
+    virtual bool compute_ready() const noexcept { return false; }
+    virtual bool present_computed_frame(bool force_present = false) { (void)force_present; return false; }
 
     // 性能指标查询
     virtual const FrameStats& get_last_frame_stats() const = 0;

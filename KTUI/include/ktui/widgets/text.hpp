@@ -75,14 +75,16 @@ public:
 
         Vec2 measured = TextMeasure::measure(m_text, m_font_size);
         float max_w = m_constraints.max_width;
+        const auto stops = kernetile::text::grapheme_boundaries(m_text);
+        const auto next_stop = [&stops](size_t pos) { return *std::upper_bound(stops.begin(), stops.end(), pos); };
 
         if (m_overflow == TextOverflow::Wrap && max_w < BoxConstraints::kInfinity && measured.x > max_w && !m_text.empty()) {
             // UTF-8 码点安全自动换行
             size_t line_start = 0;
             size_t pos = 0;
             while (pos < m_text.size()) {
-                size_t next = next_utf8_pos(m_text, pos);
-                if (m_text[pos] == '\n') {
+                size_t next = next_stop(pos);
+                if (m_text[pos] == '\n' || m_text[pos] == '\r') {
                     m_wrapped_lines.emplace_back(m_text.substr(line_start, pos - line_start));
                     line_start = next;
                     pos = next;
@@ -99,7 +101,7 @@ public:
             if (line_start < m_text.size()) {
                 m_wrapped_lines.emplace_back(m_text.substr(line_start));
             }
-            float line_h = measured.y > 0.0f ? measured.y : (m_font_size * 1.30f);
+            float line_h = TextMeasure::measure({}, m_font_size).y;
             m_size = m_constraints.constrain(Vec2{max_w, line_h * static_cast<float>(std::max<size_t>(1, m_wrapped_lines.size()))});
         } else {
             m_size = m_constraints.constrain(measured);
@@ -109,7 +111,7 @@ public:
                 size_t pos = 0;
                 size_t best_end = 0;
                 while (pos < m_text.size()) {
-                    size_t next = next_utf8_pos(m_text, pos);
+                    size_t next = next_stop(pos);
                     float w = TextMeasure::measure_width(std::string_view(m_text).substr(0, next), m_font_size);
                     if (w > avail_w) break;
                     best_end = next;
@@ -142,15 +144,6 @@ public:
     }
 
 private:
-    static size_t next_utf8_pos(const std::string& s, size_t byte_pos) noexcept {
-        if (byte_pos >= s.size()) return s.size();
-        size_t pos = byte_pos + 1;
-        while (pos < s.size() && (static_cast<uint8_t>(s[pos]) & 0xC0) == 0x80) {
-            ++pos;
-        }
-        return pos;
-    }
-
     std::string m_text;
     std::string m_elided_text;
     std::vector<std::string> m_wrapped_lines;

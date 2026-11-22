@@ -17,11 +17,10 @@ int main() {
     using namespace kernetile::core;
     using namespace kernetile::math;
 
-    auto engine = create_text_engine();
-    assert(engine != nullptr);
+    auto& engine = shared_text_engine();
 
     DynamicAtlas atlas(2048, 2048, AtlasFormat::R8_UNORM);
-    TextStreamer streamer(*engine, atlas);
+    TextStreamer streamer(engine, atlas);
 
     // 构造模拟 10,000 字长文本阅读场景
     const std::string paragraph = "KerneTile: High Performance GPU Compute-driven 2D UI Rendering Engine. 现代计算着色器瓦片引擎与无锁提交环。\n";

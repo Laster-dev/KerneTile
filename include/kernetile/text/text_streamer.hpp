@@ -42,12 +42,16 @@ public:
         float font_size,
         const math::Color& color,
         std::vector<core::UiPrimitive>& out_primitives,
-        uint16_t clip_index = core::INVALID_INDEX_U16)
+        uint16_t clip_index = core::INVALID_INDEX_U16,
+        float render_scale = 1.0f)
     {
         TextStreamStats stats;
-        auto layout = m_engine.shape_text(utf8_text, font_size);
+        const float raster_size = font_size * render_scale;
+        const auto layout = &m_engine == &shared_text_engine()
+            ? layout_text(utf8_text, font_size)
+            : std::make_shared<const TextLayoutResult>(m_engine.shape_text(utf8_text, font_size));
 
-        for (const auto& gp : layout.glyphs) {
+        for (const auto& gp : layout->glyphs) {
             stats.total_glyphs++;
 
             // 跳过无形字符 (如空格、不可见控制符)
@@ -57,15 +61,15 @@ public:
             }
 
             // 64 位复合缓存键: (高 32 位为缩放字号，低 32 位为字形 ID)
-            uint64_t key = (static_cast<uint64_t>(font_size * 100.0f) << 32) | gp.glyph_id;
+            uint64_t key = (static_cast<uint64_t>(raster_size * 100.0f) << 32) | gp.glyph_id;
 
             auto it = m_glyph_cache.find(key);
             if (it == m_glyph_cache.end()) {
                 // 缓存未命中：光栅化字形并灌入图集
                 stats.cache_misses++;
-                auto raster = m_engine.rasterize_glyph(gp.glyph_id, font_size, true);
+                auto raster = m_engine.rasterize_glyph(gp.glyph_id, raster_size, true);
 
-                if (raster.width > 0 && raster.height > 0) {
+                if (raster.width > 0 && raster.height > 0 && !raster.r8_bitmap.empty()) {
                     auto region_opt = m_atlas.allocate_and_upload(
                         raster.width, 
                         raster.height, 
@@ -82,17 +86,19 @@ public:
                         };
                         it = m_glyph_cache.emplace(key, cg).first;
                     }
+                } else {
+                    it = m_glyph_cache.emplace(key, CachedGlyph{}).first;
                 }
             } else {
                 stats.cache_hits++;
             }
 
             // 若成功获取/缓存字形，发射 80 字节 UiPrimitive
-            if (it != m_glyph_cache.end()) {
+            if (it != m_glyph_cache.end() && it->second.width > 0) {
                 const auto& cg = it->second;
 
-                float min_x = std::floor(x + gp.x + static_cast<float>(cg.bearing_x) + 0.5f);
-                float min_y = std::floor(y + gp.y - static_cast<float>(cg.bearing_y) + 0.5f);
+                float min_x = std::floor((x + gp.x) * render_scale + static_cast<float>(cg.bearing_x) + 0.5f);
+                float min_y = std::floor((y + gp.y) * render_scale - static_cast<float>(cg.bearing_y) + 0.5f);
                 float max_x = min_x + static_cast<float>(cg.width);
                 float max_y = min_y + static_cast<float>(cg.height);
 

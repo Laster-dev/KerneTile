@@ -29,6 +29,8 @@ else()
     endif()
 endif()
 
+include(cmake/KerneTileDependencies.cmake)
+
 # 核心接口库
 add_library(kernetile_core INTERFACE)
 target_include_directories(kernetile_core INTERFACE
@@ -75,6 +77,7 @@ set(TEXT_SOURCES
     src/text/builtin_font_data.cpp
     src/text/vector_text_engine.cpp
     src/text/dwrite_text_engine.cpp
+    src/text/shared_text_engine.cpp
 )
 if (EMSCRIPTEN)
     list(APPEND TEXT_SOURCES src/text/web_text_engine.cpp)
@@ -84,7 +87,13 @@ target_include_directories(kernetile_text PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/text
 )
-target_link_libraries(kernetile_text PUBLIC kernetile_core)
+target_link_libraries(kernetile_text PUBLIC kernetile_core PRIVATE freetype harfbuzz utf8proc)
+if (EMSCRIPTEN)
+    target_compile_definitions(kernetile_text PRIVATE KT_UI_FONT_PATH="/kernetile/ui-font.otf")
+    target_link_options(kernetile_text INTERFACE "SHELL:--embed-file \"${KERNETILE_UI_FONT}@/kernetile/ui-font.otf\"")
+else()
+    target_compile_definitions(kernetile_text PRIVATE KT_UI_FONT_PATH="${KERNETILE_UI_FONT}")
+endif()
 if (WIN32)
     target_link_libraries(kernetile_text PUBLIC dwrite.lib)
 endif()
@@ -136,10 +145,29 @@ target_include_directories(kernetile_cpu PUBLIC
 target_link_libraries(kernetile_cpu PUBLIC kernetile_core kernetile_tile kernetile_fx)
 
 # KerneTile 引擎统一门面库 (Engine)
-set(ENGINE_SOURCES
-    src/renderer.cpp
-)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui_compute.wgsl")
+file(READ shaders/ui_compute.wgsl KT_UI_SHADER)
+configure_file(src/compute/ui_compute_shader.hpp.in generated/ui_compute_shader.hpp @ONLY)
+set(ENGINE_SOURCES src/renderer.cpp)
+if (KERNETILE_GPU_COMPUTE AND EMSCRIPTEN)
+    list(APPEND ENGINE_SOURCES src/compute/ui_compute_web.cpp)
+elseif (TARGET kt_wgpu_native)
+    list(APPEND ENGINE_SOURCES src/compute/ui_compute_native.cpp)
+else()
+    list(APPEND ENGINE_SOURCES src/compute/ui_compute_null.cpp)
+endif()
 add_library(kernetile_engine STATIC ${ENGINE_SOURCES})
+target_include_directories(kernetile_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if (TARGET kt_wgpu_native)
+    target_link_libraries(kernetile_engine PRIVATE kt_wgpu_native)
+    if (WIN32)
+        foreach (config IN LISTS CMAKE_CONFIGURATION_TYPES)
+            file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${config}")
+            configure_file("${KERNETILE_WGPU_NATIVE_DIR}/wgpu_native.dll" "${CMAKE_CURRENT_BINARY_DIR}/${config}/wgpu_native.dll" COPYONLY)
+        endforeach()
+        configure_file("${KERNETILE_WGPU_NATIVE_DIR}/wgpu_native.dll" "${CMAKE_CURRENT_BINARY_DIR}/wgpu_native.dll" COPYONLY)
+    endif()
+endif()
 target_include_directories(kernetile_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -176,6 +204,14 @@ target_link_libraries(ktui_studio_demo PRIVATE
     kernetile_cpu
     kernetile_core
 )
+if (NOT EMSCRIPTEN)
+    add_custom_command(TARGET ktui_studio_demo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${KERNETILE_UI_FONT}" "$<TARGET_FILE_DIR:ktui_studio_demo>/ktui-font.otf")
+endif()
+if (KERNETILE_UI_FONT_LICENSE)
+    add_custom_command(TARGET ktui_studio_demo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${KERNETILE_UI_FONT_LICENSE}" "$<TARGET_FILE_DIR:ktui_studio_demo>/ktui-font-license.txt")
+endif()
 if (EMSCRIPTEN)
     set_target_properties(ktui_studio_demo PROPERTIES
         SUFFIX ".html"
