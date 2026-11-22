@@ -8,21 +8,49 @@ namespace ktui {
 
 namespace {
 struct DwmMargins { int left, right, top, bottom; };
-void apply_frameless_dwm_chrome(HWND hwnd) {
+using DwmExtendFrameFn = HRESULT(WINAPI*)(HWND, const DwmMargins*);
+using DwmSetAttrFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+using DwmDefWndProcFn = BOOL(WINAPI*)(HWND, UINT, WPARAM, LPARAM, LRESULT*);
+
+HMODULE get_dwm_module() {
+    static HMODULE s_dwm = LoadLibraryW(L"dwmapi.dll");
+    return s_dwm;
+}
+
+bool call_dwm_def_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, LRESULT* out_result) {
+    if (HMODULE dwm = get_dwm_module()) {
+        static auto fn = reinterpret_cast<DwmDefWndProcFn>(GetProcAddress(dwm, "DwmDefWindowProc"));
+        if (fn) {
+            return fn(hwnd, msg, wparam, lparam, out_result) != FALSE;
+        }
+    }
+    return false;
+}
+
+void apply_frameless_dwm_chrome(HWND hwnd, bool maximized, bool dark_mode_enabled) {
     if (!hwnd) return;
-    HMODULE dwm = LoadLibraryW(L"dwmapi.dll");
+    HMODULE dwm = get_dwm_module();
     if (!dwm) return;
-    using ExtendFrameFn = HRESULT(WINAPI*)(HWND, const DwmMargins*);
-    using SetAttrFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
-    if (auto extend_fn = reinterpret_cast<ExtendFrameFn>(GetProcAddress(dwm, "DwmExtendFrameIntoClientArea"))) {
-        DwmMargins margins{0, 0, 1, 0};
+    if (auto set_attr = reinterpret_cast<DwmSetAttrFn>(GetProcAddress(dwm, "DwmSetWindowAttribute"))) {
+        constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
+        constexpr DWORD kDwmwaWindowCornerPreference = 33;
+        constexpr DWORD kDwmwaBorderColor = 34;
+        constexpr DWORD kDwmwcpDoNotRound = 1;
+        constexpr DWORD kDwmwcpRound = 2;
+        constexpr COLORREF kDwmwaColorNone = 0xFFFFFFFE;
+        BOOL dark_mode = dark_mode_enabled ? TRUE : FALSE;
+        set_attr(hwnd, kDwmwaUseImmersiveDarkMode, &dark_mode, sizeof(dark_mode));
+        DWORD pref = maximized ? kDwmwcpDoNotRound : kDwmwcpRound;
+        set_attr(hwnd, kDwmwaWindowCornerPreference, &pref, sizeof(pref));
+        set_attr(hwnd, kDwmwaBorderColor, &kDwmwaColorNone, sizeof(kDwmwaColorNone));
+    }
+    if (auto extend_fn = reinterpret_cast<DwmExtendFrameFn>(GetProcAddress(dwm, "DwmExtendFrameIntoClientArea"))) {
+        // 对齐 CUI.Core Window::UpdateDwmChrome():
+        // 非最大化时仅延伸底部 1px {0,0,0,1} 保留 DWM 原生阴影，避免顶部延伸触发 Win10 Aero Caption 裁切
+        DwmMargins margins = maximized ? DwmMargins{0, 0, 0, 0} : DwmMargins{0, 0, 0, 1};
         extend_fn(hwnd, &margins);
     }
-    if (auto set_attr = reinterpret_cast<SetAttrFn>(GetProcAddress(dwm, "DwmSetWindowAttribute"))) {
-        constexpr DWORD kDwmwaWindowCornerPreference = 33;
-        constexpr DWORD kDwmwcpRound = 2;
-        set_attr(hwnd, kDwmwaWindowCornerPreference, &kDwmwcpRound, sizeof(kDwmwcpRound));
-    }
+    SetWindowRgn(hwnd, nullptr, FALSE);
 }
 } // namespace
 
@@ -60,15 +88,11 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
       m_resizable(desc.resizable),
       m_decorated(desc.decorated) {
 
+    // 对齐 CUI.Core 窗口原理：保留 WS_OVERLAPPEDWINDOW (含 WS_CAPTION)，让 DWM 识别为标准顶层应用窗口，
+    // 从而原生拥有系统最小化/最大化/还原过渡动画与 Win11 Snap Layout；非客户区由 WM_NCCALCSIZE 返回 0 接管。
     DWORD style = WS_OVERLAPPEDWINDOW;
     if (!m_resizable) {
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
-    }
-    if (!m_decorated) {
-        style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
-        if (m_resizable) {
-            style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
-        }
     }
 
     DWORD ex_style = WS_EX_APPWINDOW;
@@ -109,12 +133,19 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
 
     if (m_hwnd) {
         if (!m_decorated) {
-            apply_frameless_dwm_chrome(m_hwnd);
-            SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            int pos_x = x;
+            int pos_y = y;
             if (m_position.x < 0.0f && m_position.y < 0.0f) {
-                center_on_screen();
+                HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+                MONITORINFO mi{sizeof(mi)};
+                if (GetMonitorInfoW(hmon, &mi)) {
+                    pos_x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - w) / 2;
+                    pos_y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - h) / 2;
+                }
             }
+            SetWindowPos(m_hwnd, nullptr, pos_x, pos_y, w, h,
+                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            update_dwm_chrome();
         }
         RECT client_rect;
         GetClientRect(m_hwnd, &client_rect);
@@ -194,15 +225,15 @@ bool Win32Window::is_visible() const {
 }
 
 void Win32Window::minimize() {
-    if (m_hwnd) ShowWindow(m_hwnd, SW_MINIMIZE);
+    if (m_hwnd) SendMessageW(m_hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
 }
 
 void Win32Window::maximize() {
-    if (m_hwnd) ShowWindow(m_hwnd, SW_MAXIMIZE);
+    if (m_hwnd) SendMessageW(m_hwnd, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
 }
 
 void Win32Window::restore() {
-    if (m_hwnd) ShowWindow(m_hwnd, SW_RESTORE);
+    if (m_hwnd) SendMessageW(m_hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
 }
 
 bool Win32Window::is_minimized() const {
@@ -307,20 +338,21 @@ void Win32Window::set_decorated(bool decorated) {
     update_window_style();
 }
 
+void Win32Window::update_dwm_chrome() {
+    if (!m_hwnd || m_decorated) return;
+    const bool maximized = IsZoomed(m_hwnd) != FALSE;
+    m_last_maximized = maximized;
+    apply_frameless_dwm_chrome(m_hwnd, maximized, true);
+}
+
 void Win32Window::update_window_style() {
     DWORD style = WS_OVERLAPPEDWINDOW;
     if (!m_resizable) {
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     }
-    if (!m_decorated) {
-        style = WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX;
-        if (m_resizable) {
-            style |= WS_THICKFRAME | WS_MAXIMIZEBOX;
-        }
-    }
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     if (!m_decorated) {
-        apply_frameless_dwm_chrome(m_hwnd);
+        update_dwm_chrome();
     }
     SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
@@ -435,6 +467,24 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
         case WM_ERASEBKGND:
             return 1; // 禁止 GDI 擦除背景防止闪烁
+
+        case WM_NCACTIVATE:
+            if (!m_decorated) {
+                return TRUE; // 对齐 CUI.Core：禁止系统绘制原生非客户区激活标题栏
+            }
+            break;
+
+        case WM_NCPAINT:
+            if (!m_decorated) {
+                return 0; // 对齐 CUI.Core：禁止系统绘制原生非客户区边框
+            }
+            break;
+
+        case WM_SYNCPAINT:
+            if (!m_decorated) {
+                return 0;
+            }
+            break;
 
         case WM_SETCURSOR: {
             if (LOWORD(lparam) == HTCLIENT) {
@@ -562,6 +612,12 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
             m_size = Vec2{static_cast<float>(width), static_cast<float>(height)};
+            if (!m_decorated) {
+                const bool maximized = IsZoomed(m_hwnd) != FALSE;
+                if (maximized != m_last_maximized) {
+                    update_dwm_chrome();
+                }
+            }
             if (m_on_resized) {
                 m_on_resized(m_size);
             }
@@ -607,14 +663,20 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         case WM_NCCALCSIZE: {
-            if (!m_decorated && wparam == TRUE) {
-                if (IsZoomed(m_hwnd)) {
-                    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
-                    HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
-                    MONITORINFO mi{sizeof(mi)};
-                    if (GetMonitorInfoW(hmon, &mi)) {
-                        params->rgrc[0] = mi.rcWork;
+            if (!m_decorated) {
+                if (IsIconic(m_hwnd)) {
+                    return DefWindowProcW(m_hwnd, msg, wparam, lparam);
+                }
+                if (wparam == TRUE) {
+                    if (IsZoomed(m_hwnd)) {
+                        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+                        HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+                        MONITORINFO mi{sizeof(mi)};
+                        if (GetMonitorInfoW(hmon, &mi)) {
+                            params->rgrc[0] = mi.rcWork;
+                        }
                     }
+                    return 0;
                 }
                 return 0;
             }
@@ -645,10 +707,10 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
                 TitlebarHitTest ht = m_titlebar_hit_test(PointF{static_cast<float>(pt.x), static_cast<float>(pt.y)});
                 switch (ht) {
                     case TitlebarHitTest::Caption: return HTCAPTION;
-                    // 自绘标题栏按钮必须返回 HTCLIENT，确保 KTUI 接收悬停与点击事件
-                    case TitlebarHitTest::CloseBtn:
-                    case TitlebarHitTest::MaximizeBtn:
-                    case TitlebarHitTest::MinimizeBtn: return HTCLIENT;
+                    // 对齐 CUI.Core：最大化按钮必须返回 HTMAXBUTTON，才能触发 Windows 11 原生分屏布局 (Snap Layouts)
+                    case TitlebarHitTest::CloseBtn: return HTCLOSE;
+                    case TitlebarHitTest::MaximizeBtn: return HTMAXBUTTON;
+                    case TitlebarHitTest::MinimizeBtn: return HTMINBUTTON;
                     case TitlebarHitTest::BorderLeft: return HTLEFT;
                     case TitlebarHitTest::BorderRight: return HTRIGHT;
                     case TitlebarHitTest::BorderTop: return HTTOP;
@@ -658,6 +720,63 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
                     case TitlebarHitTest::BorderBottomLeft: return HTBOTTOMLEFT;
                     case TitlebarHitTest::BorderBottomRight: return HTBOTTOMRIGHT;
                     default: return HTCLIENT;
+                }
+            }
+            break;
+        }
+        case WM_NCMOUSEMOVE: {
+            if (!m_decorated) {
+                POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+                ScreenToClient(m_hwnd, &pt);
+                if (Win32Backend::instance()) {
+                    PlatformEvent pe{};
+                    pe.type = PlatformEventType::PointerMove;
+                    pe.window_handle = static_cast<void*>(m_hwnd);
+                    pe.position = Vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)};
+                    pe.timestamp_ms = GetTickCount64();
+                    Win32Backend::instance()->dispatch_platform_event(pe);
+                }
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE | TME_NONCLIENT, m_hwnd, 0};
+                TrackMouseEvent(&tme);
+
+                // 窄范围交由 DwmDefWindowProc 处理，启用 Win11 最大化按钮悬停分屏布局 (Snap Layouts)
+                LRESULT dwm_res = 0;
+                if (call_dwm_def_window_proc(m_hwnd, msg, wparam, lparam, &dwm_res)) {
+                    return dwm_res;
+                }
+            }
+            break;
+        }
+        case WM_NCMOUSELEAVE: {
+            if (!m_decorated && Win32Backend::instance()) {
+                PlatformEvent pe{};
+                pe.type = PlatformEventType::PointerMove;
+                pe.window_handle = static_cast<void*>(m_hwnd);
+                pe.position = Vec2{-1.0f, -1.0f};
+                pe.timestamp_ms = GetTickCount64();
+                Win32Backend::instance()->dispatch_platform_event(pe);
+            }
+            break;
+        }
+        case WM_NCLBUTTONDOWN: {
+            if (!m_decorated && (wparam == HTCLOSE || wparam == HTMAXBUTTON || wparam == HTMINBUTTON)) {
+                return 0; // 吞掉默认绘制，防止系统在自绘标题栏上重绘旧版原生按钮
+            }
+            break;
+        }
+        case WM_NCLBUTTONUP: {
+            if (!m_decorated) {
+                if (wparam == HTCLOSE) {
+                    PostMessageW(m_hwnd, WM_CLOSE, 0, 0);
+                    return 0;
+                }
+                if (wparam == HTMAXBUTTON) {
+                    SendMessageW(m_hwnd, WM_SYSCOMMAND, IsZoomed(m_hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+                    return 0;
+                }
+                if (wparam == HTMINBUTTON) {
+                    SendMessageW(m_hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+                    return 0;
                 }
             }
             break;
@@ -789,9 +908,27 @@ void Win32Backend::shutdown() {
 }
 
 LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (s_instance) {
+    if (msg == WM_NCCREATE) {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        if (cs && cs->lpCreateParams) {
+            auto* win = static_cast<Win32Window*>(cs->lpCreateParams);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(win));
+            if (s_instance) {
+                s_instance->m_window_map[hwnd] = win;
+            }
+        }
+    }
+
+    Win32Window* win = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!win && s_instance) {
         auto it = s_instance->m_window_map.find(hwnd);
-        if (it != s_instance->m_window_map.end() && it->second) {
+        if (it != s_instance->m_window_map.end()) {
+            win = it->second;
+        }
+    }
+
+    if (win) {
+        if (s_instance) {
             // 处理统一输入事件转发
             PlatformEvent pe{};
             pe.window_handle = static_cast<void*>(hwnd);
@@ -857,8 +994,8 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                 default:
                     break;
             }
-            return it->second->handle_message(msg, wparam, lparam);
         }
+        return win->handle_message(msg, wparam, lparam);
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }

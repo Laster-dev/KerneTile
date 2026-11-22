@@ -7,7 +7,7 @@
 namespace kernetile::compute {
 namespace {
 
-EM_JS(int, start_webgpu, (const char* code, uintptr_t win_id), {
+EM_JS(int, start_webgpu, (const char* code, int win_id), {
     var target = (Module['ktuiCanvases'] && Module['ktuiCanvases'].get(win_id)) || document.getElementById('canvas');
     if (!target || !navigator.gpu) return 0;
     var states = Module['ktuiGpuStates'] || (Module['ktuiGpuStates'] = new Map());
@@ -238,7 +238,7 @@ private:
 
 std::unique_ptr<Backend> create(void* window, void*) {
     if (window) {
-        if (int id = start_webgpu(shader_source, reinterpret_cast<uintptr_t>(window))) {
+        if (int id = start_webgpu(shader_source, static_cast<int>(reinterpret_cast<uintptr_t>(window)))) {
             return std::make_unique<WebBackend>(id);
         }
     }

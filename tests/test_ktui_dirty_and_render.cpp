@@ -359,12 +359,14 @@ void test_checkbox_animation_survives_zero_and_large_dt() {
 }
 
 void test_frameless_titlebar_hittest_and_buttons() {
-    std::cout << "[Test 8] 无边框窗口自绘标题栏命中测试与按钮交互测试..." << std::endl;
+    std::cout << "[Test 8] CUI.Core 对齐无边框标题栏命中测试、Win11 Snap 优先级与全部按钮交互测试..." << std::endl;
     WindowDesc desc;
     assert(desc.decorated == false && "Default window must be frameless");
     assert(desc.custom_titlebar == true);
 
     WindowTitlebar tb;
+    int action_hits = 0;
+    tb.add_action("+", "新建", [&]() { ++action_hits; });
     const Vec2 sz{500.0f, 360.0f};
 
     // 边缘拉伸命中
@@ -374,33 +376,42 @@ void test_frameless_titlebar_hittest_and_buttons() {
     // 最大化后边缘不再触发拉伸
     assert(tb.hit_test({1.0f, 1.0f}, sz, true, true) == TitlebarHitTest::Caption);
 
-    // 标题栏按钮与拖拽区
-    assert(tb.hit_test({100.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Caption);
-    assert(tb.hit_test({480.0f, 16.0f}, sz, true, false) == TitlebarHitTest::CloseBtn);
-    assert(tb.hit_test({436.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
-    assert(tb.hit_test({392.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MinimizeBtn);
+    // 标题栏按钮优先于顶部/右侧缩放边框 (Win11 Snap Layout 要求顶部边缘也命中 HTMAXBUTTON)
+    // 500px 宽，按钮宽 46px：Close=[454,500], Max=[408,454], Min=[362,408], Theme=[316,362], Pin=[270,316], Action0=[224,270]
+    assert(tb.hit_test({430.0f, 1.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
+    assert(tb.hit_test({475.0f, 16.0f}, sz, true, false) == TitlebarHitTest::CloseBtn);
+    assert(tb.hit_test({430.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
+    assert(tb.hit_test({385.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MinimizeBtn);
+    // Theme / Pin / Action 属于交互按钮，返回 Client 并由 is_interactive_button_hit 标识
+    assert(tb.hit_test({338.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Client);
+    assert(tb.is_interactive_button_hit({338.0f, 16.0f}, sz, true));
+    assert(tb.is_interactive_button_hit({292.0f, 16.0f}, sz, true));
+    assert(tb.is_interactive_button_hit({246.0f, 16.0f}, sz, true));
+    // 中间留白拖拽区
+    assert(tb.hit_test({150.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Caption);
     assert(tb.hit_test({100.0f, 80.0f}, sz, true, false) == TitlebarHitTest::Client);
 
-    // 按钮点击回调验证
-    int min_hits = 0, max_hits = 0, close_hits = 0;
+    // 全部按钮点击回调验证 (Close / Max / Min / Theme / Pin / Custom Action)
+    int min_hits = 0, max_hits = 0, close_hits = 0, pin_hits = 0, theme_hits = 0;
     tb.on_minimize = [&]() { ++min_hits; };
     tb.on_maximize_toggle = [&]() { ++max_hits; };
     tb.on_close = [&]() { ++close_hits; };
+    tb.on_pin_toggle = [&]() { ++pin_hits; };
+    tb.on_theme_toggle = [&]() { ++theme_hits; };
 
-    bool dirty = false;
-    assert(tb.handle_pointer_down({480.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(tb.handle_pointer_up({480.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(close_hits == 1);
+    auto click = [&](PointF pt) {
+        bool dirty = false;
+        assert(tb.handle_pointer_down(pt, PointerButton::Primary, sz, true, false, dirty));
+        assert(tb.handle_pointer_up(pt, PointerButton::Primary, sz, true, dirty));
+    };
+    click({475.0f, 16.0f}); assert(close_hits == 1);
+    click({430.0f, 16.0f}); assert(max_hits == 1);
+    click({385.0f, 16.0f}); assert(min_hits == 1);
+    click({338.0f, 16.0f}); assert(theme_hits == 1);
+    click({292.0f, 16.0f}); assert(pin_hits == 1);
+    click({246.0f, 16.0f}); assert(action_hits == 1);
 
-    assert(tb.handle_pointer_down({436.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(tb.handle_pointer_up({436.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(max_hits == 1);
-
-    assert(tb.handle_pointer_down({392.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(tb.handle_pointer_up({392.0f, 16.0f}, PointerButton::Primary, sz, true, false, dirty));
-    assert(min_hits == 1);
-
-    std::cout << "  -> 无边框默认态、八向边缘命中与自绘标题栏按钮验证通过！" << std::endl;
+    std::cout << "  -> CUI.Core 标题栏布局、Win11 Snap 优先级与全部按钮交互验证通过！" << std::endl;
 }
 
 int main() {

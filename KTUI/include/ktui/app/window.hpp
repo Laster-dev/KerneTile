@@ -118,7 +118,15 @@ public:
 
     void set_always_on_top(bool on_top) {
         if (m_platform_window) m_platform_window->set_always_on_top(on_top);
+        request_redraw();
     }
+
+    [[nodiscard]] bool is_always_on_top() const {
+        return m_platform_window ? m_platform_window->is_always_on_top() : false;
+    }
+
+    [[nodiscard]] WindowTitlebar& titlebar() noexcept { return m_titlebar; }
+    [[nodiscard]] const WindowTitlebar& titlebar() const noexcept { return m_titlebar; }
 
     // ==================== 外观与标题栏 ====================
     [[nodiscard]] std::string title() const {
@@ -319,7 +327,7 @@ public:
                 m_root_render_box->paint(ctx);
             }
             ctx.pop_clip();
-            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized());
+            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top());
         } else {
             m_root_render_box->paint(ctx);
         }
@@ -398,30 +406,37 @@ public:
 
         if (tb_h > 0.0f) {
             if (pe.type == PlatformEventType::PointerMove) {
-                if (m_titlebar.handle_pointer_move(pe.position, win_sz, resizable, maximized)) {
-                    request_redraw();
-                }
-                TitlebarHitTest ht = m_titlebar.hit_test(pe.position, win_sz, resizable, maximized);
-                if (ht != TitlebarHitTest::Client) {
-                    // 清除客户区悬停态
-                    PointerEvent leave_ev(PlatformEventType::PointerMove, PointF{-1.0f, -1.0f}, PointerButton::None);
-                    m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), leave_ev);
-                    if (m_platform_window) {
-                        CursorShape cur = CursorShape::Arrow;
-                        switch (ht) {
-                            case TitlebarHitTest::BorderLeft:
-                            case TitlebarHitTest::BorderRight:       cur = CursorShape::ResizeEW; break;
-                            case TitlebarHitTest::BorderTop:
-                            case TitlebarHitTest::BorderBottom:      cur = CursorShape::ResizeNS; break;
-                            case TitlebarHitTest::BorderTopLeft:
-                            case TitlebarHitTest::BorderBottomRight: cur = CursorShape::ResizeNWSE; break;
-                            case TitlebarHitTest::BorderTopRight:
-                            case TitlebarHitTest::BorderBottomLeft:  cur = CursorShape::ResizeNESW; break;
-                            default:                                 cur = CursorShape::Arrow; break;
-                        }
-                        m_platform_window->set_cursor(cur);
+                if (pe.position.x < 0.0f || pe.position.y < 0.0f) {
+                    if (m_titlebar.handle_pointer_leave()) {
+                        request_redraw();
                     }
-                    return;
+                } else {
+                    if (m_titlebar.handle_pointer_move(pe.position, win_sz, resizable)) {
+                        request_redraw();
+                    }
+                    TitlebarHitTest ht = m_titlebar.hit_test(pe.position, win_sz, resizable, maximized);
+                    const bool on_tb_interactive = m_titlebar.is_interactive_button_hit(pe.position, win_sz, resizable);
+                    if (ht != TitlebarHitTest::Client || on_tb_interactive) {
+                        // 清除客户区悬停态
+                        PointerEvent leave_ev(PlatformEventType::PointerMove, PointF{-1.0f, -1.0f}, PointerButton::None);
+                        m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), leave_ev);
+                        if (m_platform_window) {
+                            CursorShape cur = m_titlebar.is_hand_cursor_region() ? CursorShape::PointingHand : CursorShape::Arrow;
+                            switch (ht) {
+                                case TitlebarHitTest::BorderLeft:
+                                case TitlebarHitTest::BorderRight:       cur = CursorShape::ResizeEW; break;
+                                case TitlebarHitTest::BorderTop:
+                                case TitlebarHitTest::BorderBottom:      cur = CursorShape::ResizeNS; break;
+                                case TitlebarHitTest::BorderTopLeft:
+                                case TitlebarHitTest::BorderBottomRight: cur = CursorShape::ResizeNWSE; break;
+                                case TitlebarHitTest::BorderTopRight:
+                                case TitlebarHitTest::BorderBottomLeft:  cur = CursorShape::ResizeNESW; break;
+                                default: break;
+                            }
+                            m_platform_window->set_cursor(cur);
+                        }
+                        return;
+                    }
                 }
             } else if (pe.type == PlatformEventType::PointerDown) {
                 bool tb_dirty = false;
@@ -437,7 +452,7 @@ public:
                 }
             } else if (pe.type == PlatformEventType::PointerUp) {
                 bool tb_dirty = false;
-                if (m_titlebar.handle_pointer_up(pe.position, pe.button, win_sz, resizable, maximized, tb_dirty)) {
+                if (m_titlebar.handle_pointer_up(pe.position, pe.button, win_sz, resizable, tb_dirty)) {
                     if (tb_dirty) {
                         request_redraw();
                         if (m_platform_window) m_platform_window->invalidate();
@@ -668,6 +683,10 @@ private:
             request_redraw();
         };
         m_titlebar.on_close = [this]() { close(); };
+        m_titlebar.on_pin_toggle = [this]() {
+            set_always_on_top(!is_always_on_top());
+            request_redraw();
+        };
 
         m_platform_window->set_titlebar_hit_test_callback([this](PointF local_pos) -> TitlebarHitTest {
             if (!has_custom_titlebar()) return TitlebarHitTest::Client;

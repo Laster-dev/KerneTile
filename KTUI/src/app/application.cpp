@@ -57,6 +57,18 @@ Application::Application(std::unique_ptr<IPlatformBackend> backend)
     }
 
     m_dispatcher.bind_current_thread_as_ui_thread();
+
+    // 主题切换时自动刷新全部窗口
+    theme.subscribe([this](const Theme&) {
+        for (auto& win : m_windows) {
+            if (win && !win->is_closed()) {
+                win->request_redraw();
+                if (win->platform_window()) {
+                    win->platform_window()->invalidate();
+                }
+            }
+        }
+    });
 }
 
 Application::~Application() {
@@ -244,6 +256,9 @@ std::shared_ptr<Window> Application::create_window(const WindowDesc& desc) {
 
     bool show_titlebar = desc.custom_titlebar && (desc.type != WindowType::Popup);
     auto win = std::make_shared<Window>(m_next_window_id++, std::move(plat_win), show_titlebar);
+    win->titlebar().on_theme_toggle = [this]() {
+        set_theme(current_theme().is_dark ? Theme::light() : Theme::dark());
+    };
     m_windows.push_back(win);
     return win;
 }

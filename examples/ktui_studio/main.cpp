@@ -27,6 +27,24 @@ int main() {
     Property<bool> locked{false};
     Property<std::string> input_text{"KerneTile KTUI"};
     Property<std::string> input_preview{"输入预览: KerneTile KTUI"};
+    Property<Color> window_bg{Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f}};
+    Property<Color> card_bg{Color{0x27 / 255.0f, 0x28 / 255.0f, 0x2C / 255.0f, 1.0f}};
+    Property<Color> card_border{Color{1.0f, 1.0f, 1.0f, 0.06f}};
+    Property<Color> muted_text{Color{0xC5 / 255.0f, 0xC5 / 255.0f, 0xC5 / 255.0f, 1.0f}};
+
+    app.theme.subscribe([&](const Theme& t) {
+        if (t.is_dark) {
+            window_bg.set(Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f});
+            card_bg.set(Color{0x27 / 255.0f, 0x28 / 255.0f, 0x2C / 255.0f, 1.0f});
+            card_border.set(Color{1.0f, 1.0f, 1.0f, 0.06f});
+            muted_text.set(Color{0xC5 / 255.0f, 0xC5 / 255.0f, 0xC5 / 255.0f, 1.0f});
+        } else {
+            window_bg.set(Color{0xEA / 255.0f, 0xED / 255.0f, 0xF1 / 255.0f, 1.0f});
+            card_bg.set(Color{0xFA / 255.0f, 0xFB / 255.0f, 0xFD / 255.0f, 1.0f});
+            card_border.set(Color{0.0f, 0.0f, 0.0f, 0.07f});
+            muted_text.set(Color{0x59 / 255.0f, 0x60 / 255.0f, 0x6A / 255.0f, 1.0f});
+        }
+    });
 
     auto refresh_count = [&]() {
         int step = step_ten.get() ? 10 : 1;
@@ -34,10 +52,10 @@ int main() {
                        (locked.get() ? "  [已锁定]" : ""));
     };
 
-    auto card = [](WidgetPtr child) {
+    auto card = [&](WidgetPtr child) {
         return Box {
-            .background_color = Color{0.15f, 0.15f, 0.18f, 1.0f},
-            .border_color = Color{0.22f, 0.22f, 0.26f, 1.0f},
+            .background_color = Bind(card_bg),
+            .border_color = Bind(card_border),
             .border_width = 1.0f,
             .corner_radius = 5.0f,
             .padding = EdgeInsets(12.0f, 14.0f),
@@ -59,7 +77,7 @@ int main() {
         auto note = std::make_shared<Property<std::string>>("窗口 #" + std::to_string(idx) + " 独立输入");
         child_notes.push_back(note);
         child_win->set_content(Box {
-            .background_color = Color{0.11f, 0.11f, 0.13f, 1.0f},
+            .background_color = Bind(window_bg),
             .padding = EdgeInsets(14.0f, 16.0f),
             .child = VStack {
                 .align_items = AlignItems::Stretch,
@@ -69,7 +87,7 @@ int main() {
                         .align_items = AlignItems::Stretch,
                         .spacing = 8.0f,
                         .content = {
-                            Text { .text = "独立无边框子窗口 (共享全局计数绑定)", .color = Color{0.78f, 0.80f, 0.85f, 1.0f} },
+                            Text { .text = "独立无边框子窗口 (共享全局计数绑定)", .color = Bind(muted_text) },
                             Text { .text = Bind(count_text), .font_size = 14.0f },
                             HStack {
                                 .align_items = AlignItems::Center,
@@ -98,8 +116,11 @@ int main() {
         child_win->show();
     };
 
+    // 在标题栏右侧添加自定义操作按钮 (位于置顶 Pin 按钮左侧，对齐 CUI.Core)
+    window->titlebar().add_action("+", "新建工具窗口", spawn_child_window);
+
     window->set_content(Box {
-        .background_color = Color{0.11f, 0.11f, 0.13f, 1.0f},
+        .background_color = Bind(window_bg),
         .padding = EdgeInsets(16.0f, 18.0f),
         .child = VStack {
             .align_items = AlignItems::Stretch,
@@ -150,7 +171,7 @@ int main() {
                     .align_items = AlignItems::Stretch,
                     .spacing = 8.0f,
                     .content = {
-                        Text { .text = "单行文本输入 (支持撤销/重做、双向绑定):", .color = Color{0.78f, 0.80f, 0.84f, 1.0f} },
+                        Text { .text = "单行文本输入 (支持撤销/重做、双向绑定):", .color = Bind(muted_text) },
                         TextInput {
                             .text = Bind(input_text),
                             .placeholder = "键入中文或英文...",

@@ -101,6 +101,7 @@ public:
 
 private:
     void update_window_style();
+    void update_dwm_chrome();
 
     HWND m_hwnd = nullptr;
     HINSTANCE m_hinstance = nullptr;
@@ -110,6 +111,7 @@ private:
     Vec2 m_max_size;
     Vec2 m_position{100.0f, 100.0f};
     bool m_fullscreen = false;
+    bool m_last_maximized = false;
     bool m_always_on_top = false;
     bool m_resizable = true;
     bool m_decorated = true;
