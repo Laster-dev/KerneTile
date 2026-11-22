@@ -74,6 +74,8 @@ public:
     float dpi_scale() const override { return m_dpi_scale; }
     uint32_t refresh_rate() const override { return m_refresh_rate; }
 
+    float render_scale() const override { return 1.0f; }
+    void* get_compute_display() const override { return nullptr; }
     void* get_native_handle() const override { return static_cast<void*>(m_hwnd); }
 
     void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) override;
@@ -126,6 +128,7 @@ private:
     std::vector<uint8_t> m_bgra_scratch;
     Rect m_ime_cursor_rect{};
     bool m_ime_enabled = false;
+    wchar_t m_pending_high_surrogate = 0;
     CursorShape m_cursor_shape = CursorShape::Arrow;
 };
 

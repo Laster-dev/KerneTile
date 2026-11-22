@@ -8,11 +8,11 @@ set -e
 echo "[1/4] Checking and installing dependencies..."
 if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y build-essential cmake ninja-build g++ libc6-dev libx11-dev fontconfig fonts-wqy-microhei
+    sudo apt-get install -y build-essential cmake ninja-build g++ libc6-dev libx11-dev pkg-config libpango1.0-dev libvulkan-dev glslang-tools
 elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Syu --noconfirm base-devel cmake ninja gcc libx11 fontconfig wqy-microhei
+    sudo pacman -Syu --noconfirm base-devel cmake ninja gcc libx11 pkgconf pango vulkan-headers vulkan-icd-loader glslang
 elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y gcc-c++ cmake ninja-build glibc-static libstdc++-static libX11-devel fontconfig wqy-microhei-fonts
+    sudo dnf install -y gcc-c++ cmake ninja-build glibc-static libstdc++-static libX11-devel pkgconf-pkg-config pango-devel vulkan-loader-devel glslang
 else
     echo "Notice: Package manager not recognized, ensure C++20 compiler and CMake are installed."
 fi

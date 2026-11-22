@@ -38,6 +38,7 @@ inline D3D12_RESOURCE_STATES to_d3d12_resource_states(ResourceState state) noexc
         case ResourceState::PixelShaderResource: return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         case ResourceState::CopySrc:             return D3D12_RESOURCE_STATE_COPY_SOURCE;
         case ResourceState::CopyDst:             return D3D12_RESOURCE_STATE_COPY_DEST;
+        case ResourceState::ComputeShaderResource: return D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         case ResourceState::Present:             return D3D12_RESOURCE_STATE_PRESENT;
         default:                                 return D3D12_RESOURCE_STATE_COMMON;
     }

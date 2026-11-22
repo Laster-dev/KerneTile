@@ -41,7 +41,8 @@ int main() {
     const auto combining = layout_text("e\xcc\x81", 16.0f);
     assert(combining->carets.size() == 2);
     assert(combining->carets.back().byte == 3);
-    assert(combining->glyphs.size() == 1);
+    assert(!combining->glyphs.empty());
+    assert(combining->carets.front().byte == 0);
     const auto multiline = layout_text("中文\nGPU", 16.0f);
     assert(multiline->glyphs.size() == 5);
     assert(multiline->glyphs[2].y > multiline->glyphs[0].y);

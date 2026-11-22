@@ -25,7 +25,7 @@ static std::vector<uint8_t> read_binary_file(const std::string& path) {
     return {};
 }
 
-D3D12Device::D3D12Device(bool prefer_warp) {
+D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp) {
     UINT dxgi_flags = 0;
 #ifdef _DEBUG
     ComPtr<ID3D12Debug> debug_controller;
@@ -54,6 +54,7 @@ D3D12Device::D3D12Device(bool prefer_warp) {
         }
         // 如果未找到硬件适配器，自动降级至 WARP
         if (!m_adapter) {
+            if (!allow_warp) throw std::runtime_error("No hardware D3D12 adapter");
             std::cout << "[D3D12] Hardware GPU unavailable, falling back to WARP software adapter." << std::endl;
             throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter fallback failed");
         }
@@ -103,7 +104,7 @@ D3D12Device::D3D12Device(bool prefer_warp) {
 }
 
 D3D12Device::~D3D12Device() {
-    wait_idle();
+    try { wait_idle(); } catch (const std::exception&) {}
     if (m_fence_event) {
         CloseHandle(m_fence_event);
         m_fence_event = nullptr;
@@ -118,7 +119,7 @@ void D3D12Device::init_root_signatures() {
     // 参数 3: Root SRV (t3: DirtyTiles)
     // 参数 4: Descriptor Table (1 UAV: u0 OutputStorage)
     // 参数 5: Descriptor Table (1 SRV: t4 Atlas Texture)
-    D3D12_ROOT_PARAMETER root_params[6]{};
+    D3D12_ROOT_PARAMETER root_params[7]{};
 
     // t0
     root_params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
@@ -170,7 +171,11 @@ void D3D12Device::init_root_signatures() {
     root_params[5].DescriptorTable.pDescriptorRanges = &srv_range;
     root_params[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    // 静态采样器 (Point / Clamp s0)
+    root_params[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    root_params[6].Constants.Num32BitValues = 5;
+    root_params[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    // 静态采样器 (Clamp s0)
     D3D12_STATIC_SAMPLER_DESC sampler{};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
     sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -181,7 +186,8 @@ void D3D12Device::init_root_signatures() {
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC compute_sig_desc{};
-    compute_sig_desc.NumParameters = 6;
+    compute_sig_desc.NumParameters = 7;
+    sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     compute_sig_desc.pParameters = root_params;
     compute_sig_desc.NumStaticSamplers = 1;
     compute_sig_desc.pStaticSamplers = &sampler;
@@ -198,6 +204,7 @@ void D3D12Device::init_root_signatures() {
         "Create Compute Root Signature failed"
     );
 
+    sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
     // 2. 图形根签名 (Graphics Blit Root Signature)
     D3D12_DESCRIPTOR_RANGE blit_srv_range{};
     blit_srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;

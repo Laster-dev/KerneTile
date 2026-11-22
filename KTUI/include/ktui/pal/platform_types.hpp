@@ -137,11 +137,12 @@ struct PlatformEvent {
     Vec2 position = {0.0f, 0.0f};      // 局部或全局坐标
     Vec2 delta = {0.0f, 0.0f};         // 移动位移或滚轮偏移
     PointerButton button = PointerButton::None;
-    uint32_t key_code = 0;             // USB HID 扫描码
+    uint32_t key_code = 0;             // KTUI 虚拟键值，与 Windows VK 值一致
     std::string text;                  // 提交字符或拼音预编辑文本
     KeyModifiers modifiers;
     float dpi_scale = 1.0f;
     uint64_t timestamp_ms = 0;
+    size_t ime_cursor_byte = std::string::npos;
 };
 
 } // namespace ktui

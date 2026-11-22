@@ -418,8 +418,8 @@ public:
             case PlatformEventType::ImeComposition: {
                 if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
                     if (client->accepts_text_input()) {
-                        client->on_ime_preedit(pe.text, pe.text.size());
-                        sync_ime_state();
+                        client->on_ime_preedit(pe.text, std::min(pe.ime_cursor_byte, pe.text.size()));
+                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(client->get_ime_cursor_rect());
                         request_redraw();
                         if (m_platform_window) m_platform_window->invalidate();
                     }
@@ -431,7 +431,7 @@ public:
                 if (auto* client = dynamic_cast<ITextInputClient*>(focused)) {
                     if (client->accepts_text_input()) {
                         client->on_ime_commit(pe.text);
-                        sync_ime_state();
+                        if (m_platform_window) m_platform_window->set_ime_cursor_rect(client->get_ime_cursor_rect());
                         request_redraw();
                         if (m_platform_window) m_platform_window->invalidate();
                         break;
@@ -468,7 +468,7 @@ public:
     }
 
     [[nodiscard]] bool needs_redraw() const noexcept {
-        return m_needs_redraw || (m_renderer && (m_renderer->compute_ready() != m_compute_was_ready ||
+        return m_needs_redraw || m_overlay_manager.needs_redraw() || (m_renderer && (m_renderer->compute_ready() != m_compute_was_ready ||
             m_platform_window->render_scale() != m_render_scale));
     }
 

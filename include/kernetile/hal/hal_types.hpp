@@ -28,7 +28,8 @@ enum class ResourceState : uint32_t {
     PixelShaderResource, // 全屏 Blit 片段着色器采样读取 (SRV)
     CopySrc,             // 拷贝源
     CopyDst,             // 拷贝目标
-    Present              // 交换链呈现展示
+    Present,             // 交换链呈现展示
+    ComputeShaderResource
 };
 
 // 纹理描述符

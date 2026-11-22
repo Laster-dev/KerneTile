@@ -109,7 +109,17 @@ public:
     void set_dpi_scale(float scale);
     uint32_t refresh_rate() const override { return m_refresh_rate; }
 
+    float render_scale() const override { return 1.0f; }
+    void* get_compute_display() const override { return nullptr; }
     void* get_native_handle() const override { return nullptr; }
+
+    void present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
+                              uint32_t x, uint32_t y, uint32_t w, uint32_t h) override;
+    void invalidate() override { if (m_on_paint) m_on_paint(); }
+    void on_paint_requested(std::function<void()> handler) override { m_on_paint = std::move(handler); }
+    void set_ime_enabled(bool enabled) override { m_ime_enabled = enabled; }
+    void set_ime_cursor_rect(Rect rect) override { m_ime_cursor_rect = rect; }
+    void set_cursor(CursorShape shape) override { m_cursor = shape; }
 
     void on_close_requested(std::function<bool()> handler) override { m_on_close = std::move(handler); }
     void on_resized(std::function<void(Vec2 new_size)> handler) override { m_on_resized = std::move(handler); }
@@ -142,6 +152,10 @@ private:
     uint32_t m_refresh_rate = 60;
 
     std::vector<uint32_t> m_pixels;
+    std::function<void()> m_on_paint;
+    bool m_ime_enabled = false;
+    Rect m_ime_cursor_rect{};
+    CursorShape m_cursor = CursorShape::Arrow;
 
     std::function<TitlebarHitTest(PointF)> m_titlebar_hit_test;
     std::function<bool()> m_on_close;

@@ -18,7 +18,7 @@ static std::wstring utf8_to_wstring(const std::string& utf8) {
     return out;
 }
 
-static std::string wstring_to_utf8(const std::wstring& wide) {
+static std::string wstring_to_utf8(std::wstring_view wide) {
     if (wide.empty()) return "";
     int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     if (len <= 0) return "";
@@ -429,19 +429,25 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
         case WM_IME_COMPOSITION: {
             HIMC himc = ImmGetContext(m_hwnd);
             if (himc) {
-                if (lparam & GCS_COMPSTR) {
+                if (lparam & (GCS_COMPSTR | GCS_CURSORPOS)) {
                     LONG bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
                     std::string utf8_comp;
+                    size_t cursor_byte = std::string::npos;
                     if (bytes > 0) {
                         std::wstring wide(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
                         ImmGetCompositionStringW(himc, GCS_COMPSTR, &wide[0], static_cast<DWORD>(bytes));
                         utf8_comp = wstring_to_utf8(wide);
+                        const LONG cursor = ImmGetCompositionStringW(himc, GCS_CURSORPOS, nullptr, 0);
+                        if (cursor >= 0 && static_cast<size_t>(cursor) <= wide.size()) {
+                            cursor_byte = wstring_to_utf8(std::wstring_view(wide).substr(0, cursor)).size();
+                        }
                     }
                     if (Win32Backend::instance()) {
                         PlatformEvent pe{};
                         pe.type = PlatformEventType::ImeComposition;
                         pe.window_handle = static_cast<void*>(m_hwnd);
                         pe.text = std::move(utf8_comp);
+                        pe.ime_cursor_byte = cursor_byte;
                         pe.timestamp_ms = GetTickCount64();
                         Win32Backend::instance()->dispatch_platform_event(pe);
                     }
@@ -479,10 +485,24 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
 
+        case WM_IME_CHAR:
+            // GCS_RESULTSTR already delivered the committed text.
+            return 0;
+
         case WM_CHAR: {
-            wchar_t ch = static_cast<wchar_t>(wparam);
+            const auto ch = static_cast<wchar_t>(wparam);
+            if (ch >= 0xd800 && ch <= 0xdbff) {
+                m_pending_high_surrogate = ch;
+                return 0;
+            }
+            const auto high = std::exchange(m_pending_high_surrogate, wchar_t{});
             if (ch >= 32 && ch != 127) {
-                std::wstring ws(1, ch);
+                std::wstring ws;
+                if (ch >= 0xdc00 && ch <= 0xdfff) {
+                    if (!high) return 0;
+                    ws.push_back(high);
+                }
+                ws.push_back(ch);
                 std::string utf8 = wstring_to_utf8(ws);
                 if (Win32Backend::instance() && !utf8.empty()) {
                     PlatformEvent pe{};
@@ -541,6 +561,7 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         case WM_KILLFOCUS: {
+            m_pending_high_surrogate = 0;
             if (m_on_focus_changed) m_on_focus_changed(false);
             return 0;
         }

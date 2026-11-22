@@ -5,6 +5,7 @@
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/ui_compositor.hpp>
 #include <ktui/tree/render_flex.hpp>
+#include <ktui/tree/overlay.hpp>
 #include <kernetile/renderer.hpp>
 #include <iostream>
 #include <cassert>
@@ -301,11 +302,34 @@ void test_paint_context_and_kernetile_integration() {
     std::cout << "  -> KerneTile 2D 计算/光栅底座完整闭环，图元发射与像素渲染验证成功！" << std::endl;
 }
 
+void test_overlay_requests_followup_frames() {
+    class AnimatedOverlay final : public RenderBox {
+    public:
+        void perform_layout() override { set_size({50.0f, 30.0f}); }
+        void paint(PaintContext&) override {
+            if (++frames < 3) mark_needs_paint();
+        }
+        int frames = 0;
+    };
+
+    OverlayManager manager;
+    auto overlay = std::make_shared<AnimatedOverlay>();
+    manager.show({.content = overlay});
+    PaintContext context;
+    for (int i = 0; i < 3; ++i) {
+        assert(manager.needs_redraw());
+        manager.layout_and_paint(context, {100.0f, 100.0f});
+    }
+    assert(overlay->frames == 3);
+    assert(!manager.needs_redraw());
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 6: 双级脏区、事件焦点与 KerneTile 闭环  " << std::endl;
     std::cout << "==================================================" << std::endl;
 
+    test_overlay_requests_followup_frames();
     test_hit_testing_depth_path();
     test_event_bubble_and_stop_propagation();
     test_hover_state_tracking();

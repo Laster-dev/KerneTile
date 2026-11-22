@@ -56,7 +56,6 @@ jobs:
           cp build-web/ktui_studio_demo.html dist/index.html
           cp build-web/ktui_studio_demo.js dist/ktui_studio_demo.js
           cp build-web/ktui_studio_demo.wasm dist/ktui_studio_demo.wasm
-          cp build-web/ktui-font-license.txt dist/ktui-font-license.txt
           touch dist/.nojekyll
 
       - name: Upload GitHub Pages Artifact

@@ -8,7 +8,7 @@ namespace kernetile::hal::d3d12 {
 
 class D3D12Device final : public GraphicsDevice {
 public:
-    explicit D3D12Device(bool prefer_warp);
+    explicit D3D12Device(bool prefer_warp, bool allow_warp = true);
     ~D3D12Device() override;
 
     [[nodiscard]] std::unique_ptr<GpuBuffer> create_buffer(const BufferDesc& desc) override;

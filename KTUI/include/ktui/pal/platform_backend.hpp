@@ -67,27 +67,27 @@ public:
 
     // ==================== 显示器与 DPI ====================
     virtual float dpi_scale() const = 0;
-    virtual float render_scale() const { return 1.0f; }
+    virtual float render_scale() const = 0;
     virtual uint32_t refresh_rate() const = 0;
 
     // ==================== 原生句柄 ====================
     virtual void* get_native_handle() const = 0;
-    virtual void* get_compute_display() const { return nullptr; }
+    virtual void* get_compute_display() const = 0;
 
     // ==================== 帧呈现与重绘请求 ====================
     virtual void present_rgba8(const uint8_t* rgba, uint32_t width, uint32_t height) {
         present_rgba8_region(rgba, width, height, 0, 0, width, height);
     }
-    virtual void present_rgba8_region(const uint8_t* /*rgba*/, uint32_t /*width*/, uint32_t /*height*/,
-                                      uint32_t /*dirty_x*/, uint32_t /*dirty_y*/,
-                                      uint32_t /*dirty_w*/, uint32_t /*dirty_h*/) {}
-    virtual void invalidate() {}
-    virtual void on_paint_requested(std::function<void()> /*handler*/) {}
+    virtual void present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
+                                      uint32_t dirty_x, uint32_t dirty_y,
+                                      uint32_t dirty_w, uint32_t dirty_h) = 0;
+    virtual void invalidate() = 0;
+    virtual void on_paint_requested(std::function<void()> handler) = 0;
 
     // ==================== 框架级 IME 输入法与光标形状控制 ====================
-    virtual void set_ime_enabled(bool /*enabled*/) {}
-    virtual void set_ime_cursor_rect(Rect /*cursor_rect*/) {}
-    virtual void set_cursor(CursorShape /*cursor*/) {}
+    virtual void set_ime_enabled(bool enabled) = 0;
+    virtual void set_ime_cursor_rect(Rect cursor_rect) = 0;
+    virtual void set_cursor(CursorShape cursor) = 0;
 
     // ==================== 回调与销毁 ====================
     virtual void on_close_requested(std::function<bool()> handler) = 0;
@@ -116,8 +116,8 @@ public:
     virtual IFontResolver& get_font_resolver() = 0;
 
     // 系统剪贴板 (UTF-8)
-    virtual std::string get_clipboard_text() const { return ""; }
-    virtual void set_clipboard_text(const std::string& /*utf8_text*/) {}
+    virtual std::string get_clipboard_text() const = 0;
+    virtual void set_clipboard_text(const std::string& utf8_text) = 0;
 
     // 注册全局事件监听器
     virtual void set_event_callback(std::function<void(const PlatformEvent&)> callback) = 0;

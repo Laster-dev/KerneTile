@@ -7,7 +7,6 @@
 #include <chrono>
 #include <algorithm>
 #include <iostream>
-#include <unordered_map>
 #include <cstring>
 
 #if defined(__EMSCRIPTEN__)
@@ -20,17 +19,18 @@ class WebBackend;
 
 // ==================== C / Wasm 互操作缓存与函数导出 ====================
 namespace detail {
-    inline char s_text_buf[512] = {0};
+    inline std::vector<char> s_text_buf;
 }
 
 extern "C" {
     EMSCRIPTEN_KEEPALIVE
-    inline char* ktui_web_get_text_buf() {
-        return detail::s_text_buf;
+    inline char* ktui_web_get_text_buf(size_t size) {
+        detail::s_text_buf.resize(size);
+        return detail::s_text_buf.data();
     }
 
     EMSCRIPTEN_KEEPALIVE
-    void ktui_web_on_ime_composition(const char* text);
+    void ktui_web_on_ime_composition(const char* text, size_t cursor);
 
     EMSCRIPTEN_KEEPALIVE
     void ktui_web_on_ime_commit(const char* text);
@@ -41,65 +41,80 @@ EM_JS(void, ktui_js_init_ime, (), {
     var canvas = document.getElementById('canvas');
     if (!canvas) return;
 
-    var input = document.getElementById('ktui_ime_input');
-    if (!input) {
-        input = document.createElement('input');
-        input.id = 'ktui_ime_input';
-        input.type = 'text';
-        input.autocomplete = 'off';
-        input.style.position = 'absolute';
-        input.style.opacity = '0';
-        input.style.pointerEvents = 'none';
-        input.style.zIndex = '-1';
-        input.style.left = '0px';
-        input.style.top = '0px';
-        input.style.width = '1px';
-        input.style.height = '1px';
-        document.body.appendChild(input);
+    if (document.getElementById('ktui_ime_input')) return;
+    var input = document.createElement('input');
+    input.id = 'ktui_ime_input';
+    input.type = 'text';
+    input.tabIndex = -1;
+    input.disabled = true;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.style.cssText = 'position:absolute;opacity:0;pointer-events:none;width:1px;height:1px';
+    document.body.appendChild(input);
 
-        var isComposing = false;
-
-        input.addEventListener('compositionstart', function() {
-            isComposing = true;
-        });
-
-        input.addEventListener('compositionupdate', function(e) {
-            if (e.data) {
-                var buf = _ktui_web_get_text_buf();
-                stringToUTF8(e.data, buf, 512);
-                _ktui_web_on_ime_composition(buf);
-            }
-        });
-
-        input.addEventListener('compositionend', function(e) {
-            isComposing = false;
-            if (e.data) {
-                var buf = _ktui_web_get_text_buf();
-                stringToUTF8(e.data, buf, 512);
-                _ktui_web_on_ime_commit(buf);
-            }
-            input.value = "";
-        });
-
-        input.addEventListener('input', function(e) {
-            if (!isComposing && input.value) {
-                var buf = _ktui_web_get_text_buf();
-                stringToUTF8(input.value, buf, 512);
-                _ktui_web_on_ime_commit(buf);
-                input.value = "";
-            }
-        });
-    }
-
-    window.addEventListener('paste', function(e) {
-        var text = (e.clipboardData || window.clipboardData).getData('text');
-        if (text) {
-            window._ktui_clipboard = text;
-            var buf = _ktui_web_get_text_buf();
-            stringToUTF8(text, buf, 512);
-            _ktui_web_on_ime_commit(buf);
-        }
+    var composing = false;
+    var pendingCommit = null;
+    var send = function(text, cursor) {
+        var size = lengthBytesUTF8(text) + 1;
+        var buf = _ktui_web_get_text_buf(size);
+        stringToUTF8(text, buf, size);
+        if (cursor === undefined) _ktui_web_on_ime_commit(buf);
+        else _ktui_web_on_ime_composition(buf, lengthBytesUTF8(text.slice(0, cursor)));
+    };
+    input.ktuiIsComposing = function() { return composing; };
+    input.addEventListener('keydown', function(e) {
+        if (!composing && !e.isComposing && e.keyCode !== 229) pendingCommit = null;
     });
+    input.addEventListener('compositionstart', function() {
+        composing = true;
+        pendingCommit = null;
+    });
+    input.addEventListener('compositionupdate', function(e) {
+        if (!composing || input.disabled) return;
+        var text = e.data || '';
+        var cursor = input.value === text ? input.selectionEnd : text.length;
+        send(text, cursor);
+    });
+    input.addEventListener('compositionend', function(e) {
+        if (!composing || input.disabled) return;
+        composing = false;
+        var text = e.data || '';
+        pendingCommit = text || null;
+        input.value = '';
+        if (text) send(text);
+        else send('', 0);
+    });
+    input.addEventListener('input', function(e) {
+        if (input.disabled || composing || e.isComposing) return;
+        var text = e.data ?? input.value;
+        var inputType = e.inputType || '';
+        var duplicate = pendingCommit !== null &&
+            (inputType === 'insertFromComposition' ||
+                ((inputType === 'insertText' || inputType === 'insertCompositionText') &&
+                    text === pendingCommit));
+        pendingCommit = null;
+        input.value = '';
+        if (text && !duplicate && !inputType.startsWith('delete')) send(text);
+    });
+    input.addEventListener('blur', function() {
+        if (composing) {
+            composing = false;
+            send('', 0);
+        }
+        pendingCommit = null;
+        input.value = '';
+    });
+    input.addEventListener('paste', function(e) {
+        if (e.clipboardData) window._ktui_clipboard = e.clipboardData.getData('text/plain');
+    });
+});
+
+EM_JS(int, ktui_js_key_target, (), {
+    var target = document.activeElement;
+    if (!target) return 0;
+    if (target.id === 'canvas') return 1;
+    if (target.id !== 'ktui_ime_input' || target.disabled || target.ktuiIsComposing()) return 0;
+    return 2;
 });
 
 EM_JS(void, ktui_js_set_canvas_size, (int w, int h), {
@@ -144,11 +159,13 @@ EM_JS(void, ktui_js_set_ime_enabled, (bool enabled), {
     var input = document.getElementById('ktui_ime_input');
     if (!input) return;
     if (enabled) {
-        input.style.display = 'block';
-        input.focus();
-    } else {
-        input.blur();
-        input.value = "";
+        input.disabled = false;
+        if (document.activeElement !== input) input.focus({preventScroll: true});
+    } else if (!input.disabled) {
+        var wasFocused = document.activeElement === input;
+        input.disabled = true;
+        input.value = '';
+        if (wasFocused) document.getElementById('canvas')?.focus({preventScroll: true});
     }
 });
 
@@ -356,6 +373,7 @@ public:
     uint32_t refresh_rate() const override { return 60; }
 
     // ==================== 原生句柄 ====================
+    void* get_compute_display() const override { return nullptr; }
     void* get_native_handle() const override {
         return const_cast<void*>(reinterpret_cast<const void*>(this));
     }
@@ -533,9 +551,10 @@ public:
         }
     }
 
-    void handle_ime_composition(const char* text) {
-        if (!text) return;
+    void handle_ime_composition(const char* text, size_t cursor) {
+        if (!m_active_window || !text) return;
         PlatformEvent pe{};
+        pe.ime_cursor_byte = cursor;
         pe.type = PlatformEventType::ImeComposition;
         pe.window_handle = m_active_window ? m_active_window->get_native_handle() : nullptr;
         pe.text = text;
@@ -544,7 +563,7 @@ public:
     }
 
     void handle_ime_commit(const char* text) {
-        if (!text || text[0] == '\0') return;
+        if (!m_active_window || !text || text[0] == '\0') return;
         PlatformEvent pe{};
         pe.type = PlatformEventType::ImeCommit;
         pe.window_handle = m_active_window ? m_active_window->get_native_handle() : nullptr;
@@ -635,13 +654,18 @@ private:
         auto* self = static_cast<WebBackend*>(user_data);
         if (!self || !self->m_active_window) return EM_FALSE;
 
+        const int target = ktui_js_key_target();
+        if (target == 0 || e->keyCode == 229) return EM_FALSE;
+
         KeyModifiers mods{};
         mods.shift = e->shiftKey != 0;
-        mods.ctrl  = e->ctrlKey != 0;
+        mods.ctrl  = e->ctrlKey != 0 || e->metaKey != 0;
         mods.alt   = e->altKey != 0;
         mods.meta  = e->metaKey != 0;
 
         uint32_t vk = e->keyCode;
+        // The browser inserts pasted text through the focused input's input event.
+        if (target == 2 && (mods.ctrl || mods.meta) && !mods.alt && vk == 'V') return EM_FALSE;
 
         // 1. 发送 KeyDown 事件驱动按键逻辑 (退格、删除、回车、光标移动及快捷键)
         PlatformEvent pe_down{};
@@ -652,34 +676,9 @@ private:
         pe_down.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
         self->dispatch_event(pe_down);
 
-        // 2. 检查是否为可打印单字并分发 ImeCommit (当未通过专用 IME 输入法控件时作为通用 Fallback)
-        std::string key_str(e->key);
-        if (!mods.ctrl && !mods.alt && !mods.meta && !key_str.empty()) {
-            static const std::unordered_map<std::string, bool> s_control_keys = {
-                {"Backspace", true}, {"Tab", true}, {"Enter", true}, {"Shift", true},
-                {"Control", true}, {"Alt", true}, {"CapsLock", true}, {"Escape", true},
-                {"PageUp", true}, {"PageDown", true}, {"End", true}, {"Home", true},
-                {"ArrowLeft", true}, {"ArrowUp", true}, {"ArrowRight", true}, {"ArrowDown", true},
-                {"Insert", true}, {"Delete", true}, {"F1", true}, {"F2", true}, {"F3", true},
-                {"F4", true}, {"F5", true}, {"F6", true}, {"F7", true}, {"F8", true},
-                {"F9", true}, {"F10", true}, {"F11", true}, {"F12", true}, {"Meta", true},
-                {"NumLock", true}, {"ScrollLock", true}, {"ContextMenu", true}, {"Unidentified", true}
-            };
-
-            if (s_control_keys.find(key_str) == s_control_keys.end()) {
-                PlatformEvent pe_commit{};
-                pe_commit.type = PlatformEventType::ImeCommit;
-                pe_commit.window_handle = self->m_active_window->get_native_handle();
-                pe_commit.key_code = vk;
-                pe_commit.text = std::move(key_str);
-                pe_commit.modifiers = mods;
-                pe_commit.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
-                self->dispatch_event(pe_commit);
-            }
-        }
-
-        // 针对常用按键阻止浏览器默认行为 (退格页面后退、Tab跳出画布、箭头滚动等)
-        if (vk == 8 || vk == 9 || vk == 13 || (vk >= 37 && vk <= 40)) {
+        if (target == 2 && (mods.ctrl || mods.meta) && !mods.alt &&
+            (vk == 'A' || vk == 'C' || vk == 'X' || vk == 'Y' || vk == 'Z')) return EM_TRUE;
+        if (vk == 8 || vk == 9 || vk == 13 || vk == 46 || (vk >= 35 && vk <= 40)) {
             return EM_TRUE;
         }
         return EM_FALSE;
@@ -689,6 +688,8 @@ private:
         (void)event_type;
         auto* self = static_cast<WebBackend*>(user_data);
         if (!self || !self->m_active_window) return EM_FALSE;
+
+        if (!ktui_js_key_target() || e->keyCode == 229) return EM_FALSE;
 
         PlatformEvent pe{};
         pe.type = PlatformEventType::KeyUp;
@@ -732,9 +733,9 @@ private:
 // C 函数桥接实现
 extern "C" {
     EMSCRIPTEN_KEEPALIVE
-    inline void ktui_web_on_ime_composition(const char* text) {
+    inline void ktui_web_on_ime_composition(const char* text, size_t cursor) {
         if (WebBackend::instance()) {
-            WebBackend::instance()->handle_ime_composition(text);
+            WebBackend::instance()->handle_ime_composition(text, cursor);
         }
     }
 

@@ -601,6 +601,8 @@ public:
 
     uint32_t refresh_rate() const override { return 60; }
 
+    float render_scale() const override { return 1.0f; }
+
     void* get_compute_display() const override {
 #if defined(KTUI_HAS_X11)
         if (m_xwindow) return m_display;
@@ -1084,7 +1086,7 @@ public:
                     }
                     case KeyPress: {
                         if (m_event_callback) {
-                            char buf[128];
+                            std::vector<char> buf(128);
                             KeySym sym = NoSymbol;
                             Status status = 0;
                             int count = 0;
@@ -1096,12 +1098,16 @@ public:
                             }
 
                             if (xic) {
-                                count = Xutf8LookupString(xic, &ev.xkey, buf, sizeof(buf) - 1, &sym, &status);
+                                count = Xutf8LookupString(xic, &ev.xkey, buf.data(), buf.size(), &sym, &status);
+                                if (status == XBufferOverflow && count > 0) {
+                                    buf.resize(count);
+                                    count = Xutf8LookupString(xic, &ev.xkey, buf.data(), buf.size(), &sym, &status);
+                                }
+                                if (status != XLookupChars && status != XLookupBoth) count = 0;
+                                if (status == XLookupChars) sym = NoSymbol;
                             } else {
-                                count = XLookupString(&ev.xkey, buf, sizeof(buf) - 1, &sym, nullptr);
+                                count = XLookupString(&ev.xkey, buf.data(), buf.size(), &sym, nullptr);
                             }
-                            if (count < 0) count = 0;
-                            buf[count] = '\0';
 
                             uint32_t vk = x11_keysym_to_virtual_key(sym);
                             KeyModifiers mods = x11_state_to_modifiers(ev.xkey.state);
@@ -1112,7 +1118,6 @@ public:
                             pe_down.window_handle = reinterpret_cast<void*>(ev.xkey.window);
                             pe_down.key_code = vk;
                             pe_down.modifiers = mods;
-                            if (count > 0) pe_down.text = std::string(buf, count);
                             m_event_callback(pe_down);
 
                             // 2. 发送 ImeCommit 事件 (直接输入中英文文本到聚焦文本框)
@@ -1130,7 +1135,7 @@ public:
                                     pe_commit.type = PlatformEventType::ImeCommit;
                                     pe_commit.window_handle = reinterpret_cast<void*>(ev.xkey.window);
                                     pe_commit.key_code = vk;
-                                    pe_commit.text = std::string(buf, count);
+                                    pe_commit.text.assign(buf.data(), count);
                                     pe_commit.modifiers = mods;
                                     m_event_callback(pe_commit);
                                 }

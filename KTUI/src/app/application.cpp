@@ -78,7 +78,7 @@ void Application::step_frame() {
         if (win && !win->is_closed() && win->root_render_box()) {
             bool needs_paint = win->needs_redraw() ||
                 win->root_render_box()->needs_paint() ||
-                win->root_render_box()->needs_layout();
+                win->root_render_box()->needs_layout() || win->root_render_box()->child_needs_layout();
             if (needs_paint) {
                 win->render_frame();
             }
@@ -125,7 +125,7 @@ int Application::run() {
             if (win && !win->is_closed() && win->root_render_box()) {
                 if (win->needs_redraw() ||
                     win->root_render_box()->needs_paint() ||
-                    win->root_render_box()->needs_layout()) {
+                    win->root_render_box()->needs_layout() || win->root_render_box()->child_needs_layout()) {
                     has_pending_render = true;
                     break;
                 }
@@ -140,7 +140,7 @@ int Application::run() {
                     if (win && !win->is_closed() && win->root_render_box()) {
                         bool needs_paint = win->needs_redraw() ||
                             win->root_render_box()->needs_paint() ||
-                            win->root_render_box()->needs_layout();
+                            win->root_render_box()->needs_layout() || win->root_render_box()->child_needs_layout();
                         if (needs_paint) {
                             win->render_frame();
                         }
@@ -192,7 +192,7 @@ uint32_t Application::compute_wait_timeout() const {
                 has_dirty = true;
                 break;
             }
-            if (win->root_render_box() && (win->root_render_box()->needs_paint() || win->root_render_box()->needs_layout())) {
+            if (win->root_render_box() && (win->root_render_box()->needs_paint() || win->root_render_box()->needs_layout() || win->root_render_box()->child_needs_layout())) {
                 has_dirty = true;
                 break;
             }

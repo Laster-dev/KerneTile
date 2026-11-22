@@ -33,17 +33,13 @@ const DirtyTrackingResult& DirtyTracker::update(
         const auto& prim = primitives[p];
         uint64_t h = 0xcbf29ce484222325ULL;
         h = fnv1a_64_step(h, static_cast<uint64_t>(p));
-        uint64_t geom_0, geom_1, col_0, col_1, extra;
-        std::memcpy(&geom_0, &prim.min_x, sizeof(uint64_t)); // min_x & min_y
-        std::memcpy(&geom_1, &prim.max_x, sizeof(uint64_t)); // max_x & max_y
-        std::memcpy(&col_0, &prim.color_r, sizeof(uint64_t)); // color_r & color_g
-        std::memcpy(&col_1, &prim.color_b, sizeof(uint64_t)); // color_b & color_a
-        std::memcpy(&extra, &prim.border_width, sizeof(uint64_t)); // border_width & shadow_blur
-        h = fnv1a_64_step(h, geom_0);
-        h = fnv1a_64_step(h, geom_1);
-        h = fnv1a_64_step(h, col_0);
-        h = fnv1a_64_step(h, col_1);
-        h = fnv1a_64_step(h, extra);
+        // UiPrimitive has a packed, fixed GPU layout. Every byte can affect the pixels.
+        const auto* bytes = reinterpret_cast<const unsigned char*>(&prim);
+        for (size_t offset = 0; offset < sizeof(prim); offset += sizeof(uint64_t)) {
+            uint64_t field;
+            std::memcpy(&field, bytes + offset, sizeof(field));
+            h = fnv1a_64_step(h, field);
+        }
         m_prim_signatures[p] = h;
     }
 

@@ -93,6 +93,13 @@ public:
         return m_entries;
     }
 
+    [[nodiscard]] bool needs_redraw() const noexcept {
+        return std::any_of(m_entries.begin(), m_entries.end(), [](const OverlayEntry& entry) {
+            const auto& content = entry.content;
+            return content && (content->needs_paint() || content->needs_layout() || content->child_needs_layout());
+        });
+    }
+
     // 绘制所有激活的浮层（在主场景树绘制完成且弹出所有 clip 后在最顶层绘制）
     void layout_and_paint(PaintContext& ctx, Vec2 window_size) {
         if (m_entries.empty()) return;
@@ -115,6 +122,7 @@ public:
                 ? BoxConstraints::tight(entry.size)
                 : BoxConstraints::loose(window_size);
             entry.content->layout(constraints);
+            entry.content->clear_dirty_recursive();
 
             // 更新浮层节点的全局绝对偏移
             entry.content->set_offset(entry.global_pos);

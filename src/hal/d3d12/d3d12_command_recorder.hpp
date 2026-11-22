@@ -91,6 +91,20 @@ public:
         m_cmd_list->SetComputeRootDescriptorTable(4, gpu_handle);
     }
 
+    void set_compute_atlas(const D3D12Texture& atlas) {
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
+        desc.Format = to_dxgi_format(atlas.get_format());
+        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc.Texture2D.MipLevels = 1;
+        auto cpu = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
+        auto gpu = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
+        cpu.ptr += m_srv_uav_descriptor_size;
+        gpu.ptr += m_srv_uav_descriptor_size;
+        m_device->CreateShaderResourceView(atlas.get_native_resource(), &desc, cpu);
+        m_cmd_list->SetComputeRootDescriptorTable(5, gpu);
+    }
+
     void dispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) override {
         m_cmd_list->Dispatch(group_count_x, group_count_y, group_count_z);
     }

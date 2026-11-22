@@ -31,9 +31,6 @@ public:
 // 工厂函数: 创建 Windows DirectWrite 原生硬件文本引擎 (0 MB 额外依赖)
 [[nodiscard]] std::unique_ptr<ITextEngine> create_directwrite_engine();
 
-// 工厂函数: 创建全平台通用的内置极简矢量文本引擎 (作为测试与免驱动环境后备)
-[[nodiscard]] std::unique_ptr<ITextEngine> create_builtin_engine();
-
 // 自动工厂: 根据当前操作系统与驱动环境选择最优引擎
 [[nodiscard]] std::unique_ptr<ITextEngine> create_text_engine();
 

@@ -67,6 +67,13 @@ int main() {
     assert(dirty_static.dirty_count == 0);
     assert(dirty_static.culling_ratio == 1.0);
 
+    // Appearance-only transitions must still produce a final frame.
+    auto rounded = prims_button;
+    rounded.back().radius_top_left = 4.0f;
+    auto bin_rounded = binner.bin_primitives(grid_4k, rounded);
+    assert(tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count > 0);
+    assert(tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count == 0);
+
     std::cout << "[TEST] test_dirty_tracking PASSED successfully!" << std::endl;
     return 0;
 }

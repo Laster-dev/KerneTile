@@ -153,6 +153,19 @@ void HeadlessWindow::set_dpi_scale(float scale) {
     }
 }
 
+void HeadlessWindow::present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
+                                         uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+    if (!rgba || x >= width || y >= height) return;
+    m_pixels.resize(static_cast<size_t>(width) * height);
+    auto* pixels = reinterpret_cast<uint8_t*>(m_pixels.data());
+    const size_t copy_bytes = static_cast<size_t>(std::min(w, width - x)) * 4;
+    const auto rows = std::min(h, height - y);
+    for (uint32_t row = 0; row < rows; ++row) {
+        const size_t offset = (static_cast<size_t>(y + row) * width + x) * 4;
+        std::copy_n(rgba + offset, copy_bytes, pixels + offset);
+    }
+}
+
 void HeadlessWindow::close() {
     if (m_on_close) {
         if (!m_on_close()) {

@@ -29,7 +29,7 @@ else()
     endif()
 endif()
 
-include(cmake/KerneTileDependencies.cmake)
+option(KERNETILE_GPU_COMPUTE "Enable GPU tile composition for the window renderer" ON)
 
 # 核心接口库
 add_library(kernetile_core INTERFACE)
@@ -73,29 +73,27 @@ target_link_libraries(kernetile_hal PUBLIC kernetile_core)
 
 # 文本排版与光栅化引擎库 (Text)
 set(TEXT_SOURCES
-    src/text/builtin_text_engine.cpp
-    src/text/builtin_font_data.cpp
-    src/text/vector_text_engine.cpp
-    src/text/dwrite_text_engine.cpp
     src/text/shared_text_engine.cpp
 )
-if (EMSCRIPTEN)
+if (WIN32)
+    list(APPEND TEXT_SOURCES src/text/dwrite_text_engine.cpp)
+elseif (EMSCRIPTEN)
     list(APPEND TEXT_SOURCES src/text/web_text_engine.cpp)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(KT_PANGO REQUIRED IMPORTED_TARGET pangocairo)
+    list(APPEND TEXT_SOURCES src/text/pango_text_engine.cpp)
 endif()
 add_library(kernetile_text STATIC ${TEXT_SOURCES})
 target_include_directories(kernetile_text PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/text
 )
-target_link_libraries(kernetile_text PUBLIC kernetile_core PRIVATE freetype harfbuzz utf8proc)
-if (EMSCRIPTEN)
-    target_compile_definitions(kernetile_text PRIVATE KT_UI_FONT_PATH="/kernetile/ui-font.otf")
-    target_link_options(kernetile_text INTERFACE "SHELL:--embed-file \"${KERNETILE_UI_FONT}@/kernetile/ui-font.otf\"")
-else()
-    target_compile_definitions(kernetile_text PRIVATE KT_UI_FONT_PATH="${KERNETILE_UI_FONT}")
-endif()
+target_link_libraries(kernetile_text PUBLIC kernetile_core)
 if (WIN32)
-    target_link_libraries(kernetile_text PUBLIC dwrite.lib)
+    target_link_libraries(kernetile_text PRIVATE dwrite.lib gdi32.lib user32.lib)
+elseif (TARGET PkgConfig::KT_PANGO)
+    target_link_libraries(kernetile_text PRIVATE PkgConfig::KT_PANGO ${CMAKE_DL_LIBS})
 endif()
 
 # 视觉特效与滤镜库 (FX)
@@ -145,28 +143,42 @@ target_include_directories(kernetile_cpu PUBLIC
 target_link_libraries(kernetile_cpu PUBLIC kernetile_core kernetile_tile kernetile_fx)
 
 # KerneTile 引擎统一门面库 (Engine)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui_compute.wgsl")
-file(READ shaders/ui_compute.wgsl KT_UI_SHADER)
-configure_file(src/compute/ui_compute_shader.hpp.in generated/ui_compute_shader.hpp @ONLY)
 set(ENGINE_SOURCES src/renderer.cpp)
-if (KERNETILE_GPU_COMPUTE AND EMSCRIPTEN)
+if (KERNETILE_GPU_COMPUTE AND WIN32)
+    set(KT_SHADER shaders/ui_compute_d3d12.hlsl)
+    list(APPEND ENGINE_SOURCES src/compute/ui_compute_d3d12.cpp)
+elseif (KERNETILE_GPU_COMPUTE AND EMSCRIPTEN)
+    set(KT_SHADER shaders/ui_compute.wgsl)
     list(APPEND ENGINE_SOURCES src/compute/ui_compute_web.cpp)
-elseif (TARGET kt_wgpu_native)
-    list(APPEND ENGINE_SOURCES src/compute/ui_compute_native.cpp)
+elseif (KERNETILE_GPU_COMPUTE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT KERNETILE_STATIC)
+    find_package(Vulkan REQUIRED)
+    find_program(KT_GLSLANG glslangValidator REQUIRED)
+    list(APPEND ENGINE_SOURCES src/compute/ui_compute_vulkan.cpp)
+    set(KT_SPIRV "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_compute.spv")
+    set(KT_SPIRV_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_compute_spirv.hpp")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    add_custom_command(OUTPUT "${KT_SPIRV_HEADER}"
+        COMMAND "${KT_GLSLANG}" -D -DKT_VULKAN=1 -V -S comp -e compose --hlsl-offsets
+                -o "${KT_SPIRV}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui_compute_d3d12.hlsl"
+        COMMAND ${CMAKE_COMMAND} "-DINPUT=${KT_SPIRV}" "-DOUTPUT=${KT_SPIRV_HEADER}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+        DEPENDS shaders/ui_compute_d3d12.hlsl cmake/EmbedSpirv.cmake
+        VERBATIM)
+    list(APPEND ENGINE_SOURCES "${KT_SPIRV_HEADER}")
 else()
     list(APPEND ENGINE_SOURCES src/compute/ui_compute_null.cpp)
 endif()
+if (KT_SHADER)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KT_SHADER}")
+    file(READ "${KT_SHADER}" KT_UI_SHADER)
+    configure_file(src/compute/ui_compute_shader.hpp.in generated/ui_compute_shader.hpp @ONLY)
+endif()
 add_library(kernetile_engine STATIC ${ENGINE_SOURCES})
 target_include_directories(kernetile_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-if (TARGET kt_wgpu_native)
-    target_link_libraries(kernetile_engine PRIVATE kt_wgpu_native)
-    if (WIN32)
-        foreach (config IN LISTS CMAKE_CONFIGURATION_TYPES)
-            file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${config}")
-            configure_file("${KERNETILE_WGPU_NATIVE_DIR}/wgpu_native.dll" "${CMAKE_CURRENT_BINARY_DIR}/${config}/wgpu_native.dll" COPYONLY)
-        endforeach()
-        configure_file("${KERNETILE_WGPU_NATIVE_DIR}/wgpu_native.dll" "${CMAKE_CURRENT_BINARY_DIR}/wgpu_native.dll" COPYONLY)
-    endif()
+if (KERNETILE_GPU_COMPUTE AND WIN32)
+    target_link_libraries(kernetile_engine PRIVATE d3dcompiler.lib)
+elseif (TARGET Vulkan::Vulkan)
+    target_link_libraries(kernetile_engine PRIVATE Vulkan::Vulkan)
 endif()
 target_include_directories(kernetile_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -204,17 +216,10 @@ target_link_libraries(ktui_studio_demo PRIVATE
     kernetile_cpu
     kernetile_core
 )
-if (NOT EMSCRIPTEN)
-    add_custom_command(TARGET ktui_studio_demo POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${KERNETILE_UI_FONT}" "$<TARGET_FILE_DIR:ktui_studio_demo>/ktui-font.otf")
-endif()
-if (KERNETILE_UI_FONT_LICENSE)
-    add_custom_command(TARGET ktui_studio_demo POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${KERNETILE_UI_FONT_LICENSE}" "$<TARGET_FILE_DIR:ktui_studio_demo>/ktui-font-license.txt")
-endif()
 if (EMSCRIPTEN)
     set_target_properties(ktui_studio_demo PROPERTIES
         SUFFIX ".html"
+        LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/shell.html"
     )
     target_link_options(ktui_studio_demo PRIVATE
         "-sALLOW_MEMORY_GROWTH=1"
