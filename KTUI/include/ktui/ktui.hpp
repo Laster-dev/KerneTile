@@ -74,3 +74,6 @@
 #include <ktui/widgets/radio.hpp>
 #include <ktui/widgets/textbox.hpp>
 #include <ktui/widgets/text_input.hpp>
+#include <ktui/widgets/slider.hpp>
+#include <ktui/widgets/progress_bar.hpp>
+#include <ktui/widgets/progress_ring.hpp>

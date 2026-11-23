@@ -32,6 +32,9 @@ struct StudioApp {
     Property<std::string> input_text{"KerneTile KTUI"};
     Property<std::string> input_preview{"输入预览: KerneTile KTUI"};
     Property<std::string> theme_btn_text{"切换浅色主题"};
+    Property<float> slider_val{45.0f};
+    Property<float> progress_norm{0.45f};
+    Property<std::string> slider_text{"调节数值 (滑块): 45%"};
 
     Property<Color> window_bg{Color::transparent()};
     Property<Color> card_bg{Color{1.0f, 1.0f, 1.0f, 0.045f}};
@@ -251,6 +254,86 @@ struct StudioApp {
                     }),
                     card(VStack {
                         .align_items = AlignItems::Stretch,
+                        .spacing = 10.0f,
+                        .content = {
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 16.0f,
+                                .content = {
+                                    Text { .text = Bind(slider_text), .color = Bind(muted_text) },
+                                    HStack {
+                                        .align_items = AlignItems::Center,
+                                        .spacing = 8.0f,
+                                        .content = {
+                                            Text { .text = "旋转加载:", .font_size = 11.5f, .color = Bind(muted_text) },
+                                            ProgressRing { .indeterminate = true, .size = 18.0f, .stroke_width = 2.5f }
+                                        }
+                                    }
+                                }
+                            },
+                            Slider {
+                                .value = Bind(slider_val),
+                                .min_value = 0.0f,
+                                .max_value = 100.0f,
+                                .step = 1.0f,
+                                .on_change = [this](float v) {
+                                    slider_val.set(v);
+                                    slider_text.set("调节数值 (滑块): " + std::to_string(static_cast<int>(std::round(v))) + "%");
+                                    progress_norm.set(v / 100.0f);
+                                }
+                            },
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 10.0f,
+                                .content = {
+                                    Text { .text = "同步进度:", .font_size = 11.5f, .color = Bind(muted_text) },
+                                    ProgressBar { .value = Bind(progress_norm), .track_height = 4.0f, .width = 90.0f },
+                                    ProgressRing { .value = Bind(progress_norm), .indeterminate = false, .size = 18.0f, .stroke_width = 2.5f },
+                                    Text { .text = "流光:", .font_size = 11.5f, .color = Bind(muted_text) },
+                                    ProgressBar { .indeterminate = true, .track_height = 4.0f, .width = 70.0f }
+                                }
+                            }
+                        }
+                    }),
+                    card(VStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 10.0f,
+                        .content = {
+                            Text { .text = "WinUI 3 官方规范 ProgressRing (带 Round Cap 药丸圆头):", .font_size = 12.0f, .color = Bind(muted_text) },
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 28.0f,
+                                .content = {
+                                    VStack {
+                                        .align_items = AlignItems::Center,
+                                        .spacing = 6.0f,
+                                        .content = {
+                                            ProgressRing { .indeterminate = true, .size = 18.0f },
+                                            Text { .text = "18px 紧凑", .font_size = 11.0f, .color = Bind(muted_text) }
+                                        }
+                                    },
+                                    VStack {
+                                        .align_items = AlignItems::Center,
+                                        .spacing = 6.0f,
+                                        .content = {
+                                            ProgressRing { .indeterminate = true, .size = 32.0f },
+                                            Text { .text = "32px 标准", .font_size = 11.0f, .color = Bind(muted_text) }
+                                        }
+                                    },
+                                    VStack {
+                                        .align_items = AlignItems::Center,
+                                        .spacing = 6.0f,
+                                        .content = {
+                                            ProgressRing { .indeterminate = true, .size = 54.0f },
+                                            Text { .text = "54px 大号", .font_size = 11.0f, .color = Bind(muted_text) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }),
+                    card(VStack {
+                        .align_items = AlignItems::Stretch,
                         .spacing = 8.0f,
                         .content = {
                             Text { .text = "单行文本输入 (支持撤销/重做、双向绑定):", .color = Bind(muted_text) },
@@ -394,10 +477,20 @@ Java_com_kernetile_studio_KerneTileBridge_nativeShutdown(JNIEnv*, jclass) {
 
 #else // !defined(__ANDROID__)
 
+#if defined(__EMSCRIPTEN__)
+static std::unique_ptr<Application> g_web_app;
+static std::unique_ptr<StudioApp> g_web_studio;
+#endif
+
 int main() {
     std::setlocale(LC_ALL, "");
 
+#if defined(__EMSCRIPTEN__)
+    g_web_app = std::make_unique<Application>(create_platform_backend(false));
+    auto& app = *g_web_app;
+#else
     Application app(create_platform_backend(false));
+#endif
 
     WindowDesc desc;
     desc.title = "KerneTile Studio";
@@ -408,7 +501,12 @@ int main() {
     auto window = app.create_window(desc);
     if (!window) return 1;
 
+#if defined(__EMSCRIPTEN__)
+    g_web_studio = std::make_unique<StudioApp>();
+    auto& studio = *g_web_studio;
+#else
     StudioApp studio;
+#endif
     studio.setup(app, window);
 
     window->show();
