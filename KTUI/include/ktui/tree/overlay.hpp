@@ -204,6 +204,42 @@ public:
                     }
                 }
                 return true;
+            } else if (entry.content->on_pointer_exit) {
+                PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                entry.content->on_pointer_exit(exit_ev);
+            }
+            if (entry.is_modal) return true;
+        }
+        return false;
+    }
+
+    // 处理鼠标滚轮事件
+    bool handle_pointer_scroll(Vec2 pos, Vec2 delta) {
+        if (m_entries.empty()) return false;
+
+        for (size_t i = m_entries.size(); i > 0; --i) {
+            auto& entry = m_entries[i - 1];
+            if (!entry.content) continue;
+
+            Vec2 sz = (entry.size.x > 0.0f && entry.size.y > 0.0f) ? entry.size : entry.content->size();
+            Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
+
+            if (entry_rect.contains(pos)) {
+                HitTestResult hit_res;
+                PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
+                if (entry.content->hit_test(hit_res, local_p)) {
+                    PointerEvent ev(PlatformEventType::PointerScroll, pos, PointerButton::None);
+                    ev.delta = delta;
+                    for (const auto& h : hit_res.path()) {
+                        if (h.target && h.target->on_pointer_move) {
+                            PointerEvent tev = ev;
+                            tev.local_position = h.local_position;
+                            h.target->on_pointer_move(tev);
+                            if (tev.is_propagation_stopped()) break;
+                        }
+                    }
+                }
+                return true;
             }
             if (entry.is_modal) return true;
         }

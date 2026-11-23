@@ -22,14 +22,25 @@ void test_slider() {
 
     SliderInteractiveState state;
     Theme dark_theme = Theme::dark();
+    Theme light_theme = Theme::light();
     ResolvedSliderStyle style = SliderStyleResolver::resolve(data, state, dark_theme, 0.0f, 0.0f);
     assert(style.track_height == 4.0f);
-    assert(style.thumb_radius == 8.5f);
+    assert(style.thumb_radius == 10.0f);
     assert(style.thumb_scale == 1.0f);
-    assert(style.thumb_fill.r == 1.0f && style.thumb_fill.g == 1.0f && style.thumb_fill.b == 1.0f); // Fluent 纯白手柄
+    // WinUI 3 Dark 外环为 #454545 深灰表面，Light 外环为 #FFFFFF 纯白表面
+    assert(style.thumb_fill.r < 0.35f && style.thumb_fill.g < 0.35f && style.thumb_fill.b < 0.35f);
+    ResolvedSliderStyle light_style = SliderStyleResolver::resolve(data, state, light_theme, 0.0f, 0.0f);
+    assert(light_style.thumb_fill.r == 1.0f && light_style.thumb_fill.g == 1.0f && light_style.thumb_fill.b == 1.0f);
+
+    // WinUI 3 核心微交互: 悬停内圆扩张、按下内圆收缩，外环尺寸保持恒定
+    ResolvedSliderStyle hover_style = SliderStyleResolver::resolve(data, state, dark_theme, 1.0f, 0.0f);
+    ResolvedSliderStyle press_style = SliderStyleResolver::resolve(data, state, dark_theme, 1.0f, 1.0f);
+    assert(hover_style.thumb_scale == 1.0f && press_style.thumb_scale == 1.0f);
+    assert(hover_style.core_radius > style.core_radius);
+    assert(press_style.core_radius < style.core_radius);
 
     RenderSlider render_slider;
-    render_slider.layout(BoxConstraints::tight(Vec2{200.0f, 26.0f}));
+    render_slider.layout(BoxConstraints::tight(Vec2{200.0f, 32.0f}));
     render_slider.set_range(0.0f, 100.0f, 5.0f);
     render_slider.set_value(42.0f, false);
     // 42 应该吸附到最近的步长 40
@@ -40,7 +51,7 @@ void test_slider() {
     PointerEvent down_ev;
     down_ev.type = PlatformEventType::PointerDown;
     down_ev.position = Vec2{500.0f, 500.0f};       // 模拟全局绝对坐标 (不应干扰拖动)
-    down_ev.local_position = Vec2{8.5f, 13.0f};     // 局部起始端 (thumb_r)
+    down_ev.local_position = Vec2{10.0f, 16.0f};    // 局部起始端 (thumb_r = 10.0)
     render_slider.on_pointer_down(down_ev);
     assert(std::abs(render_slider.value() - 0.0f) < 0.001f);
 
@@ -89,13 +100,25 @@ void test_progress_bar() {
 
     ProgressBarData data;
     data.value = 0.65f;
-    data.track_height = 4.0f;
     data.indeterminate = false;
 
     ProgressBarInteractiveState state;
     ResolvedProgressBarStyle style = ProgressBarStyleResolver::resolve(data, state, Theme::dark());
-    assert(style.track_height == 4.0f);
-    assert(style.corner_radius == 2.0f);
+    assert(style.track_height == 3.0f);
+    assert(style.rail_height == 1.0f);
+    assert(style.corner_radius == 1.5f);
+    assert(style.show_rail);
+
+    // WinUI 3 不确定模式隐藏 1px 底线
+    data.indeterminate = true;
+    ResolvedProgressBarStyle ind_style = ProgressBarStyleResolver::resolve(data, state, Theme::dark());
+    assert(!ind_style.show_rail);
+
+    // WinUI 3 Paused / Error 语义色
+    data.indeterminate = false;
+    data.state = ProgressBarState::Error;
+    ResolvedProgressBarStyle err_style = ProgressBarStyleResolver::resolve(data, state, Theme::light());
+    assert(err_style.indicator_color.r > 0.7f && err_style.indicator_color.b < 0.2f);
 
     RenderProgressBar render_bar;
     render_bar.set_value(0.65f, false);

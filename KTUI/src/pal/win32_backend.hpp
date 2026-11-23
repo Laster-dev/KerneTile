@@ -174,6 +174,7 @@ private:
     DefaultFontResolver m_font_resolver;
     std::function<void(const PlatformEvent&)> m_event_callback;
     std::unordered_map<HWND, Win32Window*> m_window_map;
+    HANDLE m_wait_timer = nullptr;
     bool m_class_registered = false;
 };
 

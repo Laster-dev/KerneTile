@@ -107,40 +107,41 @@ public:
         if (m_data.indeterminate) {
             // =========================================================================
             // Windows 11 WinUI 3 官方标准 Indeterminate 动效:
-            // 匀速公转 (2.0s 周期) + 动态伸缩 Dash 弧度 (1.5s 周期，Cubic 缓入缓出)
-            // 两端具备完全对齐 Windows 11 的圆润 Round Cap 端点
+            // 匀速公转 (2.0s 周期) + 累计推进伸缩弧 (1.5s 周期，每轮无缝累计推进 270° = 0.75 圈)
+            // 跨周期头尾角度严格连续 (cycle * 0.75 + 0.75 == (cycle + 1) * 0.75 + 0.0)，彻底消除回跳
             // =========================================================================
             constexpr float kDashPeriod = 1.5f;
-            float t_dash = std::fmod(m_time, kDashPeriod) / kDashPeriod;
+            constexpr float kCycleAdvance = 0.75f; // 每周期推进 270° (4 个周期 = 6.0s 恰好 3 整圈)
 
-            // 整体均匀公转旋转角 (2.0s 周期)
+            float cycle_idx = std::floor(m_time / kDashPeriod);
+            float t_dash = (m_time - cycle_idx * kDashPeriod) / kDashPeriod;
+
+            // 整体均匀公转旋转角 (2.0s 周期，6.0s 恰好 3 整圈)
             float rot_ang = (m_time / 2.0f) * (2.0f * kPi);
 
-            // WinUI / Fluent 官方 Dash Keyframes 比例映射:
-            // 0%  : dasharray = 1,   offset = 0
-            // 50% : dasharray = 89,  offset = -35
-            // 100%: dasharray = 1,   offset = -124
             auto ease = [](float t) noexcept -> float {
+                t = std::clamp(t, 0.0f, 1.0f);
                 return (t < 0.5f) ? (4.0f * t * t * t)
                                   : (1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) * 0.5f);
             };
 
+            // 前半周期头部快速展开至 0.75 圈，后半周期尾部追上至 0.75 圈，首尾完全重合衔接下一轮
             float head_frac = 0.0f;
             float tail_frac = 0.0f;
-
             if (t_dash < 0.5f) {
                 float p = ease(t_dash * 2.0f);
-                tail_frac = p * (35.0f / 200.0f);
-                head_frac = p * (124.0f / 200.0f);
+                tail_frac = p * 0.12f;
+                head_frac = p * kCycleAdvance;
             } else {
                 float p = ease((t_dash - 0.5f) * 2.0f);
-                tail_frac = (35.0f / 200.0f) + p * ((124.0f - 35.0f) / 200.0f);
-                head_frac = (124.0f / 200.0f) + p * (1.0f / 200.0f);
+                tail_frac = 0.12f + p * (kCycleAdvance - 0.12f);
+                head_frac = kCycleAdvance;
             }
 
-            float start_ang = rot_ang + tail_frac * (2.0f * kPi) - kPi * 0.5f;
-            float end_ang = rot_ang + head_frac * (2.0f * kPi) - kPi * 0.5f;
-            float span = std::max(0.06f, end_ang - start_ang);
+            float base_cycle_ang = cycle_idx * kCycleAdvance * (2.0f * kPi);
+            float start_ang = rot_ang + base_cycle_ang + tail_frac * (2.0f * kPi) - kPi * 0.5f;
+            float end_ang = rot_ang + base_cycle_ang + head_frac * (2.0f * kPi) - kPi * 0.5f;
+            float span = std::max(0.08f, end_ang - start_ang);
 
             int seg_count = std::clamp(static_cast<int>(span * 16.0f), 6, 42);
             for (int i = 0; i < seg_count; ++i) {

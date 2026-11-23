@@ -100,7 +100,7 @@ public:
 
     void perform_layout() override {
         float w = m_constraints.constrain_width(m_data.width > 0.0f ? m_data.width : 180.0f);
-        float h = m_constraints.constrain_height(m_data.height > 0.0f ? m_data.height : 26.0f);
+        float h = m_constraints.constrain_height(m_data.height > 0.0f ? m_data.height : 32.0f);
         set_size(Vec2{w, h});
     }
 
@@ -115,58 +115,71 @@ public:
         const float track_x = thumb_r;
         const float track_w = std::max(0.0f, size().x - thumb_r * 2.0f);
         const float track_y = (size().y - style.track_height) * 0.5f;
-        const float norm = normalized_value();
+        // 拖拽细步进或连续滑块时直接紧跟鼠标浮点位置，消除离散步进跳帧卡顿感
+        const float span = m_data.max_value - m_data.min_value;
+        const bool smooth_drag = m_state.is_dragging && (m_data.step <= 0.0f || (span > 0.0f && m_data.step <= span * 0.02f));
+        const float norm = smooth_drag ? m_drag_norm : normalized_value();
         const float thumb_cx = track_x + track_w * norm;
         const float thumb_cy = size().y * 0.5f;
 
-        // 1. 未激活底槽 (Inactive Track)
+        // 1. 未激活底槽 (WinUI 3 SliderTrackFill: 4px 胶囊导轨)
         Rect inactive_rect = Rect::from_xywh(track_x, track_y, track_w, style.track_height);
         ctx.draw_rect(inactive_rect, style.track_inactive, style.track_height * 0.5f, 0.0f);
 
-        // 2. 激活高亮轨 (Active Track)
+        // 2. 激活高亮轨 (WinUI 3 SliderTrackValueFill)
         if (norm > 0.001f) {
             float active_w = track_w * norm;
             Rect active_rect = Rect::from_xywh(track_x, track_y, active_w, style.track_height);
             ctx.draw_rect(active_rect, style.track_active, style.track_height * 0.5f, 0.0f);
         }
 
-        // 3. 步进刻度点 (可选细微刻度)
+        // 3. 步进刻度线 (WinUI 3 SliderTickBar: 位于导轨下方 4px，1px x 4px 细微刻度，绝不遮挡导轨)
         if (m_data.step > 0.0f) {
-            float span = m_data.max_value - m_data.min_value;
             int step_count = static_cast<int>(std::round(span / m_data.step));
             if (step_count >= 2 && step_count <= 24) {
+                float tick_y = track_y + style.track_height + 4.0f;
                 for (int i = 0; i <= step_count; ++i) {
                     float t = static_cast<float>(i) / static_cast<float>(step_count);
                     float tick_x = track_x + track_w * t;
-                    Color tick_col = (t <= norm) ? Color{1.0f, 1.0f, 1.0f, 0.35f} : Color{1.0f, 1.0f, 1.0f, 0.15f};
-                    ctx.draw_rect(Rect::from_xywh(tick_x - 1.0f, track_y - 1.0f, 2.0f, style.track_height + 2.0f),
-                                  tick_col, 1.0f, 0.0f);
+                    ctx.draw_rect(Rect::from_xywh(tick_x - 0.5f, tick_y, 1.0f, 4.0f),
+                                  style.tick_color, 0.5f, 0.0f);
                 }
             }
         }
 
-        // 4. 拖动手柄 (Fluent 2 规范: 立体纯白手柄与同心强调色核心)
+        // 4. 拖动手柄 (WinUI 3 规范: 恒定 20px 外环 + 柔和圆形投影 + 悬停扩张/按下收缩同心强调色内圆)
         float cur_r = thumb_r * style.thumb_scale;
         Rect thumb_rect = Rect::from_xywh(thumb_cx - cur_r, thumb_cy - cur_r, cur_r * 2.0f, cur_r * 2.0f);
 
-        // 柔和立体阴影与实心外圈 (draw_shadowed_box 绘制柔和投影并填充底色)
+        // 柔和圆形投影 (纯圆多层低透明衰减，彻底避免矩形阴影伪影)
         if (!m_state.is_disabled && style.shadow_color.a > 0.001f) {
-            ctx.draw_shadowed_box(thumb_rect, style.thumb_fill, cur_r,
-                                  4.0f + m_hover_progress * 2.0f, 0.5f, Vec2{0.0f, 1.5f});
-        } else {
-            ctx.draw_rect(thumb_rect, style.thumb_fill, cur_r, 0.0f);
+            Color shadow_outer = style.shadow_color;
+            shadow_outer.a *= 0.45f;
+            float sr1 = cur_r + 1.5f;
+            ctx.draw_rect(Rect::from_xywh(thumb_cx - sr1, thumb_cy - sr1 + 1.5f, sr1 * 2.0f, sr1 * 2.0f),
+                          shadow_outer, sr1, 0.0f);
+
+            Color shadow_inner = style.shadow_color;
+            shadow_inner.a *= 0.80f;
+            float sr2 = cur_r + 0.5f;
+            ctx.draw_rect(Rect::from_xywh(thumb_cx - sr2, thumb_cy - sr2 + 0.8f, sr2 * 2.0f, sr2 * 2.0f),
+                          shadow_inner, sr2, 0.0f);
         }
 
-        // 外圈精致微边框 (1px)
+        // 手柄外环实体 (Dark: #454545, Light: #FFFFFF)
+        ctx.draw_rect(thumb_rect, style.thumb_fill, cur_r, 0.0f);
+
+        // 外环精致 1px 立体微边框 (ControlElevationBorder)
         if (style.border_width > 0.0f && style.thumb_border.a > 0.001f) {
             ctx.draw_rect(thumb_rect, style.thumb_border, cur_r, style.border_width);
         }
 
-        // 核心同心强调色圆点 (Fluent Accent Core)
-        float core_scale = 1.0f + m_hover_progress * 0.15f - m_press_progress * 0.10f;
-        float core_r = style.core_radius * core_scale;
-        Rect core_rect = Rect::from_xywh(thumb_cx - core_r, thumb_cy - core_r, core_r * 2.0f, core_r * 2.0f);
-        ctx.draw_rect(core_rect, style.thumb_core, core_r, 0.0f);
+        // 同心强调色内圆 (WinUI 3 核心微交互: 静止 5.5r -> 悬停 7.0r -> 按下 4.5r)
+        float core_r = style.core_radius;
+        if (core_r > 0.1f) {
+            Rect core_rect = Rect::from_xywh(thumb_cx - core_r, thumb_cy - core_r, core_r * 2.0f, core_r * 2.0f);
+            ctx.draw_rect(core_rect, style.thumb_core, core_r, 0.0f);
+        }
     }
 
 private:
@@ -212,6 +225,11 @@ private:
             mark_needs_paint();
         };
 
+        on_focus = [this](FocusEvent& e) {
+            m_state.is_focused = e.gained_focus;
+            mark_needs_paint();
+        };
+
         on_key = [this](KeyEvent& e) {
             if (e.type != PlatformEventType::KeyDown || m_state.is_disabled) return;
             float step_amt = m_data.step > 0.0f ? m_data.step : (m_data.max_value - m_data.min_value) * 0.02f;
@@ -232,9 +250,10 @@ private:
     }
 
     void update_value_from_pos(float local_x) {
-        float thumb_r = m_data.thumb_radius > 0.0f ? m_data.thumb_radius : 8.5f;
+        float thumb_r = m_data.thumb_radius > 0.0f ? m_data.thumb_radius : 10.0f;
         float track_w = std::max(1.0f, size().x - thumb_r * 2.0f);
         float norm = std::clamp((local_x - thumb_r) / track_w, 0.0f, 1.0f);
+        m_drag_norm = norm;
         float new_val = m_data.min_value + norm * (m_data.max_value - m_data.min_value);
         set_value(new_val, true);
     }
@@ -278,6 +297,7 @@ private:
 
     SliderData m_data;
     SliderInteractiveState m_state;
+    float m_drag_norm{0.0f};
     float m_hover_progress{0.0f};
     float m_press_progress{0.0f};
     std::chrono::steady_clock::time_point m_last_anim_time;
@@ -290,7 +310,7 @@ struct Slider {
     Bindable<float> max_value{100.0f};
     Bindable<float> step{0.0f};
     Bindable<float> track_height{4.0f};
-    Bindable<float> thumb_radius{8.5f};
+    Bindable<float> thumb_radius{10.0f};
     Bindable<float> width{180.0f};
     Bindable<bool> disabled{false};
 

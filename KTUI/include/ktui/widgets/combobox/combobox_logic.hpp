@@ -1,0 +1,718 @@
+#pragma once
+
+#include "combobox_data.hpp"
+#include "combobox_style.hpp"
+#include <ktui/app/window.hpp>
+#include <ktui/binding/binding.hpp>
+#include <ktui/event/event_types.hpp>
+#include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/text_measure.hpp>
+#include <ktui/theme/theme_scope.hpp>
+#include <ktui/tree/overlay.hpp>
+#include <ktui/tree/render_box.hpp>
+#include <ktui/widgets/widget.hpp>
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace ktui {
+
+// 下拉弹出面板渲染盒 (WinUI 3 Flyout Surface - 挂载于 OverlayManager 顶层)
+class RenderComboBoxPopup : public RenderBox {
+public:
+    RenderComboBoxPopup(std::vector<ComboBoxItem> items,
+                        int selected_index,
+                        float item_height,
+                        float font_size,
+                        int max_visible_items,
+                        bool open_upward,
+                        std::function<void(int)> on_select)
+        : m_items(std::move(items)),
+          m_selected_index(selected_index),
+          m_item_height(item_height > 0.0f ? item_height : 32.0f),
+          m_font_size(font_size > 0.0f ? font_size : 13.0f),
+          m_max_visible_items(std::max(1, max_visible_items)),
+          m_open_upward(open_upward),
+          m_on_select(std::move(on_select)) {
+        cursor_shape = CursorShape::Arrow;
+        m_open_start = std::chrono::steady_clock::now();
+        ensure_selected_visible();
+        setup_behavior();
+    }
+
+    ~RenderComboBoxPopup() override = default;
+
+    [[nodiscard]] int hovered_index() const noexcept { return m_hovered_index; }
+    [[nodiscard]] float scroll_offset() const noexcept { return m_scroll_offset; }
+
+    void perform_layout() override {
+        float w = m_constraints.max_width;
+        float h = m_constraints.max_height;
+        if (!std::isfinite(w)) w = 180.0f;
+        if (!std::isfinite(h)) h = compute_ideal_height();
+        set_size(Vec2{w, h});
+    }
+
+    [[nodiscard]] float compute_ideal_height() const noexcept {
+        int count = static_cast<int>(m_items.size());
+        int visible = std::min(std::max(1, count), m_max_visible_items);
+        return static_cast<float>(visible) * m_item_height + 8.0f; // 上下各 4px 内边距
+    }
+
+    void paint(PaintContext& ctx) override {
+        update_open_animation();
+
+        const Theme& theme = ThemeContext::current();
+        ComboBoxData dummy;
+        dummy.item_height = m_item_height;
+        dummy.font_size = m_font_size;
+        ComboBoxInteractiveState dummy_state;
+        ResolvedComboBoxStyle style = ComboBoxStyleResolver::resolve(dummy, dummy_state, theme);
+
+        // 流畅缓出展开动画 (140ms)
+        float ease = 1.0f - std::pow(1.0f - m_open_progress, 3.0f);
+        float anim_h = std::max(12.0f, size().y * (0.72f + 0.28f * ease));
+        float anim_y = m_open_upward ? (size().y - anim_h) : 0.0f;
+        float alpha_mul = std::clamp(ease * 1.15f, 0.0f, 1.0f);
+
+        Rect panel_rect = Rect::from_xywh(0.0f, anim_y, size().x, anim_h);
+
+        // 1. 多层柔和圆角阴影 (WinUI 3 Flyout Elevation Shadow)
+        if (style.popup_shadow.a > 0.001f) {
+            Color sh1 = style.popup_shadow;
+            sh1.a *= 0.35f * alpha_mul;
+            ctx.draw_rect(Rect::from_xywh(-2.0f, anim_y + 4.0f, size().x + 4.0f, anim_h + 2.0f),
+                          sh1, style.popup_corner_radius + 2.0f, 0.0f);
+
+            Color sh2 = style.popup_shadow;
+            sh2.a *= 0.60f * alpha_mul;
+            ctx.draw_rect(Rect::from_xywh(-0.5f, anim_y + 2.0f, size().x + 1.0f, anim_h + 0.5f),
+                          sh2, style.popup_corner_radius + 0.5f, 0.0f);
+        }
+
+        // 2. 浮层背景板 (8px 圆角 + 1px 精致边框)
+        Color bg = style.popup_bg;
+        bg.a *= alpha_mul;
+        ctx.draw_rect(panel_rect, bg, style.popup_corner_radius, 0.0f);
+
+        Color border = style.popup_border;
+        border.a *= alpha_mul;
+        ctx.draw_rect(panel_rect, border, style.popup_corner_radius, style.border_width);
+
+        // 3. 选项列表裁剪与绘制
+        const float pad = style.popup_padding;
+        Rect clip_rect = Rect::from_xywh(
+            pad, anim_y + pad,
+            std::max(0.0f, size().x - pad * 2.0f),
+            std::max(0.0f, anim_h - pad * 2.0f));
+        ctx.push_clip(clip_rect, style.item_corner_radius);
+
+        const float content_w = std::max(0.0f, size().x - pad * 2.0f);
+        const float total_content_h = static_cast<float>(m_items.size()) * m_item_height;
+        const float view_h = std::max(1.0f, size().y - pad * 2.0f);
+        const bool scrollable = total_content_h > view_h + 0.5f;
+        const float item_w = scrollable ? std::max(0.0f, content_w - 6.0f) : content_w;
+
+        for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
+            float iy = anim_y + pad + static_cast<float>(i) * m_item_height - m_scroll_offset;
+            if (iy + m_item_height < anim_y || iy > anim_y + anim_h) {
+                continue;
+            }
+
+            const auto& item = m_items[static_cast<size_t>(i)];
+            const bool is_selected = (i == m_selected_index);
+            const bool is_hovered = (i == m_hovered_index && !item.disabled);
+            const bool is_pressed = (i == m_pressed_index && !item.disabled);
+
+            Rect item_rect = Rect::from_xywh(pad, iy + 1.0f, item_w, std::max(0.0f, m_item_height - 2.0f));
+
+            // 悬停 / 选中 / 按下底色
+            if (is_pressed) {
+                Color c = style.item_pressed_bg;
+                c.a *= alpha_mul;
+                ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
+            } else if (is_hovered) {
+                Color c = style.item_hover_bg;
+                c.a *= alpha_mul;
+                ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
+            } else if (is_selected) {
+                Color c = style.item_selected_bg;
+                c.a *= alpha_mul;
+                ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
+            }
+
+            // WinUI 3 标志性左侧 3px x 16px 强调色圆角选中指示竖条
+            if (is_selected) {
+                float pill_h = std::min(16.0f, std::max(8.0f, m_item_height * 0.5f));
+                float pill_y = iy + (m_item_height - pill_h) * 0.5f;
+                Color pill_col = style.accent_pill;
+                pill_col.a *= alpha_mul;
+                ctx.draw_rect(Rect::from_xywh(pad + 1.0f, pill_y, 3.0f, pill_h), pill_col, 1.5f, 0.0f);
+            }
+
+            // 选项文本
+            Color text_col = item.disabled ? style.item_disabled_text : style.item_text;
+            text_col.a *= alpha_mul;
+            Vec2 text_sz = TextMeasure::measure(item.label, style.font_size);
+            float tx = pad + 11.0f;
+            float ty = iy + (m_item_height - text_sz.y) * 0.5f;
+            ctx.draw_text(item.label, PointF{tx, ty}, style.font_size, text_col);
+        }
+
+        // 4. 超长列表右侧极细滚动条指示器
+        if (scrollable) {
+            float max_scroll = std::max(1.0f, total_content_h - view_h);
+            float ratio = std::clamp(view_h / total_content_h, 0.12f, 1.0f);
+            float thumb_h = std::max(18.0f, view_h * ratio);
+            float scroll_frac = std::clamp(m_scroll_offset / max_scroll, 0.0f, 1.0f);
+            float thumb_y = anim_y + pad + scroll_frac * (view_h - thumb_h);
+            Color sb = style.scrollbar_thumb;
+            sb.a *= alpha_mul;
+            ctx.draw_rect(Rect::from_xywh(size().x - pad - 3.0f, thumb_y, 3.0f, thumb_h), sb, 1.5f, 0.0f);
+        }
+
+        ctx.pop_clip();
+    }
+
+private:
+    void ensure_selected_visible() {
+        int count = static_cast<int>(m_items.size());
+        if (count <= m_max_visible_items || m_selected_index < 0) {
+            m_scroll_offset = 0.0f;
+            return;
+        }
+        float view_h = static_cast<float>(m_max_visible_items) * m_item_height;
+        float total_h = static_cast<float>(count) * m_item_height;
+        float item_top = static_cast<float>(m_selected_index) * m_item_height;
+        float target = item_top - (view_h - m_item_height) * 0.5f;
+        m_scroll_offset = std::clamp(target, 0.0f, std::max(0.0f, total_h - view_h));
+    }
+
+    int hit_test_item_index(float local_y) const noexcept {
+        constexpr float kPad = 4.0f;
+        float y = local_y - kPad + m_scroll_offset;
+        if (y < 0.0f) return -1;
+        int idx = static_cast<int>(std::floor(y / m_item_height));
+        if (idx < 0 || idx >= static_cast<int>(m_items.size())) return -1;
+        return idx;
+    }
+
+    void setup_behavior() {
+        on_pointer_move = [this](PointerEvent& e) {
+            if (e.type == PlatformEventType::PointerScroll) {
+                float view_h = std::max(1.0f, size().y - 8.0f);
+                float total_h = static_cast<float>(m_items.size()) * m_item_height;
+                float max_scroll = std::max(0.0f, total_h - view_h);
+                if (max_scroll > 0.0f) {
+                    m_scroll_offset = std::clamp(m_scroll_offset - e.delta.y * 0.6f, 0.0f, max_scroll);
+                    m_hovered_index = hit_test_item_index(e.local_position.y);
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+                return;
+            }
+            int idx = hit_test_item_index(e.local_position.y);
+            if (idx != m_hovered_index) {
+                m_hovered_index = idx;
+                mark_needs_paint();
+            }
+            e.stop_propagation();
+        };
+
+        on_pointer_exit = [this](PointerEvent&) {
+            if (m_hovered_index != -1 || m_pressed_index != -1) {
+                m_hovered_index = -1;
+                m_pressed_index = -1;
+                mark_needs_paint();
+            }
+        };
+
+        on_pointer_down = [this](PointerEvent& e) {
+            int idx = hit_test_item_index(e.local_position.y);
+            if (idx >= 0 && !m_items[static_cast<size_t>(idx)].disabled) {
+                m_pressed_index = idx;
+                mark_needs_paint();
+            }
+            e.stop_propagation();
+        };
+
+        on_pointer_up = [this](PointerEvent& e) {
+            int idx = hit_test_item_index(e.local_position.y);
+            int pressed = m_pressed_index;
+            m_pressed_index = -1;
+            if (idx >= 0 && idx == pressed && !m_items[static_cast<size_t>(idx)].disabled) {
+                if (m_on_select) {
+                    m_on_select(idx);
+                }
+            }
+            mark_needs_paint();
+            e.stop_propagation();
+        };
+    }
+
+    void update_open_animation() {
+        if (m_open_progress >= 1.0f) return;
+        auto now = std::chrono::steady_clock::now();
+        float elapsed = std::chrono::duration<float>(now - m_open_start).count();
+        m_open_progress = std::clamp(elapsed / 0.14f, 0.0f, 1.0f);
+        if (m_open_progress < 1.0f) {
+            mark_needs_paint();
+        }
+    }
+
+    std::vector<ComboBoxItem> m_items;
+    int m_selected_index{-1};
+    int m_hovered_index{-1};
+    int m_pressed_index{-1};
+    float m_item_height{32.0f};
+    float m_font_size{13.0f};
+    int m_max_visible_items{8};
+    bool m_open_upward{false};
+    float m_scroll_offset{0.0f};
+    float m_open_progress{0.0f};
+    std::chrono::steady_clock::time_point m_open_start;
+    std::function<void(int)> m_on_select;
+};
+
+// 下拉选择框逻辑与渲染盒 (RenderComboBox - Logic Layer)
+class RenderComboBox : public RenderBox {
+public:
+    RenderComboBox() noexcept {
+        is_focusable = true;
+        cursor_shape = CursorShape::PointingHand;
+        setup_behavior();
+    }
+
+    ~RenderComboBox() override {
+        close_popup();
+    }
+
+    [[nodiscard]] int selected_index() const noexcept { return m_data.selected_index; }
+    [[nodiscard]] const std::vector<ComboBoxItem>& items() const noexcept { return m_data.items; }
+    [[nodiscard]] bool is_open() const noexcept { return m_state.is_open; }
+    [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
+    [[nodiscard]] const ComboBoxData& data() const noexcept { return m_data; }
+    [[nodiscard]] const ComboBoxInteractiveState& state() const noexcept { return m_state; }
+
+    [[nodiscard]] std::string selected_label() const {
+        if (m_data.selected_index >= 0 && m_data.selected_index < static_cast<int>(m_data.items.size())) {
+            return m_data.items[static_cast<size_t>(m_data.selected_index)].label;
+        }
+        return "";
+    }
+
+    void set_items(std::vector<ComboBoxItem> items) {
+        m_data.items = std::move(items);
+        if (m_data.selected_index >= static_cast<int>(m_data.items.size())) {
+            m_data.selected_index = m_data.items.empty() ? -1 : 0;
+        }
+        mark_needs_paint();
+    }
+
+    void set_selected_index(int idx, bool notify = true) {
+        int clamped = idx;
+        if (clamped < -1 || clamped >= static_cast<int>(m_data.items.size())) {
+            clamped = m_data.items.empty() ? -1 : std::clamp(clamped, -1, static_cast<int>(m_data.items.size()) - 1);
+        }
+        if (clamped >= 0 && m_data.items[static_cast<size_t>(clamped)].disabled) {
+            return;
+        }
+        if (m_data.selected_index != clamped) {
+            m_data.selected_index = clamped;
+            if (notify && m_data.on_change) {
+                m_data.on_change(m_data.selected_index, selected_label());
+            }
+            mark_needs_paint();
+        }
+    }
+
+    void set_placeholder(std::string text) {
+        if (m_data.placeholder != text) {
+            m_data.placeholder = std::move(text);
+            mark_needs_paint();
+        }
+    }
+
+    void set_dimensions(float w, float h, float item_h, float font_sz, int max_vis) {
+        bool layout_changed = false;
+        if (w > 0.0f && std::abs(m_data.width - w) > 0.001f) {
+            m_data.width = w;
+            layout_changed = true;
+        }
+        if (h > 0.0f && std::abs(m_data.height - h) > 0.001f) {
+            m_data.height = h;
+            layout_changed = true;
+        }
+        if (item_h > 0.0f) m_data.item_height = item_h;
+        if (font_sz > 0.0f) m_data.font_size = font_sz;
+        if (max_vis > 0) m_data.max_visible_items = max_vis;
+        if (layout_changed) {
+            mark_needs_layout();
+        }
+    }
+
+    void set_disabled(bool disabled) {
+        if (m_state.is_disabled != disabled) {
+            m_state.is_disabled = disabled;
+            m_data.disabled = disabled;
+            is_focusable = !disabled;
+            cursor_shape = disabled ? CursorShape::Forbidden : CursorShape::PointingHand;
+            if (disabled) {
+                close_popup();
+            }
+            mark_needs_paint();
+        }
+    }
+
+    void set_on_change(std::function<void(int, const std::string&)> cb) {
+        m_data.on_change = std::move(cb);
+    }
+
+    void open_popup() {
+        if (m_state.is_disabled || m_state.is_open || m_data.items.empty()) return;
+        m_state.is_open = true;
+        m_last_anim_time = std::chrono::steady_clock::now();
+
+        Window* win = Window::active_window();
+        if (win) {
+            int visible_count = std::min(static_cast<int>(m_data.items.size()), std::max(1, m_data.max_visible_items));
+            float popup_h = static_cast<float>(visible_count) * m_data.item_height + 8.0f;
+            float popup_w = std::max(size().x, 120.0f);
+
+            Vec2 anchor = global_offset();
+            anchor.y += win->titlebar_height();
+            Vec2 win_sz = win->size();
+
+            float space_below = win_sz.y - (anchor.y + size().y + 4.0f) - 8.0f;
+            float space_above = anchor.y - 4.0f - win->titlebar_height() - 8.0f;
+            bool open_upward = (space_below < popup_h && space_above > space_below);
+
+            float popup_y = open_upward
+                ? std::max(win->titlebar_height() + 4.0f, anchor.y - popup_h - 4.0f)
+                : (anchor.y + size().y + 4.0f);
+            float popup_x = std::clamp(anchor.x, 4.0f, std::max(4.0f, win_sz.x - popup_w - 4.0f));
+
+            auto popup = std::make_shared<RenderComboBoxPopup>(
+                m_data.items,
+                m_data.selected_index,
+                m_data.item_height,
+                m_data.font_size,
+                m_data.max_visible_items,
+                open_upward,
+                [this](int chosen_idx) {
+                    set_selected_index(chosen_idx, true);
+                    close_popup();
+                });
+
+            OverlayEntry entry;
+            entry.content = popup;
+            entry.global_pos = Vec2{popup_x, popup_y};
+            entry.size = Vec2{popup_w, popup_h};
+            entry.dismiss_on_outside_click = true;
+            entry.is_modal = false;
+            entry.on_dismiss = [this]() {
+                m_overlay_id = 0;
+                m_state.is_open = false;
+                m_last_dismiss_time = std::chrono::steady_clock::now();
+                m_last_anim_time = m_last_dismiss_time;
+                mark_needs_paint();
+            };
+
+            m_overlay_id = win->show_overlay(std::move(entry));
+        }
+
+        mark_needs_paint();
+    }
+
+    void close_popup() {
+        if (m_overlay_id != 0) {
+            uint64_t id = m_overlay_id;
+            m_overlay_id = 0;
+            if (Window* win = Window::active_window()) {
+                win->hide_overlay(id);
+            }
+        }
+        if (m_state.is_open) {
+            m_state.is_open = false;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            mark_needs_paint();
+        }
+    }
+
+    void toggle_popup() {
+        if (m_state.is_open) {
+            close_popup();
+        } else {
+            open_popup();
+        }
+    }
+
+    void perform_layout() override {
+        float w = m_constraints.constrain_width(m_data.width > 0.0f ? m_data.width : 180.0f);
+        float h = m_constraints.constrain_height(m_data.height > 0.0f ? m_data.height : 32.0f);
+        set_size(Vec2{w, h});
+    }
+
+    void paint(PaintContext& ctx) override {
+        update_animations();
+
+        const Theme& theme = ThemeContext::current();
+        ResolvedComboBoxStyle style = ComboBoxStyleResolver::resolve(m_data, m_state, theme);
+
+        Rect box_rect = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
+
+        // 1. 触发框背景 (WinUI 3 ControlFillColor)
+        ctx.draw_rect(box_rect, style.background, style.corner_radius, 0.0f);
+
+        // 2. 1px 外边框 + 底部立体微描边 (ControlElevationBorder)
+        if (style.border.a > 0.001f) {
+            ctx.draw_rect(box_rect, style.border, style.corner_radius, style.border_width);
+        }
+        if (!m_state.is_disabled && style.bottom_border.a > 0.001f) {
+            float line_x = style.corner_radius;
+            float line_w = std::max(0.0f, size().x - style.corner_radius * 2.0f);
+            ctx.draw_rect(Rect::from_xywh(line_x, size().y - 1.0f, line_w, 1.0f), style.bottom_border, 0.0f, 0.0f);
+        }
+
+        // 3. 当前选中文本或占位文本 (左侧对齐，右侧预留 28px 给下拉箭头)
+        const bool has_selection =
+            (m_data.selected_index >= 0 && m_data.selected_index < static_cast<int>(m_data.items.size()));
+        const std::string& display_text = has_selection
+            ? m_data.items[static_cast<size_t>(m_data.selected_index)].label
+            : m_data.placeholder;
+        Color text_col = has_selection ? style.text : style.placeholder_text;
+
+        const float text_clip_w = std::max(0.0f, size().x - style.padding_x - 28.0f);
+        if (text_clip_w > 1.0f && !display_text.empty()) {
+            ctx.push_clip(Rect::from_xywh(style.padding_x, 0.0f, text_clip_w, size().y), 0.0f);
+            Vec2 text_sz = TextMeasure::measure(display_text, style.font_size);
+            float ty = (size().y - text_sz.y) * 0.5f;
+            ctx.draw_text(display_text, PointF{style.padding_x, ty}, style.font_size, text_col);
+            ctx.pop_clip();
+        }
+
+        // 4. WinUI 3 右侧精致下拉箭头 (Chevron Down，按下/展开时轻微弹动)
+        const float cx = size().x - 15.0f;
+        const float cy = size().y * 0.5f + m_chevron_offset;
+        const float half_w = 3.8f;
+        const float half_h = 2.0f;
+        // 展开时平滑翻转向上
+        float dir = 1.0f - 2.0f * m_open_anim;
+        PointF left_pt{cx - half_w, cy - half_h * dir};
+        PointF mid_pt{cx, cy + half_h * dir};
+        PointF right_pt{cx + half_w, cy - half_h * dir};
+        ctx.draw_line(left_pt, mid_pt, style.chevron, 1.25f);
+        ctx.draw_line(mid_pt, right_pt, style.chevron, 1.25f);
+    }
+
+private:
+    void step_selection(int delta) {
+        int count = static_cast<int>(m_data.items.size());
+        if (count == 0) return;
+        int cur = m_data.selected_index;
+        for (int tries = 0; tries < count; ++tries) {
+            cur = std::clamp(cur + delta, 0, count - 1);
+            if (!m_data.items[static_cast<size_t>(cur)].disabled) {
+                set_selected_index(cur, true);
+                return;
+            }
+            if ((delta < 0 && cur == 0) || (delta > 0 && cur == count - 1)) break;
+        }
+    }
+
+    void setup_behavior() {
+        on_pointer_enter = [this](PointerEvent&) {
+            m_state.is_hovered = true;
+            mark_needs_paint();
+        };
+
+        on_pointer_exit = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            mark_needs_paint();
+        };
+
+        on_pointer_down = [this](PointerEvent& e) {
+            if (m_state.is_disabled) return;
+            // 若刚刚在本次点击中被 OverlayManager 外部点击关闭，则不再立即重新打开
+            auto now = std::chrono::steady_clock::now();
+            if (m_last_dismiss_time.time_since_epoch().count() != 0 &&
+                std::chrono::duration<float>(now - m_last_dismiss_time).count() < 0.06f) {
+                e.stop_propagation();
+                return;
+            }
+            m_state.is_pressed = true;
+            m_last_anim_time = now;
+            toggle_popup();
+            e.stop_propagation();
+            mark_needs_paint();
+        };
+
+        on_pointer_up = [this](PointerEvent& e) {
+            if (m_state.is_pressed) {
+                m_state.is_pressed = false;
+                m_last_anim_time = std::chrono::steady_clock::now();
+                mark_needs_paint();
+            }
+            e.stop_propagation();
+        };
+
+        on_focus = [this](FocusEvent& e) {
+            m_state.is_focused = e.gained_focus;
+            if (!e.gained_focus && m_state.is_open) {
+                close_popup();
+            }
+            mark_needs_paint();
+        };
+
+        on_key = [this](KeyEvent& e) {
+            if (e.type != PlatformEventType::KeyDown || m_state.is_disabled) return;
+            if (e.key_code == 38) {        // Up
+                step_selection(-1);
+                e.stop_propagation();
+            } else if (e.key_code == 40) { // Down
+                step_selection(+1);
+                e.stop_propagation();
+            } else if (e.key_code == 36) { // Home
+                if (!m_data.items.empty()) set_selected_index(0, true);
+                e.stop_propagation();
+            } else if (e.key_code == 35) { // End
+                if (!m_data.items.empty()) set_selected_index(static_cast<int>(m_data.items.size()) - 1, true);
+                e.stop_propagation();
+            } else if (e.key_code == 13 || e.key_code == 32) { // Enter / Space
+                toggle_popup();
+                e.stop_propagation();
+            } else if (e.key_code == 27 && m_state.is_open) {  // Esc
+                close_popup();
+                e.stop_propagation();
+            }
+        };
+    }
+
+    void update_animations() {
+        auto now = std::chrono::steady_clock::now();
+        const float target_open = m_state.is_open ? 1.0f : 0.0f;
+        const float target_chevron = m_state.is_pressed ? 1.5f : 0.0f;
+
+        if (m_last_anim_time.time_since_epoch().count() == 0) {
+            m_last_anim_time = now;
+            if (std::abs(m_open_anim - target_open) > 0.005f ||
+                std::abs(m_chevron_offset - target_chevron) > 0.02f) {
+                mark_needs_paint();
+            }
+            return;
+        }
+        float dt = std::chrono::duration<float>(now - m_last_anim_time).count();
+        m_last_anim_time = now;
+        dt = std::clamp(dt, 0.0f, 0.05f);
+
+        bool animating = false;
+        if (std::abs(m_open_anim - target_open) > 0.005f) {
+            m_open_anim += (target_open - m_open_anim) * std::min(1.0f, dt * 20.0f);
+            animating = true;
+        } else {
+            m_open_anim = target_open;
+        }
+
+        if (std::abs(m_chevron_offset - target_chevron) > 0.02f) {
+            m_chevron_offset += (target_chevron - m_chevron_offset) * std::min(1.0f, dt * 24.0f);
+            animating = true;
+        } else {
+            m_chevron_offset = target_chevron;
+        }
+
+        if (animating) {
+            mark_needs_paint();
+        }
+    }
+
+    ComboBoxData m_data;
+    ComboBoxInteractiveState m_state;
+    uint64_t m_overlay_id{0};
+    float m_open_anim{0.0f};
+    float m_chevron_offset{0.0f};
+    std::chrono::steady_clock::time_point m_last_anim_time;
+    std::chrono::steady_clock::time_point m_last_dismiss_time;
+};
+
+// C++20 指定初始化器声明式下拉选择框控件 (ComboBox DSL Wrapper)
+struct ComboBox {
+    std::vector<ComboBoxItem> items;
+    Bindable<int> selected_index{-1};
+    Bindable<std::string> placeholder{"请选择..."};
+    Bindable<float> width{180.0f};
+    Bindable<float> height{32.0f};
+    float item_height{32.0f};
+    float font_size{13.0f};
+    int max_visible_items{8};
+    Bindable<bool> disabled{false};
+
+    std::function<void(int, const std::string&)> on_change{nullptr};
+
+    operator WidgetPtr() const;
+};
+
+class ComboBoxWidget : public Widget {
+public:
+    explicit ComboBoxWidget(const ComboBox& desc) : m_desc(desc) {}
+    ~ComboBoxWidget() override = default;
+
+    std::shared_ptr<RenderBox> create_render_node() override {
+        auto node = std::make_shared<RenderComboBox>();
+        apply_desc_to_node(node);
+        setup_bindings(node);
+        return node;
+    }
+
+    void update_render_node(std::shared_ptr<RenderBox> node) override {
+        if (auto cb = std::dynamic_pointer_cast<RenderComboBox>(node)) {
+            apply_desc_to_node(cb);
+            setup_bindings(cb);
+        }
+    }
+
+private:
+    void apply_desc_to_node(const std::shared_ptr<RenderComboBox>& node) {
+        node->set_items(m_desc.items);
+        node->set_selected_index(m_desc.selected_index.get(), false);
+        node->set_placeholder(m_desc.placeholder.get());
+        node->set_dimensions(m_desc.width.get(), m_desc.height.get(),
+                             m_desc.item_height, m_desc.font_size, m_desc.max_visible_items);
+        node->set_disabled(m_desc.disabled.get());
+        node->set_on_change([this](int idx, const std::string& label) {
+            m_is_internal_update = true;
+            m_desc.selected_index.set_bound(idx);
+            if (m_desc.on_change) m_desc.on_change(idx, label);
+            m_is_internal_update = false;
+        });
+    }
+
+    void setup_bindings(const std::shared_ptr<RenderComboBox>& node) {
+        m_bindings.clear();
+        m_bindings.attach(m_desc.selected_index, node, [this](RenderComboBox& n, int idx) {
+            if (!m_is_internal_update) n.set_selected_index(idx, false);
+        });
+        m_bindings.attach(m_desc.placeholder, node, [](RenderComboBox& n, const std::string& s) {
+            n.set_placeholder(s);
+        });
+        m_bindings.attach(m_desc.disabled, node, [](RenderComboBox& n, bool d) {
+            n.set_disabled(d);
+        });
+    }
+
+    ComboBox m_desc;
+    BindingGroup m_bindings;
+    bool m_is_internal_update{false};
+};
+
+inline ComboBox::operator WidgetPtr() const {
+    return std::make_shared<ComboBoxWidget>(*this);
+}
+
+} // namespace ktui

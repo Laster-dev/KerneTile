@@ -35,6 +35,8 @@ struct StudioApp {
     Property<float> slider_val{45.0f};
     Property<float> progress_norm{0.45f};
     Property<std::string> slider_text{"调节数值 (滑块): 45%"};
+    Property<int> combo_idx{0};
+    Property<std::string> combo_preview{"已选后端: Direct3D 12 Compute"};
 
     Property<Color> window_bg{Color::transparent()};
     Property<Color> card_bg{Color{1.0f, 1.0f, 1.0f, 0.045f}};
@@ -214,6 +216,28 @@ struct StudioApp {
                             ToggleSwitch { .checked = Bind(locked), .label = "锁定按钮", .on_change = [this](bool) { refresh_count(); } }
                         }
                     }),
+                    card(HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 12.0f,
+                        .content = {
+                            ComboBox {
+                                .items = {
+                                    "Direct3D 12 Compute",
+                                    "Vulkan Compute",
+                                    "WebGPU (WASM)",
+                                    "CPU SIMD Rasterizer",
+                                    ComboBoxItem{"Software WARP (已禁用)", true}
+                                },
+                                .selected_index = Bind(combo_idx),
+                                .placeholder = "选择渲染后端...",
+                                .width = 196.0f,
+                                .on_change = [this](int, const std::string& label) {
+                                    combo_preview.set("已选后端: " + label);
+                                }
+                            },
+                            Text { .text = Bind(combo_preview), .font_size = 12.0f, .color = Bind(muted_text) }
+                        }
+                    }),
                     card(RadioGroup {
                         .selected_value = Bind(render_mode),
                         .options = {
@@ -287,10 +311,10 @@ struct StudioApp {
                                 .spacing = 10.0f,
                                 .content = {
                                     Text { .text = "同步进度:", .font_size = 11.5f, .color = Bind(muted_text) },
-                                    ProgressBar { .value = Bind(progress_norm), .track_height = 4.0f, .width = 90.0f },
+                                    ProgressBar { .value = Bind(progress_norm), .width = 96.0f },
                                     ProgressRing { .value = Bind(progress_norm), .indeterminate = false, .size = 18.0f, .stroke_width = 2.5f },
                                     Text { .text = "流光:", .font_size = 11.5f, .color = Bind(muted_text) },
-                                    ProgressBar { .indeterminate = true, .track_height = 4.0f, .width = 70.0f }
+                                    ProgressBar { .indeterminate = true, .width = 76.0f }
                                 }
                             }
                         }

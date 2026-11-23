@@ -409,6 +409,13 @@ public:
                     if (m_platform_window) m_platform_window->invalidate();
                     return;
                 }
+            } else if (pe.type == PlatformEventType::PointerScroll) {
+                bool handled = m_overlay_manager.handle_pointer_scroll(pe.position, pe.delta);
+                if (handled) {
+                    request_redraw();
+                    if (m_platform_window) m_platform_window->invalidate();
+                    return;
+                }
             } else if (pe.type == PlatformEventType::PointerUp) {
                 bool handled = m_overlay_manager.handle_pointer_up(pe.position, pe.button);
                 request_redraw();

@@ -128,8 +128,9 @@ int Application::run() {
     // Android 端由 Choreographer 按屏幕刷新率回调 Application::step_frame()
     return m_exit_code;
 #else
-    auto last_render_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(16);
-    constexpr auto kFrameInterval = std::chrono::milliseconds(16); // 60 FPS 工业基准帧率节拍
+    constexpr auto kFrameInterval = std::chrono::microseconds(8333); // 120 FPS 高刷丝滑节拍 (配合 Win32 高精度等待定时器)
+    constexpr auto kFrameJitterTolerance = std::chrono::microseconds(500);
+    auto last_render_time = std::chrono::steady_clock::now() - kFrameInterval;
 
     while (m_running) {
         auto now = std::chrono::steady_clock::now();
@@ -148,8 +149,8 @@ int Application::run() {
         }
 
         if (has_pending_render) {
-            if (elapsed_since_render >= kFrameInterval) {
-                // 到达或超过 16ms 帧周期，准时推进并呈现新帧
+            if (elapsed_since_render + kFrameJitterTolerance >= kFrameInterval) {
+                // 到达帧周期，准时推进并呈现新帧
                 last_render_time = now;
                 for (auto& win : m_windows) {
                     if (win && !win->is_closed() && win->root_render_box()) {
@@ -165,14 +166,16 @@ int Application::run() {
         }
 
         uint32_t wait_ms = compute_wait_timeout();
-        // 若有待渲染帧但未到 16ms 节拍，精准休眠到下一个 16ms 周期
+        // 若有待渲染帧但未到帧节拍，精准休眠到下一帧周期
         if (has_pending_render) {
             now = std::chrono::steady_clock::now();
             auto remaining = kFrameInterval - (now - last_render_time);
-            if (remaining > std::chrono::milliseconds(0)) {
+            if (remaining > std::chrono::microseconds(500)) {
                 uint32_t rem_ms = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
+                if (rem_ms == 0) rem_ms = 1;
                 wait_ms = (wait_ms == 0) ? rem_ms : std::min(wait_ms, rem_ms);
-                if (wait_ms == 0) wait_ms = 1;
+            } else {
+                wait_ms = 1;
             }
         }
 
@@ -222,7 +225,7 @@ uint32_t Application::compute_wait_timeout() const {
             }
         }
     }
-    if (has_dirty) return 16; // 60 FPS 工业标准帧间隔平滑推进连续动效 (水波纹、对勾展开、焦点滑条等)
+    if (has_dirty) return 8; // 120 FPS 高刷平滑推进连续动效 (进度条、滑块拖拽、加载圈等)
     if (min_blink_wait > 0) return min_blink_wait; // 精确休眠直到下次光标闪烁，0% CPU！
     return 0; // 完全闲置，平台消息队列彻底挂起休眠，0% CPU！
 }

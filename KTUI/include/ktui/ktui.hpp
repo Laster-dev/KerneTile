@@ -77,3 +77,4 @@
 #include <ktui/widgets/slider.hpp>
 #include <ktui/widgets/progress_bar.hpp>
 #include <ktui/widgets/progress_ring.hpp>
+#include <ktui/widgets/combobox.hpp>

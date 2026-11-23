@@ -51,6 +51,20 @@ public:
         }
     }
 
+    void set_state(ProgressBarState s) {
+        if (m_data.state != s) {
+            m_data.state = s;
+            mark_needs_paint();
+        }
+    }
+
+    void set_corner_radius(float r) {
+        if (std::abs(m_data.corner_radius - r) > 0.001f) {
+            m_data.corner_radius = r;
+            mark_needs_paint();
+        }
+    }
+
     void set_track_height(float h) {
         if (h > 0.0f && std::abs(m_data.track_height - h) > 0.001f) {
             m_data.track_height = h;
@@ -90,44 +104,64 @@ public:
         const float track_y = (size().y - track_h) * 0.5f;
         Rect track_rect = Rect::from_xywh(0.0f, track_y, track_w, track_h);
 
-        // 1. 绘制底槽
-        ctx.draw_rect(track_rect, style.track_bg, style.corner_radius, 0.0f);
+        // 1. WinUI 3 1px 居中极细底线 (仅确定模式显示，不确定模式按 WinUI 3 规范隐藏)
+        if (style.show_rail && style.track_bg.a > 0.001f) {
+            const float rail_h = style.rail_height;
+            const float rail_y = (size().y - rail_h) * 0.5f;
+            Rect rail_rect = Rect::from_xywh(0.0f, rail_y, track_w, rail_h);
+            ctx.draw_rect(rail_rect, style.track_bg, rail_h * 0.5f, 0.0f);
+        }
 
-        // 2. 进度内容绘制 (通过裁剪栈确保圆角边缘平滑无溢出)
+        // 2. 进度内容绘制 (通过胶囊裁剪栈确保指示条两端无溢出)
         ctx.push_clip(track_rect, style.corner_radius);
 
         if (m_data.indeterminate) {
-            // Windows 11 Fluent 风格双脉冲交错循环流光动效
-            auto smoothstep = [](float edge0, float edge1, float x) {
-                float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-                return t * t * (3.0f - 2.0f * t);
+            // WinUI 3 官方双段不确定进度动画 (主长条 + 副短条，独立头尾三次贝塞尔变速伸展收缩)
+            auto ease_out_fast = [](float t) {
+                t = std::clamp(t, 0.0f, 1.0f);
+                float inv = 1.0f - t;
+                return 1.0f - inv * inv * inv;
+            };
+            auto ease_in_out_quad = [](float t) {
+                t = std::clamp(t, 0.0f, 1.0f);
+                return t < 0.5f ? (2.0f * t * t) : (1.0f - std::pow(-2.0f * t + 2.0f, 2.0f) * 0.5f);
+            };
+            auto ease_in_cubic = [](float t) {
+                t = std::clamp(t, 0.0f, 1.0f);
+                return t * t * t;
             };
 
-            // 脉冲 1 (主波): 周期前段迅速展开横跨
-            float p1 = std::fmod(m_phase, 2.0f);
-            if (p1 < 1.4f) {
-                float t_norm = p1 / 1.4f;
-                float ease_center = smoothstep(0.0f, 1.0f, t_norm);
-                float center_x = -0.15f * track_w + (track_w * 1.30f) * ease_center;
-                float pulse_w = (0.18f + 0.32f * std::sin(t_norm * 3.14159265f)) * track_w;
-                float left = center_x - pulse_w * 0.5f;
-                ctx.draw_rect(Rect::from_xywh(left, track_y, pulse_w, track_h),
-                              style.indicator_color, style.corner_radius, 0.0f);
+            const float u = std::fmod(m_phase, 2.0f) * 0.5f; // 归一化周期 [0, 1)
+
+            // 主波 (Leading Long Bar): u in [0.00, 0.68]
+            if (u < 0.68f) {
+                float t = u / 0.68f;
+                float head = ease_out_fast(std::min(1.0f, t * 1.18f));
+                float tail = ease_in_cubic(std::max(0.0f, (t - 0.14f) / 0.86f));
+                float left = std::clamp(tail, 0.0f, 1.0f) * track_w;
+                float right = std::clamp(head, 0.0f, 1.0f) * track_w;
+                float w = right - left;
+                if (w > 0.5f) {
+                    ctx.draw_rect(Rect::from_xywh(left, track_y, w, track_h),
+                                  style.indicator_color, style.corner_radius, 0.0f);
+                }
             }
 
-            // 脉冲 2 (副波): 滞后交错跟随
-            float p2 = std::fmod(m_phase + 1.25f, 2.0f);
-            if (p2 < 1.3f) {
-                float t_norm = p2 / 1.3f;
-                float ease_center = smoothstep(0.0f, 1.0f, t_norm);
-                float center_x = -0.10f * track_w + (track_w * 1.20f) * ease_center;
-                float pulse_w = (0.12f + 0.24f * std::sin(t_norm * 3.14159265f)) * track_w;
-                float left = center_x - pulse_w * 0.5f;
-                ctx.draw_rect(Rect::from_xywh(left, track_y, pulse_w, track_h),
-                              style.indicator_color, style.corner_radius, 0.0f);
+            // 副波 (Trailing Short Bar): u in [0.46, 0.98]
+            if (u >= 0.46f && u < 0.98f) {
+                float t = (u - 0.46f) / 0.52f;
+                float head = ease_in_out_quad(std::min(1.0f, t * 1.25f));
+                float tail = ease_in_out_quad(std::max(0.0f, (t - 0.18f) / 0.82f));
+                float left = std::clamp(tail, 0.0f, 1.0f) * track_w;
+                float right = std::clamp(head, 0.0f, 1.0f) * track_w;
+                float w = right - left;
+                if (w > 0.5f) {
+                    ctx.draw_rect(Rect::from_xywh(left, track_y, w, track_h),
+                                  style.indicator_color, style.corner_radius, 0.0f);
+                }
             }
         } else {
-            // 确定性平滑插值进度
+            // 确定性平滑插值进度 (WinUI 3 3px 实心药丸指示条)
             if (m_displayed_val > 0.001f) {
                 float fill_w = track_w * m_displayed_val;
                 Rect fill_rect = Rect::from_xywh(0.0f, track_y, fill_w, track_h);
@@ -192,7 +226,8 @@ private:
 struct ProgressBar {
     Bindable<float> value{0.0f};
     Bindable<bool> indeterminate{false};
-    Bindable<float> track_height{4.0f};
+    Bindable<ProgressBarState> state{ProgressBarState::Normal};
+    Bindable<float> track_height{3.0f};
     Bindable<float> width{180.0f};
     Bindable<float> corner_radius{-1.0f};
     Bindable<bool> disabled{false};
@@ -223,8 +258,10 @@ private:
     void apply_desc_to_node(const std::shared_ptr<RenderProgressBar>& node) {
         node->set_value(m_desc.value.get(), false);
         node->set_indeterminate(m_desc.indeterminate.get());
+        node->set_state(m_desc.state.get());
         node->set_track_height(m_desc.track_height.get());
         node->set_bar_width(m_desc.width.get());
+        node->set_corner_radius(m_desc.corner_radius.get());
         node->set_disabled(m_desc.disabled.get());
     }
 
@@ -236,11 +273,17 @@ private:
         m_bindings.attach(m_desc.indeterminate, node, [](RenderProgressBar& n, bool v) {
             n.set_indeterminate(v);
         });
+        m_bindings.attach(m_desc.state, node, [](RenderProgressBar& n, ProgressBarState s) {
+            n.set_state(s);
+        });
         m_bindings.attach(m_desc.track_height, node, [](RenderProgressBar& n, float v) {
             n.set_track_height(v);
         });
         m_bindings.attach(m_desc.width, node, [](RenderProgressBar& n, float v) {
             n.set_bar_width(v);
+        });
+        m_bindings.attach(m_desc.corner_radius, node, [](RenderProgressBar& n, float v) {
+            n.set_corner_radius(v);
         });
         m_bindings.attach(m_desc.disabled, node, [](RenderProgressBar& n, bool v) {
             n.set_disabled(v);

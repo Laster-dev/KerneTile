@@ -928,6 +928,13 @@ bool Win32Backend::init() {
     if (!RegisterClassExW(&wc)) {
         return false;
     }
+    if (!m_wait_timer) {
+        m_wait_timer = CreateWaitableTimerExW(
+            nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        if (!m_wait_timer) {
+            m_wait_timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+        }
+    }
     m_class_registered = true;
     return true;
 }
@@ -964,7 +971,14 @@ void Win32Backend::wait_events(uint32_t timeout_ms) {
             poll_events();
         }
     } else {
-        MsgWaitForMultipleObjects(0, nullptr, FALSE, timeout_ms, QS_ALLINPUT);
+        if (m_wait_timer) {
+            LARGE_INTEGER due_time{};
+            due_time.QuadPart = -static_cast<LONGLONG>(timeout_ms) * 10000LL;
+            SetWaitableTimer(m_wait_timer, &due_time, 0, nullptr, nullptr, FALSE);
+            MsgWaitForMultipleObjects(1, &m_wait_timer, FALSE, INFINITE, QS_ALLINPUT);
+        } else {
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, timeout_ms, QS_ALLINPUT);
+        }
         poll_events();
     }
 }
@@ -1011,6 +1025,10 @@ void Win32Backend::dispatch_platform_event(const PlatformEvent& event) {
 
 void Win32Backend::shutdown() {
     m_window_map.clear();
+    if (m_wait_timer) {
+        CloseHandle(m_wait_timer);
+        m_wait_timer = nullptr;
+    }
     if (m_class_registered) {
         UnregisterClassW(kWin32ClassName, m_hinstance);
         m_class_registered = false;
