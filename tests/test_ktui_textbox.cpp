@@ -26,8 +26,8 @@ void test_textbox_three_layer_architecture() {
     TextBoxInteractiveState state;
     ResolvedTextBoxStyle style = TextBoxStyleResolver::resolve(data, state, dark_theme);
 
-    // 验证 Fluent / CUI 桌面规范：硬朗微圆角 3px，高度 28px，四周零包围边框 (border_width == 0.0f)，底部 1px 静止底线 + 2px 高光指示线
-    assert(style.corner_radius == 3.0f);
+    // 验证 Uiverse (WhiteNervosa/bad-mole-33) 适配样式：顶部圆角 5px，高度 28px，四周零包围边框，底部 1px 底线 + 2px 展开高亮线
+    assert(style.corner_radius == 5.0f);
     assert(style.height == 28.0f);
     assert(style.border_width == 0.0f);
     assert(style.border.a == 0.0f);

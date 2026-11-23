@@ -1,8 +1,12 @@
 #pragma once
 
+// From Uiverse.io by WhiteNervosa - https://uiverse.io/WhiteNervosa/bad-mole-33
+// MIT License, Copyright (c) WhiteNervosa (WhiteNervosa)
+
 #include "textbox_data.hpp"
 #include "textbox_style.hpp"
 #include <ktui/animation/animation.hpp>
+#include <ktui/animation/cubic_bezier.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/text_measure.hpp>
@@ -85,16 +89,7 @@ public:
     void set_input_focused(bool focused) {
         if (m_state.is_focused != focused) {
             m_state.is_focused = focused;
-            if (focused) {
-                m_blink_visible = true;
-                m_last_blink_time = std::chrono::steady_clock::now();
-                m_focus_line_tween.start(0.0f, 1.0f, 0.25f, Easing::EaseOutCubic);
-            } else {
-                m_blink_visible = false;
-                m_ime_preedit.clear();
-                m_focus_line_tween.start(1.0f, 0.0f, 0.20f, Easing::EaseOutCubic);
-            }
-            m_last_tick_time = std::chrono::steady_clock::now();
+            trigger_focus_animations(focused);
             mark_needs_paint();
         }
     }
@@ -170,8 +165,7 @@ public:
             cursor_shape = m_state.is_disabled ? CursorShape::Forbidden : CursorShape::IBeam;
             if (m_state.is_disabled) {
                 m_state.is_focused = false;
-                m_focus_line_tween.start(m_focus_line_tween.current_value(), 0.0f, 0.15f, Easing::EaseOutCubic);
-                m_last_tick_time = std::chrono::steady_clock::now();
+                trigger_focus_animations(false);
             }
             mark_needs_paint();
         }
@@ -290,41 +284,102 @@ public:
     // ==================== 绘制管线 (Painting Pipeline) ====================
 
     void paint(PaintContext& context) override {
-        // 1. 如果底部活动高亮线补间正处于运行中，推进动效管理器步进
-        if (m_focus_line_tween.is_active()) {
-            auto now = std::chrono::steady_clock::now();
-            float dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
-            m_last_tick_time = now;
-            if (dt > 0.0f) {
-                m_focus_line_tween.tick(dt);
-            }
-            if (m_focus_line_tween.is_active()) {
-                mark_needs_paint();
-            }
+        auto style = resolve_current_style();
+
+        // 1. 推进 Uiverse (WhiteNervosa/bad-mole-33) 风格四路平滑过渡动效：
+        //    - :after 2px 聚焦底条 scaleX (250ms cubic-bezier(0, 0, 0.2, 1))
+        //    - :before 1px 底线颜色过渡 (200ms cubic-bezier(0.4, 0, 0.2, 1))
+        //    - placeholder 聚焦渐隐透明度 (250ms cubic-bezier(0, 0, 0.2, 1))
+        //    - background-color 背景平滑过渡 (200ms cubic-bezier(0.25, 0.8, 0.25, 1))
+        auto now = std::chrono::steady_clock::now();
+        float dt = 0.0f;
+        if (m_last_tick_time.time_since_epoch().count() != 0) {
+            dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
+        }
+        m_last_tick_time = now;
+
+        // 检测目标背景色变更，启动 200ms cubic-bezier(0.25, 0.8, 0.25, 1) 背景过渡
+        if (!m_bg_initialized) {
+            m_bg_initialized = true;
+            m_bg_from = style.background;
+            m_bg_to = style.background;
+            m_bg_current = style.background;
+            m_bg_elapsed = kBgDurationSec;
+        } else if (m_bg_to.r != style.background.r || m_bg_to.g != style.background.g ||
+                   m_bg_to.b != style.background.b || m_bg_to.a != style.background.a) {
+            m_bg_from = m_bg_current;
+            m_bg_to = style.background;
+            m_bg_elapsed = 0.0f;
         }
 
-        auto style = resolve_current_style();
+        bool any_anim_active = false;
+        if (m_bg_elapsed < kBgDurationSec) {
+            m_bg_elapsed = std::min(kBgDurationSec, m_bg_elapsed + dt);
+            float t = kCurveBg.evaluate(m_bg_elapsed / kBgDurationSec);
+            m_bg_current = lerp_color(m_bg_from, m_bg_to, t);
+            if (m_bg_elapsed < kBgDurationSec) any_anim_active = true;
+        } else {
+            m_bg_current = m_bg_to;
+        }
+
+        if (m_focus_line_tween.is_active()) {
+            if (dt > 0.0f) m_focus_line_tween.tick(dt);
+            if (m_focus_line_tween.is_active()) any_anim_active = true;
+        }
+
+        if (m_before_elapsed < kBeforeDurationSec) {
+            m_before_elapsed = std::min(kBeforeDurationSec, m_before_elapsed + dt);
+            float t = kCurveBefore.evaluate(m_before_elapsed / kBeforeDurationSec);
+            m_before_progress = m_before_from + (m_before_to - m_before_from) * t;
+            if (m_before_elapsed < kBeforeDurationSec) any_anim_active = true;
+        } else {
+            m_before_progress = m_before_to;
+        }
+
+        if (m_after_elapsed < kAfterDurationSec) {
+            m_after_elapsed = std::min(kAfterDurationSec, m_after_elapsed + dt);
+            float t = kCurveAfter.evaluate(m_after_elapsed / kAfterDurationSec);
+            m_after_scale = m_after_from + (m_after_to - m_after_from) * t;
+            if (m_after_elapsed < kAfterDurationSec) any_anim_active = true;
+        } else {
+            m_after_scale = m_after_to;
+        }
+
+        if (m_placeholder_elapsed < kPlaceholderDurationSec) {
+            m_placeholder_elapsed = std::min(kPlaceholderDurationSec, m_placeholder_elapsed + dt);
+            float t = kCurveAfter.evaluate(m_placeholder_elapsed / kPlaceholderDurationSec);
+            m_placeholder_opacity = m_placeholder_from + (m_placeholder_to - m_placeholder_from) * t;
+            if (m_placeholder_elapsed < kPlaceholderDurationSec) any_anim_active = true;
+        } else {
+            m_placeholder_opacity = m_placeholder_to;
+        }
+
+        if (any_anim_active) {
+            mark_needs_paint();
+        }
 
         // 2. 检查光标闪烁状态 (530ms 闪烁驱动)
         update_blink_state(style.caret_blink_ms);
 
-        // 3. 绘制微圆角实心底色卡片
-        if (style.background.a > 0.001f) {
-            context.draw_rect(bounds(), style.background, style.corner_radius, 0.0f);
+        // 3. 绘制半透明顶部圆角底色 (5px 5px 0px 0px，无阴影无边框)
+        if (m_bg_current.a > 0.001f) {
+            context.draw_rounded_rect(bounds(), m_bg_current,
+                                      style.corner_radius, style.corner_radius, 0.0f, 0.0f);
         }
 
-        // 4. 绘制四周描边 (仅当外部显式指定 custom_border 且 border_width > 0 时才绘制，默认 0px 零描边)
+        // 4. 绘制四周描边 (仅当外部显式指定 custom_border 且 border_width > 0 时才绘制)
         if (style.border_width > 0.0f && style.border.a > 0.001f) {
             context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
         }
 
-        // 4.1 CUI / Fluent 底部 1px 静止底线 (ThemeTokenId::InputBorder，静止时提供下划视觉锚点)
-        const float corner_inset = std::min(style.corner_radius * 0.75f, 4.0f);
-        float line_start_x = bounds().min_x + corner_inset;
-        float line_w = std::max(0.0f, bounds().width() - corner_inset * 2.0f);
+        // 4.1 底部全宽 1px 底线 (:before)，聚焦时 200ms 平滑过渡为主题强调色
         float resting_line_y = bounds().max_y - style.underline_height;
-        if (style.underline.a > 0.001f && style.underline_height > 0.0f) {
-            context.draw_rect(Rect::from_xywh(line_start_x, resting_line_y, line_w, style.underline_height), style.underline, 0.0f, 0.0f);
+        Color before_col = m_state.is_disabled
+            ? style.underline
+            : lerp_color(style.underline, style.focus_indicator, m_before_progress);
+        if (before_col.a > 0.001f && style.underline_height > 0.0f) {
+            context.draw_rect(Rect::from_xywh(bounds().min_x, resting_line_y, bounds().width(), style.underline_height),
+                              before_col, 0.0f, 0.0f);
         }
 
         // 5. 计算文本内容区域并施加硬件裁剪保护 (严防内容溢出文本框外部)
@@ -345,7 +400,7 @@ public:
         float text_y = content_rect.min_y + (content_rect.height() - line_height) * 0.5f;
         float start_x = content_rect.min_x - m_scroll_offset_x;
 
-        // 6. 绘制选区高亮色块 (半透明 Fluent Accent)
+        // 6. 绘制选区高亮色块
         if (m_state.is_focused && has_selection() && m_ime_preedit.empty() && !display_text.empty()) {
             size_t sel_s = selection_start();
             size_t sel_e = selection_end();
@@ -360,11 +415,13 @@ public:
             context.draw_rect(sel_rect, style.selection, 0.0f, 0.0f);
         }
 
-        // 7. 绘制主体文字或占位符
+        // 7. 绘制主体文字或占位符 (聚焦时占位符 250ms 平滑淡出至 opacity: 0)
         if (!display_text.empty()) {
             context.draw_text(display_text, PointF{start_x, text_y}, font_sz, style.text);
-        } else if (!m_data.placeholder.empty() && m_ime_preedit.empty()) {
-            context.draw_text(m_data.placeholder, PointF{start_x, text_y}, font_sz, style.placeholder);
+        } else if (!m_data.placeholder.empty() && m_ime_preedit.empty() && m_placeholder_opacity > 0.005f) {
+            Color ph_col = style.placeholder;
+            ph_col.a *= m_placeholder_opacity;
+            context.draw_text(m_data.placeholder, PointF{start_x, text_y}, font_sz, ph_col);
         }
 
         // 8. 绘制 IME 输入法预编辑组合态下划线 (如拼音 "nihao")
@@ -386,11 +443,9 @@ public:
 
         context.pop_clip();
 
-        // 10. Fluent 底部动态聚焦扩展高光线 (Focus Indicator Line)
-        float focus_progress = m_focus_line_tween.current_value();
-        if (focus_progress > 0.001f && !m_state.is_disabled) {
-            float max_active_w = bounds().width() - corner_inset * 2.0f;
-            float active_w = max_active_w * focus_progress;
+        // 10. 底部 2px 动态聚焦展开条 (:after, transform: scaleX(0) -> scaleX(1), 250ms)
+        if (m_after_scale > 0.001f && !m_state.is_disabled) {
+            float active_w = bounds().width() * m_after_scale;
             float active_x = bounds().min_x + (bounds().width() - active_w) * 0.5f;
             float line_y = bounds().max_y - style.focus_line_height;
             context.draw_rect(Rect::from_xywh(active_x, line_y, active_w, style.focus_line_height), style.focus_indicator, 0.0f, 0.0f);
@@ -593,17 +648,7 @@ private:
     void setup_behavior() {
         on_focus = [this](FocusEvent& ev) {
             m_state.is_focused = ev.gained_focus;
-            if (ev.gained_focus) {
-                m_blink_visible = true;
-                m_last_blink_time = std::chrono::steady_clock::now();
-                // 委托动效管理器：底部活动聚焦线使用 EaseOutCubic 平滑自中心展开
-                m_focus_line_tween.start(0.0f, 1.0f, 0.25f, Easing::EaseOutCubic);
-            } else {
-                m_blink_visible = false;
-                m_ime_preedit.clear();
-                m_focus_line_tween.start(1.0f, 0.0f, 0.20f, Easing::EaseOutCubic);
-            }
-            m_last_tick_time = std::chrono::steady_clock::now();
+            trigger_focus_animations(ev.gained_focus);
             mark_needs_paint();
         };
 
@@ -870,9 +915,80 @@ private:
     std::vector<TextBoxUndoState> m_redo_stack;
     bool m_is_undoing{false};
 
-    // 动效管理器托管的 Fluent 底部活动高亮线驱动器
+    static Color lerp_color(const Color& a, const Color& b, float t) noexcept {
+        float c = std::clamp(t, 0.0f, 1.0f);
+        return Color{
+            a.r + (b.r - a.r) * c,
+            a.g + (b.g - a.g) * c,
+            a.b + (b.b - a.b) * c,
+            a.a + (b.a - a.a) * c
+        };
+    }
+
+    void trigger_focus_animations(bool focused) {
+        if (focused) {
+            m_blink_visible = true;
+            m_last_blink_time = std::chrono::steady_clock::now();
+            m_focus_line_tween.start(m_focus_line_tween.current_value(), 1.0f, kAfterDurationSec, Easing::EaseOutCubic);
+            m_before_from = m_before_progress;
+            m_before_to = 1.0f;
+            m_before_elapsed = 0.0f;
+            m_after_from = m_after_scale;
+            m_after_to = 1.0f;
+            m_after_elapsed = 0.0f;
+            m_placeholder_from = m_placeholder_opacity;
+            m_placeholder_to = 0.0f;
+            m_placeholder_elapsed = 0.0f;
+        } else {
+            m_blink_visible = false;
+            m_ime_preedit.clear();
+            m_focus_line_tween.start(m_focus_line_tween.current_value(), 0.0f, kBeforeDurationSec, Easing::EaseOutCubic);
+            m_before_from = m_before_progress;
+            m_before_to = 0.0f;
+            m_before_elapsed = 0.0f;
+            m_after_from = m_after_scale;
+            m_after_to = 0.0f;
+            m_after_elapsed = 0.0f;
+            m_placeholder_from = m_placeholder_opacity;
+            m_placeholder_to = 1.0f;
+            m_placeholder_elapsed = 0.0f;
+        }
+        m_last_tick_time = std::chrono::steady_clock::now();
+    }
+
+    // Uiverse (WhiteNervosa/bad-mole-33) 动画曲线与时长常量
+    static constexpr float kBeforeDurationSec = 0.20f;      // 200ms
+    static constexpr float kAfterDurationSec = 0.25f;       // 250ms
+    static constexpr float kPlaceholderDurationSec = 0.25f; // 250ms
+    static constexpr float kBgDurationSec = 0.20f;          // 200ms
+    static constexpr CubicBezier kCurveBefore{0.4f, 0.0f, 0.2f, 1.0f};
+    static constexpr CubicBezier kCurveAfter{0.0f, 0.0f, 0.2f, 1.0f};
+    static constexpr CubicBezier kCurveBg{0.25f, 0.8f, 0.25f, 1.0f};
+
+    // 动效管理器托管的底部活动高亮线驱动器 + Uiverse 四路平滑过渡状态
     MotionTween<float> m_focus_line_tween;
-    std::chrono::steady_clock::time_point m_last_tick_time;
+    std::chrono::steady_clock::time_point m_last_tick_time{};
+
+    float m_before_from{0.0f};
+    float m_before_to{0.0f};
+    float m_before_progress{0.0f};
+    float m_before_elapsed{kBeforeDurationSec};
+
+    float m_after_from{0.0f};
+    float m_after_to{0.0f};
+    float m_after_scale{0.0f};
+    float m_after_elapsed{kAfterDurationSec};
+
+    float m_placeholder_from{1.0f};
+    float m_placeholder_to{1.0f};
+    float m_placeholder_opacity{1.0f};
+    float m_placeholder_elapsed{kPlaceholderDurationSec};
+
+    bool m_bg_initialized{false};
+    Color m_bg_from{};
+    Color m_bg_to{};
+    Color m_bg_current{};
+    float m_bg_elapsed{kBgDurationSec};
 
     // 自定义覆盖属性
     std::optional<Color> m_custom_bg;
@@ -993,7 +1109,7 @@ private:
         };
 
         node->set_properties(init_text, init_ph,
-                             h.value_or(28.0f), radius.value_or(3.0f),
+                             h.value_or(28.0f), radius.value_or(5.0f),
                              pad.value_or(EdgeInsets(4.0f, 8.0f)),
                              bg_c, brd_c, fbrd_c, txt_c, ph_c,
                              font_sz.value_or(13.0f), on_ch, m_desc.on_submit);

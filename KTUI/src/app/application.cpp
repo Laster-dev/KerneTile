@@ -124,6 +124,9 @@ int Application::run() {
         static_cast<Application*>(arg)->step_frame();
     }, this, 0, 1);
     return m_exit_code;
+#elif defined(__ANDROID__)
+    // Android 端由 Choreographer 按屏幕刷新率回调 Application::step_frame()
+    return m_exit_code;
 #else
     auto last_render_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(16);
     constexpr auto kFrameInterval = std::chrono::milliseconds(16); // 60 FPS 工业基准帧率节拍
@@ -254,7 +257,11 @@ std::shared_ptr<Window> Application::create_window(const WindowDesc& desc) {
     auto plat_win = m_backend->create_window(desc);
     if (!plat_win) return nullptr;
 
+#if defined(__ANDROID__)
+    bool show_titlebar = false;
+#else
     bool show_titlebar = desc.custom_titlebar && (desc.type != WindowType::Popup);
+#endif
     auto win = std::make_shared<Window>(m_next_window_id++, std::move(plat_win), show_titlebar);
     win->titlebar().on_theme_toggle = [this]() {
         set_theme(current_theme().is_dark ? Theme::light() : Theme::dark());

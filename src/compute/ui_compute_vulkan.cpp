@@ -1,4 +1,9 @@
+#if defined(__ANDROID__)
+#define VK_USE_PLATFORM_ANDROID_KHR
+#include <android/native_window.h>
+#else
 #define VK_USE_PLATFORM_XLIB_KHR
+#endif
 #include "ui_compute.hpp"
 #include <vulkan/vulkan.h>
 #include "ui_compute_spirv.hpp"
@@ -54,7 +59,12 @@ public:
     }
 
     void setup(void* window, void* display) {
+#if defined(__ANDROID__)
+        (void)display;
+        const char* instance_ext[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
+#else
         const char* instance_ext[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XLIB_SURFACE_EXTENSION_NAME};
+#endif
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         app.apiVersion = VK_API_VERSION_1_1;
         VkInstanceCreateInfo instance{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
@@ -62,10 +72,16 @@ public:
         instance.enabledExtensionCount = 2;
         instance.ppEnabledExtensionNames = instance_ext;
         check(vkCreateInstance(&instance, nullptr, &m_instance), "Vulkan instance");
+#if defined(__ANDROID__)
+        VkAndroidSurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
+        surface.window = static_cast<ANativeWindow*>(window);
+        check(vkCreateAndroidSurfaceKHR(m_instance, &surface, nullptr, &m_surface), "Android Vulkan surface");
+#else
         VkXlibSurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR};
         surface.dpy = static_cast<Display*>(display);
         surface.window = reinterpret_cast<uintptr_t>(window);
         check(vkCreateXlibSurfaceKHR(m_instance, &surface, nullptr, &m_surface), "X11 Vulkan surface");
+#endif
         pick_device();
         const float priority = 1.0f;
         VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -269,7 +285,9 @@ private:
         swap.imageArrayLayers = 1;
         swap.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         swap.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        swap.preTransform = caps.currentTransform;
+        swap.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+            ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+            : caps.currentTransform;
         const auto alpha = static_cast<uint32_t>(caps.supportedCompositeAlpha);
         swap.compositeAlpha = static_cast<VkCompositeAlphaFlagBitsKHR>(alpha & (0u - alpha));
         swap.presentMode = VK_PRESENT_MODE_FIFO_KHR;
@@ -474,7 +492,11 @@ private:
 } // namespace
 
 std::unique_ptr<Backend> create(void* window, void* display) {
+#if defined(__ANDROID__)
+    if (!window) return nullptr;
+#else
     if (!window || !display) return nullptr;
+#endif
     auto backend = std::make_unique<VulkanBackend>();
     try {
         backend->setup(window, display);

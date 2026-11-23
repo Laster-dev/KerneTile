@@ -44,6 +44,36 @@ public:
         m_primitive_count++;
     }
 
+    // 绘制四角独立圆角矩形 (支持可选柔和投影，如 5px 5px 0px 0px 顶部圆角输入框)
+    void draw_rounded_rect(Rect rect, Color color,
+                           float radius_tl, float radius_tr,
+                           float radius_br, float radius_bl,
+                           float shadow_blur = 0.0f,
+                           Vec2 shadow_offset = Vec2{0.0f, 0.0f}) {
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            kernetile::core::UiPrimitive prim{};
+            prim.min_x = px.min_x;
+            prim.min_y = px.min_y;
+            prim.max_x = px.max_x;
+            prim.max_y = px.max_y;
+            prim.radius_top_left = radius_tl * m_render_scale;
+            prim.radius_top_right = radius_tr * m_render_scale;
+            prim.radius_bottom_right = radius_br * m_render_scale;
+            prim.radius_bottom_left = radius_bl * m_render_scale;
+            prim.color_r = color.r * color.a;
+            prim.color_g = color.g * color.a;
+            prim.color_b = color.b * color.a;
+            prim.color_a = color.a;
+            prim.shadow_blur = shadow_blur * m_render_scale;
+            prim.shadow_offset_x = shadow_offset.x * m_render_scale;
+            prim.shadow_offset_y = shadow_offset.y * m_render_scale;
+            m_renderer->push_primitive(prim);
+        }
+        m_primitive_count++;
+    }
+
     // 绘制带软阴影与圆角的卡片盒
     void draw_shadowed_box(Rect rect, Color color, float corner_radius,
                            float shadow_blur, float shadow_spread, Vec2 shadow_offset) {

@@ -8,6 +8,8 @@ set(KTUI_PAL_SOURCES
 
 if (WIN32)
     list(APPEND KTUI_PAL_SOURCES src/pal/win32_backend.cpp)
+elseif (ANDROID)
+    list(APPEND KTUI_PAL_SOURCES src/pal/android_backend.cpp)
 endif()
 
 add_library(ktui_pal STATIC ${KTUI_PAL_SOURCES})
@@ -21,6 +23,8 @@ if (WIN32)
     target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib)
 elseif (EMSCRIPTEN)
     # Emscripten HTML5 / Canvas 2D 库由编译器内置提供
+elseif (ANDROID)
+    target_link_libraries(ktui_pal PUBLIC android log)
 else()
     find_package(X11)
     if (X11_FOUND)

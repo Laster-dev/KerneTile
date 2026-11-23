@@ -24,7 +24,7 @@ if (KERNETILE_STATIC AND NOT WIN32)
     set(BUILD_SHARED_LIBS OFF)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 else()
-    if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++ -static-libgcc")
     endif()
 endif()
@@ -66,6 +66,8 @@ if (WIN32)
     target_link_libraries(kernetile_hal PUBLIC d3d12.lib dxgi.lib)
 elseif (EMSCRIPTEN)
     # Emscripten 环境使用零依赖纯内存 NullDevice 设备与多线程/单线程 CPU 瓦片光栅器
+elseif (ANDROID)
+    target_link_libraries(kernetile_hal PUBLIC android log)
 else()
     target_link_libraries(kernetile_hal PUBLIC pthread)
 endif()
@@ -79,6 +81,8 @@ if (WIN32)
     list(APPEND TEXT_SOURCES src/text/dwrite_text_engine.cpp)
 elseif (EMSCRIPTEN)
     list(APPEND TEXT_SOURCES src/text/web_text_engine.cpp)
+elseif (ANDROID)
+    list(APPEND TEXT_SOURCES src/text/android_text_engine.cpp)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(KT_PANGO REQUIRED IMPORTED_TARGET pangocairo)
@@ -150,6 +154,40 @@ if (KERNETILE_GPU_COMPUTE AND WIN32)
 elseif (KERNETILE_GPU_COMPUTE AND EMSCRIPTEN)
     set(KT_SHADER shaders/ui_compute.wgsl)
     list(APPEND ENGINE_SOURCES src/compute/ui_compute_web.cpp)
+elseif (KERNETILE_GPU_COMPUTE AND ANDROID)
+    find_program(KT_GLSLC glslc
+        HINTS
+            "${ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}"
+            "${ANDROID_NDK}/shader-tools/windows-x86_64"
+            "${ANDROID_NDK}/shader-tools/linux-x86_64"
+            "${ANDROID_NDK}/shader-tools/darwin-x86_64"
+    )
+    find_program(KT_GLSLANG glslangValidator)
+    if (KT_GLSLC OR KT_GLSLANG)
+        list(APPEND ENGINE_SOURCES src/compute/ui_compute_vulkan.cpp)
+        set(KT_SPIRV "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_compute.spv")
+        set(KT_SPIRV_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/ui_compute_spirv.hpp")
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        if (KT_GLSLC)
+            set(KT_SPIRV_CMD "${KT_GLSLC}" -x hlsl -fshader-stage=comp -fentry-point=compose -DKT_VULKAN=1 -fhlsl-offsets
+                -o "${KT_SPIRV}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui_compute_d3d12.hlsl")
+        else()
+            set(KT_SPIRV_CMD "${KT_GLSLANG}" -D -DKT_VULKAN=1 -V -S comp -e compose --hlsl-offsets
+                -o "${KT_SPIRV}" "${CMAKE_CURRENT_SOURCE_DIR}/shaders/ui_compute_d3d12.hlsl")
+        endif()
+        add_custom_command(OUTPUT "${KT_SPIRV_HEADER}"
+            COMMAND ${KT_SPIRV_CMD}
+            COMMAND ${CMAKE_COMMAND} "-DINPUT=${KT_SPIRV}" "-DOUTPUT=${KT_SPIRV_HEADER}"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+            DEPENDS shaders/ui_compute_d3d12.hlsl cmake/EmbedSpirv.cmake
+            VERBATIM)
+        list(APPEND ENGINE_SOURCES "${KT_SPIRV_HEADER}")
+        set(KT_ANDROID_VULKAN ON)
+        message(STATUS "KerneTile Android: Vulkan GPU Compute enabled (${KT_GLSLC}${KT_GLSLANG})")
+    else()
+        message(STATUS "KerneTile Android: neither glslc nor glslangValidator found, using CPU tile rasterizer")
+        list(APPEND ENGINE_SOURCES src/compute/ui_compute_null.cpp)
+    endif()
 elseif (KERNETILE_GPU_COMPUTE AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT KERNETILE_STATIC)
     find_package(Vulkan REQUIRED)
     find_program(KT_GLSLANG glslangValidator REQUIRED)
@@ -176,7 +214,9 @@ endif()
 add_library(kernetile_engine STATIC ${ENGINE_SOURCES})
 target_include_directories(kernetile_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 if (KERNETILE_GPU_COMPUTE AND WIN32)
-    target_link_libraries(kernetile_engine PRIVATE d3dcompiler.lib)
+    target_link_libraries(kernetile_engine PUBLIC d3dcompiler.lib)
+elseif (KT_ANDROID_VULKAN)
+    target_link_libraries(kernetile_engine PRIVATE vulkan android)
 elseif (TARGET Vulkan::Vulkan)
     target_link_libraries(kernetile_engine PRIVATE Vulkan::Vulkan)
 endif()
@@ -197,8 +237,12 @@ target_link_libraries(kernetile_engine PUBLIC
 # ==================== KTUI 跨平台现代 C++20 声明式 UI 框架 ====================
 add_subdirectory(KTUI)
 
-# KTUI 桌面成品可执行 Demo 应用程序
-add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
+# KTUI 桌面 / Web / Android 成品 Demo 应用程序
+if (ANDROID)
+    add_library(ktui_studio_demo SHARED examples/ktui_studio/android_entry.cpp)
+else()
+    add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
+endif()
 target_include_directories(ktui_studio_demo PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
@@ -216,6 +260,9 @@ target_link_libraries(ktui_studio_demo PRIVATE
     kernetile_cpu
     kernetile_core
 )
+if (ANDROID)
+    target_link_libraries(ktui_studio_demo PRIVATE android log)
+endif()
 if (EMSCRIPTEN)
     set_target_properties(ktui_studio_demo PROPERTIES
         SUFFIX ".html"

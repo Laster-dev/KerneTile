@@ -4,6 +4,8 @@
 #include "win32_backend.hpp"
 #elif defined(__EMSCRIPTEN__)
 #include "web_backend.hpp"
+#elif defined(__ANDROID__)
+#include "android_backend.hpp"
 #else
 #include "linux_backend.hpp"
 #endif
@@ -18,6 +20,8 @@ std::unique_ptr<IPlatformBackend> create_platform_backend(bool force_headless) {
     return std::make_unique<Win32Backend>();
 #elif defined(__EMSCRIPTEN__)
     return std::make_unique<WebBackend>();
+#elif defined(__ANDROID__)
+    return std::make_unique<AndroidBackend>();
 #else
     return std::make_unique<LinuxBackend>();
 #endif

@@ -279,6 +279,12 @@ public:
 
         ensure_renderer();
         if (!m_renderer) return;
+        void* cur_native_handle = m_platform_window->get_native_handle();
+        if (cur_native_handle != m_last_native_handle) {
+            m_last_native_handle = cur_native_handle;
+            m_renderer->set_compute_target(cur_native_handle, m_platform_window->get_compute_display());
+            force_full_present = true;
+        }
         if (m_compute_was_ready != m_renderer->compute_ready()) force_full_present = true;
         m_compute_was_ready = m_renderer->compute_ready();
 
@@ -647,7 +653,8 @@ private:
         cfg.width = w;
         cfg.height = h;
         m_renderer = kernetile::KerneTileRenderer::create(cfg);
-        m_renderer->set_compute_target(m_platform_window->get_native_handle(),
+        m_last_native_handle = m_platform_window->get_native_handle();
+        m_renderer->set_compute_target(m_last_native_handle,
                                        m_platform_window->get_compute_display());
         m_renderer_w = w;
         m_renderer_h = h;
@@ -744,6 +751,7 @@ private:
     bool m_show_titlebar{true};
     bool m_window_focused{true};
     float m_render_scale{1.0f};
+    void* m_last_native_handle{nullptr};
     WindowTitlebar m_titlebar;
 
     WidgetPtr m_content_widget;

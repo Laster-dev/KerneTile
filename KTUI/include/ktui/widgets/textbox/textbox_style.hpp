@@ -1,5 +1,8 @@
 #pragma once
 
+// From Uiverse.io by WhiteNervosa - https://uiverse.io/WhiteNervosa/bad-mole-33
+// MIT License, Copyright (c) WhiteNervosa (WhiteNervosa)
+
 #include "textbox_data.hpp"
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/theme/theme.hpp>
@@ -8,30 +11,30 @@
 namespace ktui {
 
 // 文本框完全解析后的视觉样式快照 (Resolved Visual Tokens)
-// 参照 D:\CUI\CUI.Core\ui 规范：默认四周零边框 (ApplyBorderThickness(0.0f))，仅保留底部静止底线与动态展开高光线
+// 保留当前 KTUI 主题配色与背景色，样式与动效适配自 Uiverse.io (WhiteNervosa/bad-mole-33)：
+// 顶部 5px / 底部 0px 圆角、柔和底投影、全宽 1px 底线变色、2px 中心展开聚焦条、占位符渐隐
 struct ResolvedTextBoxStyle {
     Color background{Color{0.14f, 0.14f, 0.16f, 1.0f}};
-    Color border{Color::transparent()};                // 四周描边默认完全透明 (无包围边框)
-    Color underline{Color{1.0f, 1.0f, 1.0f, 0.08f}};   // CUI 底部 1px 静止底线 (ThemeTokenId::InputBorder)
+    Color border{Color::transparent()};                // 四周描边默认完全透明 (无左/右/顶边框)
+    Color underline{Color{1.0f, 1.0f, 1.0f, 0.08f}};   // 底部 1px 静止底线 (:before)
     Color text{Color{0.95f, 0.95f, 0.98f, 1.0f}};
     Color placeholder{Color{0.50f, 0.50f, 0.55f, 1.0f}};
     Color caret{Color{0.0f, 0.525f, 0.941f, 1.0f}};
     Color selection{Color{0.0f, 0.525f, 0.941f, 0.35f}};
-    Color focus_indicator{Color{0.0f, 0.525f, 0.941f, 1.0f}}; // Fluent 底部 2px 扩展高光线 (ThemeTokenId::AccentColor)
+    Color focus_indicator{Color{0.0f, 0.525f, 0.941f, 1.0f}}; // 底部 2px 扩展高光线 (:after)
 
-    float height{28.0f};            // 桌面高信息密度标准高度 28px
-    float corner_radius{3.0f};      // 桌面硬朗微圆角 3px (完全匹配 Fluent / CUI)
-    float border_width{0.0f};       // 默认 0px 边框 (严格匹配 CUI ApplyBorderThickness(0.0f))
-    float underline_height{1.0f};   // 底部静止底线厚度 1px
-    float focus_line_height{2.0f};  // 底部活动高亮线厚度 2px
+    float height{28.0f};            // 恢复原基准高度 28px
+    float corner_radius{5.0f};      // 顶部圆角 5px (5px 5px 0px 0px)
+    float border_width{0.0f};       // 默认无左/右/顶描边
+    float underline_height{1.0f};   // 底部静止底线厚度 1px (:before)
+    float focus_line_height{2.0f};  // 底部活动高亮线厚度 2px (:after)
     EdgeInsets padding{EdgeInsets(4.0f, 8.0f)};
-    float font_size{13.0f};         // 桌面 IDE 基准 13px
+    float font_size{13.0f};         // 恢复原基准字号 13px
     float caret_width{1.5f};        // 1.5px 精致光标
     uint32_t caret_blink_ms{530};   // 530ms 工业标准光标闪烁周期
 };
 
 // 文本框样式解析器 (TextBox Style Layer)
-// 参照 D:\CUI\CUI.Core\ui 规范，将主题、数据和交互状态解析为最终渲染色值
 class TextBoxStyleResolver {
 public:
     static ResolvedTextBoxStyle resolve(const TextBoxData& data,
@@ -49,8 +52,8 @@ public:
         ResolvedTextBoxStyle style;
 
         style.height = 28.0f;
-        style.corner_radius = 3.0f;
-        style.border_width = 0.0f;       // 默认 0px 边框 (严格看齐 CUI ApplyBorderThickness(0.0f))
+        style.corner_radius = 5.0f;
+        style.border_width = 0.0f;
         style.underline_height = 1.0f;
         style.focus_line_height = 2.0f;
         style.padding = EdgeInsets(4.0f, 8.0f);
@@ -62,28 +65,28 @@ public:
         Color idle_text, disabled_text;
 
         if (theme.is_dark) {
-            // 暗色模式 (Fluent Dark Palette)
-            idle_bg         = Color{0.14f, 0.14f, 0.16f, 1.0f};   // #242428 深色卡片表面
-            hover_bg        = Color{0.18f, 0.18f, 0.21f, 1.0f};   // 微弱提亮
-            focus_bg        = Color{0.11f, 0.11f, 0.13f, 1.0f};   // 聚焦微深下沉
-            disabled_bg     = Color{0.12f, 0.12f, 0.14f, 0.50f};
+            // 暗色模式 (半透明通透底色)
+            idle_bg         = Color{1.0f, 1.0f, 1.0f, 0.05f};
+            hover_bg        = Color{1.0f, 1.0f, 1.0f, 0.08f};
+            focus_bg        = Color{1.0f, 1.0f, 1.0f, 0.11f};
+            disabled_bg     = Color{1.0f, 1.0f, 1.0f, 0.025f};
 
-            style.border           = Color::transparent();                // 默认绝无四周描边
-            style.underline        = Color{1.0f, 1.0f, 1.0f, 0.08f};     // CUI Dark InputBorder (8% 白色半透底线)
-            style.focus_indicator  = Color{0.0f, 0.525f, 0.941f, 1.0f};  // Fluent 底部活动高亮线 (#0086F0)
+            style.border           = Color::transparent();                // 无边框
+            style.underline        = Color{1.0f, 1.0f, 1.0f, 0.12f};     // 底部 1px 静止底线
+            style.focus_indicator  = Color{0.0f, 0.525f, 0.941f, 1.0f};  // 底部 2px 活动高亮线 (#0086F0)
 
-            idle_text       = Color{0.95f, 0.95f, 0.98f, 1.0f};  // TextPrimary
-            disabled_text   = Color{0.50f, 0.50f, 0.53f, 0.60f};  // TextMuted
+            idle_text       = Color{0.95f, 0.95f, 0.98f, 1.0f};
+            disabled_text   = Color{0.50f, 0.50f, 0.53f, 0.60f};
             style.placeholder = Color{0.50f, 0.50f, 0.55f, 1.0f};
 
-            style.caret            = Color{0.0f, 0.525f, 0.941f, 1.0f};  // #0086F0 AccentColor
-            style.selection        = Color{0.0f, 0.525f, 0.941f, 0.35f}; // 半透明选区
+            style.caret            = Color{0.0f, 0.525f, 0.941f, 1.0f};
+            style.selection        = Color{0.0f, 0.525f, 0.941f, 0.35f};
         } else {
-            // 浅色模式 (Fluent Light Palette)
-            idle_bg         = Color{0.98f, 0.98f, 0.99f, 1.0f};
-            hover_bg        = Color{1.0f, 1.0f, 1.0f, 1.0f};
-            focus_bg        = Color{1.0f, 1.0f, 1.0f, 1.0f};
-            disabled_bg     = Color{0.94f, 0.94f, 0.95f, 0.60f};
+            // 浅色模式 (半透明通透底色)
+            idle_bg         = Color{0.0f, 0.0f, 0.0f, 0.04f};
+            hover_bg        = Color{0.0f, 0.0f, 0.0f, 0.065f};
+            focus_bg        = Color{0.0f, 0.0f, 0.0f, 0.085f};
+            disabled_bg     = Color{0.0f, 0.0f, 0.0f, 0.02f};
 
             style.border           = Color::transparent();                // 默认绝无四周描边
             style.underline        = Color{0.0f, 0.0f, 0.0f, 0.10f};     // CUI Light InputBorder (10% 黑色半透底线)
