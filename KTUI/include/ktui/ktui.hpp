@@ -70,5 +70,6 @@
 #include <ktui/widgets/text.hpp>
 #include <ktui/widgets/button.hpp>
 #include <ktui/widgets/checkbox.hpp>
+#include <ktui/widgets/toggle_switch.hpp>
 #include <ktui/widgets/textbox.hpp>
 #include <ktui/widgets/text_input.hpp>

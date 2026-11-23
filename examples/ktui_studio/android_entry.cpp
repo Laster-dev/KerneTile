@@ -129,7 +129,7 @@ struct AndroidStudioState {
                         .spacing = 20.0f,
                         .content = {
                             Checkbox { .checked = Bind(step_ten), .label = "步长 10 (+10)", .on_change = [this](bool) { refresh_count(); } },
-                            Checkbox { .checked = Bind(locked), .label = "锁定按钮", .on_change = [this](bool) { refresh_count(); } }
+                            ToggleSwitch { .checked = Bind(locked), .label = "锁定按钮", .on_change = [this](bool) { refresh_count(); } }
                         }
                     }),
                     card(VStack {
