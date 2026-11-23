@@ -12,8 +12,8 @@ int main() {
 
     WindowDesc desc;
     desc.title = "KerneTile Studio";
-    desc.size = Vec2{520.0f, 380.0f};
-    desc.min_size = Vec2{380.0f, 320.0f};
+    desc.size = Vec2{520.0f, 470.0f};
+    desc.min_size = Vec2{380.0f, 380.0f};
     desc.resizable = true;
 
     auto window = app.create_window(desc);
@@ -25,6 +25,7 @@ int main() {
     Property<std::string> count_text{"当前计数: 0   (步长: 1)"};
     Property<bool> step_ten{false};
     Property<bool> locked{false};
+    Property<int> render_mode{1};
     Property<std::string> input_text{"KerneTile KTUI"};
     Property<std::string> input_preview{"输入预览: KerneTile KTUI"};
     Property<Color> window_bg{Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f}};
@@ -166,6 +167,44 @@ int main() {
                         Checkbox { .checked = Bind(step_ten), .label = "步长 10 (+10)", .on_change = [&](bool) { refresh_count(); } },
                         ToggleSwitch { .checked = Bind(locked), .label = "锁定按钮", .on_change = [&](bool) { refresh_count(); } }
                     }
+                }),
+                card(RadioGroup {
+                    .selected_value = Bind(render_mode),
+                    .options = {
+                        RadioOption {
+                            .label = "节能",
+                            .value = 0,
+                            .icon_painter = [](PaintContext& ctx, Rect r, Color col) {
+                                float cx = r.min_x + r.width() * 0.5f;
+                                float cy = r.min_y + r.height() * 0.5f;
+                                ctx.draw_rect(Rect::from_xywh(cx - 7.0f, cy - 7.0f, 14.0f, 14.0f), col, 7.0f, 1.8f);
+                                ctx.draw_line(PointF{cx, cy - 3.5f}, PointF{cx, cy + 3.5f}, col, 1.8f);
+                            }
+                        },
+                        RadioOption {
+                            .label = "均衡",
+                            .value = 1,
+                            .icon_painter = [](PaintContext& ctx, Rect r, Color col) {
+                                float cx = r.min_x + r.width() * 0.5f;
+                                float cy = r.min_y + r.height() * 0.5f;
+                                ctx.draw_rect(Rect::from_xywh(cx - 8.0f, cy - 5.0f, 16.0f, 10.0f), col, 3.0f, 1.8f);
+                                ctx.draw_rect(Rect::from_xywh(cx - 3.0f, cy - 2.0f, 6.0f, 4.0f), col, 1.0f, 0.0f);
+                            }
+                        },
+                        RadioOption {
+                            .label = "性能",
+                            .value = 2,
+                            .icon_painter = [](PaintContext& ctx, Rect r, Color col) {
+                                float cx = r.min_x + r.width() * 0.5f;
+                                float cy = r.min_y + r.height() * 0.5f;
+                                ctx.draw_line(PointF{cx + 1.5f, cy - 8.0f}, PointF{cx - 4.5f, cy + 0.5f}, col, 2.0f);
+                                ctx.draw_line(PointF{cx - 4.5f, cy + 0.5f}, PointF{cx + 1.0f, cy + 0.5f}, col, 2.0f);
+                                ctx.draw_line(PointF{cx + 1.0f, cy + 0.5f}, PointF{cx - 1.5f, cy + 8.0f}, col, 2.0f);
+                            }
+                        }
+                    },
+                    .tile_width = 84.0f,
+                    .tile_height = 68.0f
                 }),
                 card(VStack {
                     .align_items = AlignItems::Stretch,
