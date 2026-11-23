@@ -621,6 +621,10 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             if (m_on_resized) {
                 m_on_resized(m_size);
             }
+            if (wparam != SIZE_MINIMIZED && width > 0 && height > 0 && m_on_paint) {
+                m_on_paint();
+                ValidateRect(m_hwnd, nullptr);
+            }
             return 0;
         }
         case WM_MOVE: {

@@ -29,15 +29,17 @@ public:
         sd.SampleDesc.Quality = 0;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.BufferCount = BUFFER_COUNT;
-        sd.Scaling = DXGI_SCALING_STRETCH;
+        sd.Scaling = DXGI_SCALING_NONE;
         sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
         ComPtr<IDXGISwapChain1> swapchain1;
-        throw_if_failed(
-            factory->CreateSwapChainForHwnd(queue, hwnd, &sd, nullptr, nullptr, &swapchain1),
-            "CreateSwapChainForHwnd failed"
-        );
+        HRESULT hr = factory->CreateSwapChainForHwnd(queue, hwnd, &sd, nullptr, nullptr, &swapchain1);
+        if (FAILED(hr)) {
+            sd.Scaling = DXGI_SCALING_STRETCH;
+            hr = factory->CreateSwapChainForHwnd(queue, hwnd, &sd, nullptr, nullptr, &swapchain1);
+        }
+        throw_if_failed(hr, "CreateSwapChainForHwnd failed");
 
         throw_if_failed(swapchain1.As(&m_swapchain), "Query IDXGISwapChain3 failed");
 
