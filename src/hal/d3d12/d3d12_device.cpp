@@ -25,7 +25,7 @@ static std::vector<uint8_t> read_binary_file(const std::string& path) {
     return {};
 }
 
-D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp) {
+D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
     UINT dxgi_flags = 0;
 #ifdef _DEBUG
     ComPtr<ID3D12Debug> debug_controller;
@@ -99,7 +99,9 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp) {
     m_srv_uav_descriptor_size = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     init_root_signatures();
-    init_blit_pso();
+    if (init_blit) {
+        init_blit_pso();
+    }
     init_command_signature();
 }
 

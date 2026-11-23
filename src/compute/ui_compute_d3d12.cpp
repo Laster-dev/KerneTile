@@ -2,12 +2,16 @@
 #define NOMINMAX
 #endif
 #include "ui_compute.hpp"
+#if defined(KT_PRECOMPILED_DXBC)
+#include "ui_compute_dxbc.hpp"
+#else
 #include "ui_compute_shader.hpp"
+#include <d3dcompiler.h>
+#endif
 #include "d3d12_buffer.hpp"
 #include "d3d12_command_recorder.hpp"
 #include "d3d12_device.hpp"
 
-#include <d3dcompiler.h>
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -19,7 +23,10 @@ using namespace hal::d3d12;
 
 class D3D12Backend final : public Backend {
 public:
-    explicit D3D12Backend(void* window) : m_window(window), m_device(false, false) {
+    explicit D3D12Backend(void* window) : m_window(window), m_device(false, false, false) {
+#if defined(KT_PRECOMPILED_DXBC)
+        m_pipeline = m_device.create_compute_pipeline({ui_compute_dxbc, sizeof(ui_compute_dxbc)});
+#else
         ComPtr<ID3DBlob> binary, errors;
         const auto status = D3DCompile(shader_source, sizeof(shader_source) - 1, "ui_compute_d3d12.hlsl",
             nullptr, nullptr, "compose", "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors);
@@ -29,6 +36,7 @@ public:
         throw_if_failed(status, "Compile UI tile shader");
         m_pipeline = m_device.create_compute_pipeline(
             {static_cast<const uint8_t*>(binary->GetBufferPointer()), binary->GetBufferSize()});
+#endif
     }
 
     ~D3D12Backend() override {
@@ -40,6 +48,7 @@ public:
     bool submit(const Frame& frame) override {
         try {
             m_device.wait_idle();
+            m_atlas_upload.reset();
             resize(frame);
             auto recorder = m_device.create_command_recorder();
             auto& commands = static_cast<D3D12CommandRecorder&>(*recorder);
@@ -85,9 +94,8 @@ private:
         if (first_atlas) m_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
             TextureDesc{frame.atlas_width, frame.atlas_height, TextureFormat::R8_UNORM, false});
 
-        if (first_atlas || !frame.atlas_updates.empty()) {
-            const atlas::RectU32 full{0, 0, frame.atlas_width, frame.atlas_height};
-            const auto rects = first_atlas ? std::span(&full, 1) : frame.atlas_updates;
+        if (!frame.atlas_updates.empty()) {
+            const auto rects = frame.atlas_updates;
             const auto aligned = [](size_t value, size_t alignment) {
                 return (value + alignment - 1) & ~(alignment - 1);
             };
@@ -96,8 +104,9 @@ private:
                 total += aligned(aligned(rect.w, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) * rect.h,
                                  D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
             }
-            auto& upload = upload_buffer(4, total);
-            auto* bytes = static_cast<uint8_t*>(upload.map());
+            m_atlas_upload = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
+                BufferDesc{std::max<size_t>(256, total), BufferUsage::Upload});
+            auto* bytes = static_cast<uint8_t*>(m_atlas_upload->map());
             commands.resource_barrier(*m_atlas, m_atlas->get_current_state(), ResourceState::CopyDst);
             size_t offset = 0;
             for (const auto& rect : rects) {
@@ -106,7 +115,7 @@ private:
                     const size_t source = size_t(rect.y + row) * frame.atlas_width + rect.x;
                     std::memcpy(bytes + offset + size_t(row) * pitch, frame.atlas.data() + source, rect.w);
                 }
-                D3D12_TEXTURE_COPY_LOCATION src{upload.get_native_resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+                D3D12_TEXTURE_COPY_LOCATION src{m_atlas_upload->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
                 src.PlacedFootprint.Offset = offset;
                 src.PlacedFootprint.Footprint = {DXGI_FORMAT_R8_UNORM, rect.w, rect.h, 1, pitch};
                 D3D12_TEXTURE_COPY_LOCATION dst{m_atlas->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
@@ -114,6 +123,8 @@ private:
                 offset += aligned(size_t(pitch) * rect.h, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
             }
             commands.resource_barrier(*m_atlas, ResourceState::CopyDst, ResourceState::ComputeShaderResource);
+        } else if (first_atlas) {
+            commands.resource_barrier(*m_atlas, m_atlas->get_current_state(), ResourceState::ComputeShaderResource);
         }
 
         commands.set_compute_pipeline(*m_pipeline);
@@ -139,7 +150,8 @@ private:
     std::unique_ptr<ComputePipeline> m_pipeline;
     std::unique_ptr<Swapchain> m_swapchain;
     std::unique_ptr<D3D12Texture> m_output, m_atlas;
-    std::array<std::unique_ptr<D3D12Buffer>, 5> m_uploads;
+    std::array<std::unique_ptr<D3D12Buffer>, 4> m_uploads;
+    std::unique_ptr<D3D12Buffer> m_atlas_upload;
     bool m_failed = false;
 };
 } // namespace

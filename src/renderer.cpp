@@ -12,7 +12,7 @@ public:
         : m_config(config),
           m_grid(config.width, config.height),
           m_dirty_tracker(m_grid.get_total_tiles()),
-          m_atlas(2048, 2048, atlas::AtlasFormat::R8_UNORM)
+          m_atlas(1024, 1024, atlas::AtlasFormat::R8_UNORM)
     {
 
 
