@@ -51,14 +51,18 @@ void generate_fallback_ambient_wallpaper(uint32_t& out_w, uint32_t& out_h, std::
         const float v = static_cast<float>(y) / static_cast<float>(out_h - 1);
         for (uint32_t x = 0; x < out_w; ++x) {
             const float u = static_cast<float>(x) / static_cast<float>(out_w - 1);
-            // 柔和的 Windows 11 Bloom 风格环境色底图（供非 Windows 平台或无壁纸环境兜底）
-            const float d1 = std::hypot(u - 0.25f, v - 0.30f);
-            const float d2 = std::hypot(u - 0.78f, v - 0.72f);
-            const float g1 = std::exp(-d1 * d1 * 4.5f);
-            const float g2 = std::exp(-d2 * d2 * 4.0f);
-            float r = 0.08f + 0.16f * g1 + 0.36f * g2;
-            float g = 0.13f + 0.42f * g1 + 0.22f * g2;
-            float b = 0.26f + 0.62f * g1 + 0.56f * g2;
+            // 真实还原 Windows 11 Dark Bloom (img19) 的深色花瓣光场分布
+            const float d_center = std::hypot((u - 0.50f) * 1.2f, (v - 0.52f));
+            const float d_left   = std::hypot((u - 0.40f) * 1.4f, (v - 0.45f));
+            const float d_right  = std::hypot((u - 0.62f) * 1.3f, (v - 0.58f));
+            const float g_core   = std::exp(-d_center * d_center * 5.0f);
+            const float g_cyan   = std::exp(-d_left * d_left * 8.5f);
+            const float g_violet = std::exp(-d_right * d_right * 7.5f);
+
+            float r = 0.04f + 0.06f * g_core + 0.05f * g_cyan + 0.16f * g_violet;
+            float g = 0.055f + 0.22f * g_core + 0.38f * g_cyan + 0.08f * g_violet;
+            float b = 0.095f + 0.52f * g_core + 0.62f * g_cyan + 0.42f * g_violet;
+
             const size_t idx = (static_cast<size_t>(y) * out_w + x) * 4;
             out_rgba[idx + 0] = static_cast<uint8_t>(std::clamp(r * 255.0f, 0.0f, 255.0f));
             out_rgba[idx + 1] = static_cast<uint8_t>(std::clamp(g * 255.0f, 0.0f, 255.0f));

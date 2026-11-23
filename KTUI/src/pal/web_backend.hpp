@@ -933,6 +933,17 @@ public:
         return Rect{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)};
     }
 
+    Rect monitor_uv_rect() const override {
+        Rect sb = screen_bounds();
+        float sw = std::max(1.0f, sb.width());
+        float sh = std::max(1.0f, sb.height());
+        float u0 = std::clamp(m_position.x / sw, 0.0f, 1.0f);
+        float v0 = std::clamp(m_position.y / sh, 0.0f, 1.0f);
+        float u1 = std::clamp((m_position.x + m_size.x) / sw, 0.0f, 1.0f);
+        float v1 = std::clamp((m_position.y + m_size.y) / sh, 0.0f, 1.0f);
+        return Rect{u0, v0, u1, v1};
+    }
+
     // ==================== 呈现状态 ====================
     void show() override {
         m_visible = true;

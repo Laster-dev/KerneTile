@@ -261,7 +261,7 @@ add_subdirectory(KTUI)
 
 # KTUI 桌面 / Web / Android 成品 Demo 应用程序
 if (ANDROID)
-    add_library(ktui_studio_demo SHARED examples/ktui_studio/android_entry.cpp)
+    add_library(ktui_studio_demo SHARED examples/ktui_studio/main.cpp)
 else()
     add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
 endif()
@@ -295,6 +295,11 @@ if (EMSCRIPTEN)
         "-sNO_EXIT_RUNTIME=1"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8']"
         "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/shell.html"
+    )
+    add_custom_command(TARGET ktui_studio_demo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/wallpaper_dark.jpg"
+            "$<TARGET_FILE_DIR:ktui_studio_demo>/wallpaper_dark.jpg"
     )
 endif()
 

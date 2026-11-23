@@ -1,9 +1,9 @@
 # Build directories
 build/
-build-linux/
-build-web/
+build-*/
 bin/
 out/
+dist/
 .cache/
 
 # IDE files
@@ -12,16 +12,44 @@ out/
 *.vcxproj*
 *.sln
 CMakeSettings.json
+.idea/
+*.iml
 
 # Crash dumps
 dumps/
 *.dmp
 
-# Test binaries and object files
+# Binaries and object files
 *.exe
 *.obj
+*.o
+*.a
+*.lib
+*.so
+*.dylib
 *.pdb
 *.ilk
 *.ninja
 *.ninja_deps
 *.ninja_log
+
+# Android & Gradle
+.gradle/
+.kotlin/
+local.properties
+**/android/.gradle/
+**/android/.idea/
+**/android/.kotlin/
+**/android/local.properties
+**/android/app/.cxx/
+**/android/app/build/
+**/android/build/
+*.apk
+*.aab
+*.aar
+*.keystore
+*.jks
+
+# OS files
+Thumbs.db
+.DS_Store
