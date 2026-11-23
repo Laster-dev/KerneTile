@@ -12,6 +12,8 @@
 #include <clocale>
 #include <unordered_map>
 #include <cstring>
+#include <cstdlib>
+#include <cmath>
 #include <algorithm>
 
 #if defined(KTUI_HAS_X11)
@@ -235,19 +237,22 @@ public:
           m_decorated(desc.decorated), m_display(dpy)
     {
         if (m_display != nullptr) {
+            m_dpi_scale = detect_dpi_scale();
             int screen = DefaultScreen(m_display);
             Window root = RootWindow(m_display, screen);
             int depth = DefaultDepth(m_display, screen);
             Visual* visual = DefaultVisual(m_display, screen);
 
+            int phys_w = std::max(1, static_cast<int>(std::lround(m_size.x * m_dpi_scale)));
+            int phys_h = std::max(1, static_cast<int>(std::lround(m_size.y * m_dpi_scale)));
             int scr_w = DisplayWidth(m_display, screen);
             int scr_h = DisplayHeight(m_display, screen);
             int win_x = (desc.position.x >= 0.0f) 
                 ? static_cast<int>(desc.position.x) 
-                : std::max(0, (scr_w - static_cast<int>(m_size.x)) / 2);
+                : std::max(0, (scr_w - phys_w) / 2);
             int win_y = (desc.position.y >= 0.0f) 
                 ? static_cast<int>(desc.position.y) 
-                : std::max(0, (scr_h - static_cast<int>(m_size.y)) / 2);
+                : std::max(0, (scr_h - phys_h) / 2);
             m_position = Vec2{static_cast<float>(win_x), static_cast<float>(win_y)};
 
             XSetWindowAttributes swa{};
@@ -255,8 +260,8 @@ public:
                              ButtonPressMask | ButtonReleaseMask | PointerMotionMask | FocusChangeMask;
             
             m_xwindow = XCreateWindow(m_display, root, win_x, win_y,
-                                      static_cast<uint32_t>(std::max(1.0f, m_size.x)),
-                                      static_cast<uint32_t>(std::max(1.0f, m_size.y)),
+                                      static_cast<uint32_t>(phys_w),
+                                      static_cast<uint32_t>(phys_h),
                                       0, depth, InputOutput, visual, CWEventMask, &swa);
 
             // 1. 设置窗口标题 (兼容 Latin-1 与 UTF-8 EWMH)
@@ -348,8 +353,8 @@ public:
 #if defined(KTUI_HAS_X11)
         if (m_display && m_xwindow != 0) {
             XResizeWindow(m_display, m_xwindow, 
-                          static_cast<uint32_t>(std::max(1.0f, new_size.x)), 
-                          static_cast<uint32_t>(std::max(1.0f, new_size.y)));
+                          static_cast<uint32_t>(std::max(1L, std::lround(new_size.x * m_dpi_scale))), 
+                          static_cast<uint32_t>(std::max(1L, std::lround(new_size.y * m_dpi_scale))));
             XFlush(m_display);
         }
 #endif
@@ -385,8 +390,10 @@ public:
             int screen = DefaultScreen(m_display);
             int scr_w = DisplayWidth(m_display, screen);
             int scr_h = DisplayHeight(m_display, screen);
-            m_position = Vec2{static_cast<float>(std::max(0, (scr_w - static_cast<int>(m_size.x)) / 2)),
-                              static_cast<float>(std::max(0, (scr_h - static_cast<int>(m_size.y)) / 2))};
+            int phys_w = static_cast<int>(std::lround(m_size.x * m_dpi_scale));
+            int phys_h = static_cast<int>(std::lround(m_size.y * m_dpi_scale));
+            m_position = Vec2{static_cast<float>(std::max(0, (scr_w - phys_w) / 2)),
+                              static_cast<float>(std::max(0, (scr_h - phys_h) / 2))};
             set_position(m_position);
             return;
         }
@@ -572,36 +579,11 @@ public:
         m_hit_test_cb = std::move(cb);
     }
 
-    float dpi_scale() const override { 
-#if defined(KTUI_HAS_X11)
-        if (m_display) {
-            char* rms = XResourceManagerString(m_display);
-            if (rms) {
-                char* ptr = std::strstr(rms, "Xft.dpi:");
-                if (ptr) {
-                    float dpi = static_cast<float>(std::atof(ptr + 8));
-                    if (dpi > 20.0f && dpi < 500.0f) {
-                        return dpi / 96.0f;
-                    }
-                }
-            }
-            int screen = DefaultScreen(m_display);
-            int w_px = DisplayWidth(m_display, screen);
-            int w_mm = DisplayWidthMM(m_display, screen);
-            if (w_mm > 0) {
-                float dpi = (static_cast<float>(w_px) / static_cast<float>(w_mm)) * 25.4f;
-                if (dpi >= 80.0f && dpi <= 400.0f) {
-                    return dpi / 96.0f;
-                }
-            }
-        }
-#endif
-        return 1.0f; 
-    }
+    float dpi_scale() const override { return m_dpi_scale; }
 
     uint32_t refresh_rate() const override { return 60; }
 
-    float render_scale() const override { return 1.0f; }
+    float render_scale() const override { return m_dpi_scale; }
 
     void* get_compute_display() const override {
 #if defined(KTUI_HAS_X11)
@@ -761,8 +743,10 @@ public:
     void on_dpi_changed(std::function<void(float)> handler) override { m_dpi_handler = std::move(handler); }
     void on_focus_changed(std::function<void(bool)> handler) override { m_focus_handler = std::move(handler); }
 
-    // X11 ConfigureNotify 事件通知
-    void notify_configure(Vec2 new_sz, Vec2 new_pos) {
+    // X11 ConfigureNotify 事件通知 (物理像素 -> 逻辑 DIP)
+    void notify_configure(Vec2 phys_sz, Vec2 new_pos) {
+        const float inv_dpi = (m_dpi_scale > 0.0f) ? (1.0f / m_dpi_scale) : 1.0f;
+        Vec2 new_sz{phys_sz.x * inv_dpi, phys_sz.y * inv_dpi};
         bool sz_changed = (new_sz.x != m_size.x || new_sz.y != m_size.y);
         bool pos_changed = (new_pos.x != m_position.x || new_pos.y != m_position.y);
         m_size = new_sz;
@@ -829,6 +813,41 @@ public:
     }
 
 private:
+    float detect_dpi_scale() const {
+        if (const char* qt_scale = std::getenv("QT_SCALE_FACTOR")) {
+            float v = static_cast<float>(std::atof(qt_scale));
+            if (v >= 0.5f && v <= 4.0f) return v;
+        }
+        if (const char* gdk_scale = std::getenv("GDK_SCALE")) {
+            float v = static_cast<float>(std::atof(gdk_scale));
+            if (v >= 0.5f && v <= 4.0f) return v;
+        }
+#if defined(KTUI_HAS_X11)
+        if (m_display) {
+            char* rms = XResourceManagerString(m_display);
+            if (rms) {
+                char* ptr = std::strstr(rms, "Xft.dpi:");
+                if (ptr) {
+                    float dpi = static_cast<float>(std::atof(ptr + 8));
+                    if (dpi > 20.0f && dpi < 500.0f) {
+                        return std::clamp(dpi / 96.0f, 0.5f, 4.0f);
+                    }
+                }
+            }
+            int screen = DefaultScreen(m_display);
+            int w_px = DisplayWidth(m_display, screen);
+            int w_mm = DisplayWidthMM(m_display, screen);
+            if (w_mm > 0) {
+                float dpi = (static_cast<float>(w_px) / static_cast<float>(w_mm)) * 25.4f;
+                if (dpi >= 80.0f && dpi <= 400.0f) {
+                    return std::clamp(dpi / 96.0f, 1.0f, 4.0f);
+                }
+            }
+        }
+#endif
+        return 1.0f;
+    }
+
     void update_size_hints() {
 #if defined(KTUI_HAS_X11)
         if (m_display && m_xwindow != 0) {
@@ -836,13 +855,13 @@ private:
             if (hints) {
                 hints->flags = PMinSize | PMaxSize;
                 if (!m_resizable) {
-                    hints->min_width = hints->max_width = static_cast<int>(m_size.x);
-                    hints->min_height = hints->max_height = static_cast<int>(m_size.y);
+                    hints->min_width = hints->max_width = static_cast<int>(std::lround(m_size.x * m_dpi_scale));
+                    hints->min_height = hints->max_height = static_cast<int>(std::lround(m_size.y * m_dpi_scale));
                 } else {
-                    hints->min_width = static_cast<int>(m_min_size.x);
-                    hints->min_height = static_cast<int>(m_min_size.y);
-                    hints->max_width = static_cast<int>(m_max_size.x);
-                    hints->max_height = static_cast<int>(m_max_size.y);
+                    hints->min_width = static_cast<int>(std::lround(m_min_size.x * m_dpi_scale));
+                    hints->min_height = static_cast<int>(std::lround(m_min_size.y * m_dpi_scale));
+                    hints->max_width = static_cast<int>(std::min<double>(32767.0, std::lround(m_max_size.x * m_dpi_scale)));
+                    hints->max_height = static_cast<int>(std::min<double>(32767.0, std::lround(m_max_size.y * m_dpi_scale)));
                 }
                 XSetWMNormalHints(m_display, m_xwindow, hints);
                 XFree(hints);
@@ -890,6 +909,7 @@ private:
     bool m_decorated{true};
     bool m_closed{false};
     float m_opacity{1.0f};
+    float m_dpi_scale{1.0f};
     Rect m_ime_cursor_rect{};
     bool m_ime_enabled{false};
     CursorShape m_cursor_shape{CursorShape::Arrow};
@@ -1002,23 +1022,31 @@ public:
                     }
                     case MotionNotify: {
                         if (m_event_callback) {
+                            float inv_dpi = 1.0f;
+                            if (auto it = m_windows_map.find(ev.xmotion.window); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
+                                inv_dpi = 1.0f / it->second->dpi_scale();
+                            }
                             PlatformEvent pe;
                             pe.type = PlatformEventType::PointerMove;
                             pe.window_handle = reinterpret_cast<void*>(ev.xmotion.window);
-                            pe.position = PointF{static_cast<float>(ev.xmotion.x), static_cast<float>(ev.xmotion.y)};
+                            pe.position = PointF{static_cast<float>(ev.xmotion.x) * inv_dpi, static_cast<float>(ev.xmotion.y) * inv_dpi};
                             m_event_callback(pe);
                         }
                         break;
                     }
                     case ButtonPress: {
                         if (m_event_callback) {
+                            float inv_dpi = 1.0f;
+                            if (auto it = m_windows_map.find(ev.xbutton.window); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
+                                inv_dpi = 1.0f / it->second->dpi_scale();
+                            }
                             // 滚轮事件映射 (Button 4/5 垂直, Button 6/7 水平)
                             if (ev.xbutton.button == 4 || ev.xbutton.button == 5 ||
                                 ev.xbutton.button == 6 || ev.xbutton.button == 7) {
                                 PlatformEvent pe;
                                 pe.type = PlatformEventType::PointerScroll;
                                 pe.window_handle = reinterpret_cast<void*>(ev.xbutton.window);
-                                pe.position = PointF{static_cast<float>(ev.xbutton.x), static_cast<float>(ev.xbutton.y)};
+                                pe.position = PointF{static_cast<float>(ev.xbutton.x) * inv_dpi, static_cast<float>(ev.xbutton.y) * inv_dpi};
                                 float delta_y = (ev.xbutton.button == 4) ? -36.0f : (ev.xbutton.button == 5) ? 36.0f : 0.0f;
                                 float delta_x = (ev.xbutton.button == 6) ? -36.0f : (ev.xbutton.button == 7) ? 36.0f : 0.0f;
                                 pe.delta = Vec2{delta_x, delta_y};
@@ -1036,7 +1064,7 @@ public:
                             PlatformEvent pe;
                             pe.type = PlatformEventType::PointerDown;
                             pe.window_handle = reinterpret_cast<void*>(ev.xbutton.window);
-                            pe.position = PointF{static_cast<float>(ev.xbutton.x), static_cast<float>(ev.xbutton.y)};
+                            pe.position = PointF{static_cast<float>(ev.xbutton.x) * inv_dpi, static_cast<float>(ev.xbutton.y) * inv_dpi};
                             pe.button = (ev.xbutton.button == 1) ? PointerButton::Primary :
                                         (ev.xbutton.button == 3) ? PointerButton::Secondary : PointerButton::Auxiliary;
                             m_event_callback(pe);
@@ -1054,10 +1082,14 @@ public:
                         }
 
                         if (m_event_callback) {
+                            float inv_dpi = 1.0f;
+                            if (auto it = m_windows_map.find(ev.xbutton.window); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
+                                inv_dpi = 1.0f / it->second->dpi_scale();
+                            }
                             PlatformEvent pe;
                             pe.type = PlatformEventType::PointerUp;
                             pe.window_handle = reinterpret_cast<void*>(ev.xbutton.window);
-                            pe.position = PointF{static_cast<float>(ev.xbutton.x), static_cast<float>(ev.xbutton.y)};
+                            pe.position = PointF{static_cast<float>(ev.xbutton.x) * inv_dpi, static_cast<float>(ev.xbutton.y) * inv_dpi};
                             pe.button = (ev.xbutton.button == 1) ? PointerButton::Primary :
                                         (ev.xbutton.button == 3) ? PointerButton::Secondary : PointerButton::Auxiliary;
                             m_event_callback(pe);

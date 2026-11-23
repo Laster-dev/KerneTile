@@ -74,7 +74,7 @@ public:
     float dpi_scale() const override { return m_dpi_scale; }
     uint32_t refresh_rate() const override { return m_refresh_rate; }
 
-    float render_scale() const override { return 1.0f; }
+    float render_scale() const override { return m_dpi_scale; }
     void* get_compute_display() const override { return nullptr; }
     void* get_native_handle() const override { return static_cast<void*>(m_hwnd); }
 

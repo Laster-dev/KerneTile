@@ -453,9 +453,9 @@ public:
         }
     }
 
-    // 整窗外框 1px 描边 (Windows 下交由 DWM 原生圆角阴影负责，仅非 Win32 如 Web 桌面绘制极淡微框)
+    // 整窗外框 1px 描边 (Windows 下交由 DWM 原生圆角阴影负责，Web 下交由 CSS 抗锯齿圆角边框叠加层负责)
     void paint_outer_border(PaintContext& ctx, Vec2 win_size, bool is_active, bool maximized) const {
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__EMSCRIPTEN__)
         (void)ctx; (void)win_size; (void)is_active; (void)maximized;
         return;
 #else

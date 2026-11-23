@@ -274,8 +274,8 @@ public:
         Vec2 sz = m_platform_window->size();
         if (sz.x <= 0 || sz.y <= 0) return;
         const float scale = m_platform_window->render_scale();
-        const auto w = static_cast<uint32_t>(std::ceil(sz.x * scale));
-        const auto h = static_cast<uint32_t>(std::ceil(sz.y * scale));
+        const auto w = static_cast<uint32_t>(std::max<long>(1L, std::lround(sz.x * scale)));
+        const auto h = static_cast<uint32_t>(std::max<long>(1L, std::lround(sz.y * scale)));
 
         ensure_renderer();
         if (!m_renderer) return;
@@ -641,8 +641,8 @@ private:
         if (m_renderer || !m_platform_window) return;
         Vec2 sz = m_platform_window->size();
         m_render_scale = m_platform_window->render_scale();
-        const auto w = static_cast<uint32_t>(std::max(1.0f, std::ceil(sz.x * m_render_scale)));
-        const auto h = static_cast<uint32_t>(std::max(1.0f, std::ceil(sz.y * m_render_scale)));
+        const auto w = static_cast<uint32_t>(std::max<long>(1L, std::lround(sz.x * m_render_scale)));
+        const auto h = static_cast<uint32_t>(std::max<long>(1L, std::lround(sz.y * m_render_scale)));
         kernetile::RendererConfig cfg;
         cfg.width = w;
         cfg.height = h;

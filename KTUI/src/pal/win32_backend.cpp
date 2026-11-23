@@ -3,6 +3,7 @@
 #include "win32_backend.hpp"
 #include <imm.h>
 #include <algorithm>
+#include <cmath>
 
 namespace ktui {
 
@@ -11,6 +12,29 @@ struct DwmMargins { int left, right, top, bottom; };
 using DwmExtendFrameFn = HRESULT(WINAPI*)(HWND, const DwmMargins*);
 using DwmSetAttrFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
 using DwmDefWndProcFn = BOOL(WINAPI*)(HWND, UINT, WPARAM, LPARAM, LRESULT*);
+using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+
+float query_window_dpi_scale(HWND hwnd) {
+    if (hwnd) {
+        static auto get_dpi_for_window = reinterpret_cast<GetDpiForWindowFn>(
+            GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+        if (get_dpi_for_window) {
+            UINT dpi = get_dpi_for_window(hwnd);
+            if (dpi >= 48 && dpi <= 960) {
+                return static_cast<float>(dpi) / 96.0f;
+            }
+        }
+        HDC hdc = GetDC(hwnd);
+        if (hdc) {
+            int dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+            ReleaseDC(hwnd, hdc);
+            if (dpi >= 48 && dpi <= 960) {
+                return static_cast<float>(dpi) / 96.0f;
+            }
+        }
+    }
+    return 1.0f;
+}
 
 HMODULE get_dwm_module() {
     static HMODULE s_dwm = LoadLibraryW(L"dwmapi.dll");
@@ -132,34 +156,45 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
     );
 
     if (m_hwnd) {
-        if (!m_decorated) {
-            int pos_x = x;
-            int pos_y = y;
-            if (m_position.x < 0.0f && m_position.y < 0.0f) {
-                HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
-                MONITORINFO mi{sizeof(mi)};
-                if (GetMonitorInfoW(hmon, &mi)) {
-                    pos_x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - w) / 2;
-                    pos_y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - h) / 2;
-                }
-            }
-            SetWindowPos(m_hwnd, nullptr, pos_x, pos_y, w, h,
-                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            update_dwm_chrome();
-        }
-        RECT client_rect;
-        GetClientRect(m_hwnd, &client_rect);
-        m_size = Vec2{static_cast<float>(client_rect.right - client_rect.left),
-                      static_cast<float>(client_rect.bottom - client_rect.top)};
-        
+        m_dpi_scale = query_window_dpi_scale(m_hwnd);
         HDC hdc = GetDC(m_hwnd);
         if (hdc) {
-            int dpi = GetDeviceCaps(hdc, LOGPIXELSX);
-            m_dpi_scale = static_cast<float>(dpi) / 96.0f;
             m_refresh_rate = static_cast<uint32_t>(GetDeviceCaps(hdc, VREFRESH));
             if (m_refresh_rate <= 1) m_refresh_rate = 60;
             ReleaseDC(m_hwnd, hdc);
         }
+
+        int phys_w = std::max(1, static_cast<int>(std::lround(desc.size.x * m_dpi_scale)));
+        int phys_h = std::max(1, static_cast<int>(std::lround(desc.size.y * m_dpi_scale)));
+        if (m_decorated) {
+            RECT adj{0, 0, phys_w, phys_h};
+            AdjustWindowRectEx(&adj, style, FALSE, ex_style);
+            phys_w = adj.right - adj.left;
+            phys_h = adj.bottom - adj.top;
+        }
+
+        int pos_x = x;
+        int pos_y = y;
+        if (m_position.x < 0.0f && m_position.y < 0.0f) {
+            HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi{sizeof(mi)};
+            if (GetMonitorInfoW(hmon, &mi)) {
+                pos_x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - phys_w) / 2;
+                pos_y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - phys_h) / 2;
+            }
+        }
+        const UINT swp_flags = SWP_NOZORDER | SWP_NOACTIVATE |
+            ((m_position.x < 0.0f && m_position.y < 0.0f && m_decorated) ? SWP_NOMOVE : 0) |
+            (!m_decorated ? SWP_FRAMECHANGED : 0);
+        SetWindowPos(m_hwnd, nullptr, pos_x, pos_y, phys_w, phys_h, swp_flags);
+        if (!m_decorated) {
+            update_dwm_chrome();
+        }
+
+        RECT client_rect;
+        GetClientRect(m_hwnd, &client_rect);
+        m_size = Vec2{static_cast<float>(client_rect.right - client_rect.left) / m_dpi_scale,
+                      static_cast<float>(client_rect.bottom - client_rect.top) / m_dpi_scale};
     }
 }
 
@@ -174,7 +209,17 @@ void Win32Window::set_size(Vec2 new_size) {
     if (!m_hwnd) return;
     float w = std::clamp(new_size.x, m_min_size.x, m_max_size.x);
     float h = std::clamp(new_size.y, m_min_size.y, m_max_size.y);
-    SetWindowPos(m_hwnd, nullptr, 0, 0, static_cast<int>(w), static_cast<int>(h),
+    int phys_w = std::max(1, static_cast<int>(std::lround(w * m_dpi_scale)));
+    int phys_h = std::max(1, static_cast<int>(std::lround(h * m_dpi_scale)));
+    if (m_decorated) {
+        RECT adj{0, 0, phys_w, phys_h};
+        DWORD style = static_cast<DWORD>(GetWindowLongW(m_hwnd, GWL_STYLE));
+        DWORD ex_style = static_cast<DWORD>(GetWindowLongW(m_hwnd, GWL_EXSTYLE));
+        AdjustWindowRectEx(&adj, style, FALSE, ex_style);
+        phys_w = adj.right - adj.left;
+        phys_h = adj.bottom - adj.top;
+    }
+    SetWindowPos(m_hwnd, nullptr, 0, 0, phys_w, phys_h,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
@@ -191,8 +236,10 @@ void Win32Window::center_on_screen() {
     if (GetMonitorInfoW(hmon, &mi)) {
         int mon_w = mi.rcWork.right - mi.rcWork.left;
         int mon_h = mi.rcWork.bottom - mi.rcWork.top;
-        int win_w = static_cast<int>(m_size.x);
-        int win_h = static_cast<int>(m_size.y);
+        RECT wr{};
+        GetWindowRect(m_hwnd, &wr);
+        int win_w = wr.right - wr.left;
+        int win_h = wr.bottom - wr.top;
         int x = mi.rcWork.left + (mon_w - win_w) / 2;
         int y = mi.rcWork.top + (mon_h - win_h) / 2;
         set_position(Vec2{static_cast<float>(x), static_cast<float>(y)});
@@ -413,21 +460,22 @@ void Win32Window::set_ime_cursor_rect(Rect cursor_rect) {
 
     HIMC himc = ImmGetContext(m_hwnd);
     if (himc) {
+        const float s = m_dpi_scale;
         COMPOSITIONFORM cf{};
         cf.dwStyle = CFS_POINT;
-        cf.ptCurrentPos.x = static_cast<LONG>(cursor_rect.min_x);
-        cf.ptCurrentPos.y = static_cast<LONG>(cursor_rect.min_y);
+        cf.ptCurrentPos.x = static_cast<LONG>(std::lround(cursor_rect.min_x * s));
+        cf.ptCurrentPos.y = static_cast<LONG>(std::lround(cursor_rect.min_y * s));
         ImmSetCompositionWindow(himc, &cf);
 
         CANDIDATEFORM cand{};
         cand.dwIndex = 0;
         cand.dwStyle = CFS_EXCLUDE;
-        cand.ptCurrentPos.x = static_cast<LONG>(cursor_rect.min_x);
-        cand.ptCurrentPos.y = static_cast<LONG>(cursor_rect.max_y);
-        cand.rcArea.left = static_cast<LONG>(cursor_rect.min_x);
-        cand.rcArea.top = static_cast<LONG>(cursor_rect.min_y);
-        cand.rcArea.right = static_cast<LONG>(cursor_rect.max_x);
-        cand.rcArea.bottom = static_cast<LONG>(cursor_rect.max_y + 4.0f);
+        cand.ptCurrentPos.x = static_cast<LONG>(std::lround(cursor_rect.min_x * s));
+        cand.ptCurrentPos.y = static_cast<LONG>(std::lround(cursor_rect.max_y * s));
+        cand.rcArea.left = static_cast<LONG>(std::lround(cursor_rect.min_x * s));
+        cand.rcArea.top = static_cast<LONG>(std::lround(cursor_rect.min_y * s));
+        cand.rcArea.right = static_cast<LONG>(std::lround(cursor_rect.max_x * s));
+        cand.rcArea.bottom = static_cast<LONG>(std::lround((cursor_rect.max_y + 4.0f) * s));
         ImmSetCandidateWindow(himc, &cand);
 
         ImmReleaseContext(m_hwnd, himc);
@@ -611,7 +659,8 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
         case WM_SIZE: {
             UINT width = LOWORD(lparam);
             UINT height = HIWORD(lparam);
-            m_size = Vec2{static_cast<float>(width), static_cast<float>(height)};
+            const float inv_dpi = (m_dpi_scale > 0.0f) ? (1.0f / m_dpi_scale) : 1.0f;
+            m_size = Vec2{static_cast<float>(width) * inv_dpi, static_cast<float>(height) * inv_dpi};
             if (!m_decorated) {
                 const bool maximized = IsZoomed(m_hwnd) != FALSE;
                 if (maximized != m_last_maximized) {
@@ -645,15 +694,27 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             break;
         }
         case WM_DPICHANGED: {
-            m_dpi_scale = static_cast<float>(LOWORD(wparam)) / 96.0f;
+            const float next_dpi = static_cast<float>(LOWORD(wparam)) / 96.0f;
+            if (next_dpi > 0.1f) {
+                m_dpi_scale = next_dpi;
+            }
             RECT* prc = reinterpret_cast<RECT*>(lparam);
             if (prc) {
                 SetWindowPos(m_hwnd, nullptr, prc->left, prc->top,
                              prc->right - prc->left, prc->bottom - prc->top,
                              SWP_NOZORDER | SWP_NOACTIVATE);
             }
+            RECT client_rect{};
+            if (GetClientRect(m_hwnd, &client_rect)) {
+                m_size = Vec2{static_cast<float>(client_rect.right - client_rect.left) / m_dpi_scale,
+                              static_cast<float>(client_rect.bottom - client_rect.top) / m_dpi_scale};
+            }
             if (m_on_dpi_changed) {
                 m_on_dpi_changed(m_dpi_scale);
+            }
+            if (m_on_paint && !IsIconic(m_hwnd)) {
+                m_on_paint();
+                ValidateRect(m_hwnd, nullptr);
             }
             return 0;
         }
@@ -688,10 +749,11 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
         }
         case WM_GETMINMAXINFO: {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lparam);
-            mmi->ptMinTrackSize.x = static_cast<LONG>(m_min_size.x);
-            mmi->ptMinTrackSize.y = static_cast<LONG>(m_min_size.y);
-            mmi->ptMaxTrackSize.x = static_cast<LONG>(m_max_size.x);
-            mmi->ptMaxTrackSize.y = static_cast<LONG>(m_max_size.y);
+            const float s = (m_dpi_scale > 0.0f) ? m_dpi_scale : 1.0f;
+            mmi->ptMinTrackSize.x = static_cast<LONG>(std::lround(m_min_size.x * s));
+            mmi->ptMinTrackSize.y = static_cast<LONG>(std::lround(m_min_size.y * s));
+            mmi->ptMaxTrackSize.x = static_cast<LONG>(std::min<double>(32767.0, std::lround(m_max_size.x * s)));
+            mmi->ptMaxTrackSize.y = static_cast<LONG>(std::min<double>(32767.0, std::lround(m_max_size.y * s)));
             if (!m_decorated) {
                 HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
                 MONITORINFO mi{sizeof(mi)};
@@ -708,7 +770,9 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             if (!m_decorated && m_titlebar_hit_test) {
                 POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
                 ScreenToClient(m_hwnd, &pt);
-                TitlebarHitTest ht = m_titlebar_hit_test(PointF{static_cast<float>(pt.x), static_cast<float>(pt.y)});
+                const float inv_dpi = (m_dpi_scale > 0.0f) ? (1.0f / m_dpi_scale) : 1.0f;
+                TitlebarHitTest ht = m_titlebar_hit_test(PointF{static_cast<float>(pt.x) * inv_dpi,
+                                                                static_cast<float>(pt.y) * inv_dpi});
                 switch (ht) {
                     case TitlebarHitTest::Caption: return HTCAPTION;
                     // 对齐 CUI.Core：最大化按钮必须返回 HTMAXBUTTON，才能触发 Windows 11 原生分屏布局 (Snap Layouts)
@@ -733,10 +797,11 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
                 POINT pt{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
                 ScreenToClient(m_hwnd, &pt);
                 if (Win32Backend::instance()) {
+                    const float inv_dpi = (m_dpi_scale > 0.0f) ? (1.0f / m_dpi_scale) : 1.0f;
                     PlatformEvent pe{};
                     pe.type = PlatformEventType::PointerMove;
                     pe.window_handle = static_cast<void*>(m_hwnd);
-                    pe.position = Vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)};
+                    pe.position = Vec2{static_cast<float>(pt.x) * inv_dpi, static_cast<float>(pt.y) * inv_dpi};
                     pe.timestamp_ms = GetTickCount64();
                     Win32Backend::instance()->dispatch_platform_event(pe);
                 }
@@ -941,39 +1006,40 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
             pe.modifiers.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             pe.modifiers.ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             pe.modifiers.alt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
+            const float inv_dpi = (win->dpi_scale() > 0.0f) ? (1.0f / win->dpi_scale()) : 1.0f;
             switch (msg) {
                 case WM_MOUSEMOVE:
                     pe.type = PlatformEventType::PointerMove;
-                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
-                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
                     break;
                 case WM_LBUTTONDOWN:
                     pe.type = PlatformEventType::PointerDown;
                     pe.button = PointerButton::Primary;
-                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
-                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
                     break;
                 case WM_LBUTTONUP:
                     pe.type = PlatformEventType::PointerUp;
                     pe.button = PointerButton::Primary;
-                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
-                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
                     break;
                 case WM_RBUTTONDOWN:
                     pe.type = PlatformEventType::PointerDown;
                     pe.button = PointerButton::Secondary;
-                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
-                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
                     break;
                 case WM_RBUTTONUP:
                     pe.type = PlatformEventType::PointerUp;
                     pe.button = PointerButton::Secondary;
-                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))),
-                                       static_cast<float>(static_cast<short>(HIWORD(lparam)))};
+                    pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
+                                       static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
                     break;
                 case WM_MOUSEWHEEL: {
@@ -981,7 +1047,7 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                     ScreenToClient(hwnd, &pt);
                     short wheel_delta = GET_WHEEL_DELTA_WPARAM(wparam);
                     pe.type = PlatformEventType::PointerScroll;
-                    pe.position = Vec2{static_cast<float>(pt.x), static_cast<float>(pt.y)};
+                    pe.position = Vec2{static_cast<float>(pt.x) * inv_dpi, static_cast<float>(pt.y) * inv_dpi};
                     pe.delta = Vec2{0.0f, -static_cast<float>(wheel_delta) / 120.0f * 36.0f};
                     s_instance->dispatch_platform_event(pe);
                     break;

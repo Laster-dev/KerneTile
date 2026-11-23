@@ -59,6 +59,9 @@ extern "C" {
     void ktui_web_on_taskbar_click(int win_id);
 
     EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_show_desktop(int mode);
+
+    EMSCRIPTEN_KEEPALIVE
     void ktui_web_on_viewport_resize();
 }
 
@@ -70,11 +73,28 @@ EM_JS(void, ktui_js_init_desktop, (), {
         legacy.style.display = 'none';
     }
 
+    // 注入基础样式（兜底：即使未使用 shell.html 也能获得无蓝闪、圆角边框与任务栏样式）
+    if (!document.getElementById('ktui-web-desktop-style')) {
+        var style = document.createElement('style');
+        style.id = 'ktui-web-desktop-style';
+        style.textContent =
+            'html,body,#ktui-desktop,.ktui-win,.ktui-win canvas,#ktui-taskbar,#ktui-taskbar button{' +
+                '-webkit-tap-highlight-color:transparent;tap-highlight-color:transparent;-webkit-touch-callout:none;}' +
+            '.ktui-win{position:absolute;overflow:hidden;border-radius:8px;background:#202020;will-change:transform,opacity;}' +
+            '.ktui-win::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;' +
+                'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.16);transition:box-shadow 160ms ease;}' +
+            '.ktui-win.inactive::after{box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);}' +
+            '.ktui-win.maximized{border-radius:0;box-shadow:none!important;}' +
+            '.ktui-win.maximized::after{box-shadow:none;}' +
+            '.ktui-win canvas{display:block;outline:none;touch-action:none;}';
+        document.head.appendChild(style);
+    }
+
     var desktop = document.getElementById('ktui-desktop');
     if (!desktop) {
         desktop = document.createElement('div');
         desktop.id = 'ktui-desktop';
-        desktop.style.cssText = 'position:fixed;inset:0;overflow:hidden;user-select:none;-webkit-user-select:none;';
+        desktop.style.cssText = 'position:fixed;inset:0;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;';
         document.body.appendChild(desktop);
     }
 
@@ -83,16 +103,74 @@ EM_JS(void, ktui_js_init_desktop, (), {
         taskbar = document.createElement('div');
         taskbar.id = 'ktui-taskbar';
         taskbar.style.cssText =
-            'position:fixed;left:0;right:0;bottom:0;height:40px;z-index:900000;' +
-            'display:flex;align-items:center;gap:6px;padding:0 12px;' +
-            'background:rgba(20,21,26,0.84);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);' +
-            'border-top:1px solid rgba(255,255,255,0.08);font-family:system-ui,sans-serif;font-size:12px;';
+            'position:fixed;left:0;right:0;bottom:0;height:48px;z-index:900000;' +
+            'display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 8px 0 12px;' +
+            'background:rgba(22,24,31,0.82);backdrop-filter:blur(26px) saturate(160%);-webkit-backdrop-filter:blur(26px) saturate(160%);' +
+            'border-top:1px solid rgba(255,255,255,0.09);font-family:"Segoe UI",system-ui,sans-serif;font-size:12px;';
+        var leftSlot = document.createElement('div');
+        leftSlot.className = 'taskbar-left';
+        var centerSlot = document.createElement('div');
+        centerSlot.className = 'taskbar-center';
+        var appsSlot = document.createElement('div');
+        appsSlot.id = 'ktui-taskbar-apps';
+        centerSlot.appendChild(appsSlot);
+        var traySlot = document.createElement('div');
+        traySlot.className = 'taskbar-tray';
+        taskbar.appendChild(leftSlot);
+        taskbar.appendChild(centerSlot);
+        taskbar.appendChild(traySlot);
         desktop.appendChild(taskbar);
     }
 
     if (!Module['ktuiWindows']) Module['ktuiWindows'] = new Map();
     if (!Module['ktuiCanvases']) Module['ktuiCanvases'] = new Map();
     if (!Module['ktuiTaskbarItems']) Module['ktuiTaskbarItems'] = new Map();
+
+    // 开始菜单与“显示桌面”交互绑定
+    if (!window._ktuiTaskbarBound) {
+        window._ktuiTaskbarBound = true;
+        var startBtn = document.getElementById('ktui-start-btn');
+        var startMenu = document.getElementById('ktui-start-menu');
+        var closeStartMenu = function() {
+            if (startMenu) startMenu.classList.remove('open');
+            if (startBtn) startBtn.classList.remove('open');
+        };
+        if (startBtn && startMenu) {
+            startBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var willOpen = !startMenu.classList.contains('open');
+                startMenu.classList.toggle('open', willOpen);
+                startBtn.classList.toggle('open', willOpen);
+            });
+            document.addEventListener('pointerdown', function(e) {
+                if (startMenu.classList.contains('open') &&
+                    !startMenu.contains(e.target) && !startBtn.contains(e.target)) {
+                    closeStartMenu();
+                }
+            });
+        }
+        var showDeskBtn = document.getElementById('ktui-show-desktop');
+        if (showDeskBtn) {
+            showDeskBtn.addEventListener('click', function() {
+                closeStartMenu();
+                _ktui_web_on_show_desktop(0);
+            });
+        }
+        var menuShowDesk = document.getElementById('ktui-menu-show-desktop');
+        if (menuShowDesk) {
+            menuShowDesk.addEventListener('click', function() {
+                closeStartMenu();
+                _ktui_web_on_show_desktop(1);
+            });
+        }
+        var menuRestoreAll = document.getElementById('ktui-menu-restore-all');
+        if (menuRestoreAll) {
+            menuRestoreAll.addEventListener('click', function() {
+                closeStartMenu();
+                _ktui_web_on_show_desktop(2);
+            });
+        }
+    }
 
     // 全局拖拽 / 缩放状态
     if (!window._ktuiDesktopListenersInstalled) {
@@ -106,7 +184,7 @@ EM_JS(void, ktui_js_init_desktop, (), {
             var dy = e.clientY - drag.startY;
             if (drag.mode === 'move') {
                 var nx = drag.origX + dx;
-                var ny = Math.max(0, Math.min(window.innerHeight - 40 - 34, drag.origY + dy));
+                var ny = Math.max(0, Math.min(window.innerHeight - 48 - 34, drag.origY + dy));
                 _ktui_web_on_drag_move(drag.winId, nx, ny);
             } else if (drag.mode === 'resize') {
                 var x = drag.origX, y = drag.origY, w = drag.origW, h = drag.origH;
@@ -139,6 +217,20 @@ EM_JS(void, ktui_js_init_desktop, (), {
         window.addEventListener('resize', function() {
             _ktui_web_on_viewport_resize();
         });
+
+        // 监听浏览器缩放 / 跨屏移动导致的 devicePixelRatio 变化
+        var watchDpr = function() {
+            if (!window.matchMedia) return;
+            var dpr = window.devicePixelRatio || 1;
+            var mq = window.matchMedia('(resolution: ' + dpr + 'dppx)');
+            var onDprChange = function() {
+                _ktui_web_on_viewport_resize();
+                watchDpr();
+            };
+            if (mq.addEventListener) mq.addEventListener('change', onDprChange, { once: true });
+            else if (mq.addListener) mq.addListener(onDprChange);
+        };
+        watchDpr();
     }
 
     // 共享隐藏 IME 输入框
@@ -219,21 +311,20 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
     var wrap = document.createElement('div');
     wrap.className = 'ktui-win';
     wrap.dataset.ktuiWinId = String(win_id);
-    wrap.style.cssText =
-        'position:absolute;overflow:hidden;border-radius:6px;' +
-        'box-shadow:0 18px 48px rgba(0,0,0,0.58),0 2px 10px rgba(0,0,0,0.35);' +
-        'background:#1a1b20;will-change:transform;';
     wrap.style.left = Math.round(x) + 'px';
     wrap.style.top = Math.round(y) + 'px';
     wrap.style.width = Math.round(w) + 'px';
     wrap.style.height = Math.round(h) + 'px';
     wrap.style.zIndex = String(z_index);
+    wrap.style.boxShadow = '0 22px 58px rgba(0,0,0,0.62),0 2px 12px rgba(0,0,0,0.36)';
+    wrap.style.opacity = '0';
+    wrap.style.transform = 'translate3d(0, 10px, 0) scale(0.96)';
 
     var canvas = document.createElement('canvas');
     canvas.id = 'ktui-win-' + win_id;
     canvas.dataset.ktuiWinId = String(win_id);
     canvas.tabIndex = 0;
-    canvas.style.cssText = 'display:block;outline:none;touch-action:none;';
+    canvas.style.cssText = 'display:block;outline:none;touch-action:none;-webkit-tap-highlight-color:transparent;';
     canvas.style.width = Math.round(w) + 'px';
     canvas.style.height = Math.round(h) + 'px';
     wrap.appendChild(canvas);
@@ -248,7 +339,11 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
         maxW: max_w,
         maxH: max_h,
         maximized: false,
-        resizable: true
+        minimized: false,
+        visible: false,
+        initialized: false,
+        resizable: true,
+        hideTimer: 0
     };
     Module['ktuiWindows'].set(win_id, entry);
     Module['ktuiCanvases'].set(win_id, canvas);
@@ -327,52 +422,174 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
 
     canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
-    // 任务栏图标项
-    var taskbar = document.getElementById('ktui-taskbar');
-    if (taskbar) {
+    // Windows 11 风格任务栏图标项
+    var appsHost = document.getElementById('ktui-taskbar-apps') || document.getElementById('ktui-taskbar');
+    if (appsHost) {
         var pill = document.createElement('button');
         pill.type = 'button';
-        pill.textContent = UTF8ToString(title) || ('Window ' + win_id);
-        pill.style.cssText =
-            'height:28px;max-width:180px;padding:0 12px;border-radius:5px;border:1px solid rgba(255,255,255,0.10);' +
-            'background:rgba(255,255,255,0.08);color:#e8eaf0;font-size:12px;cursor:pointer;' +
-            'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background 0.12s;';
+        pill.className = 'ktui-tb-item';
+        var titleStr = UTF8ToString(title) || ('Window ' + win_id);
+        pill.title = titleStr;
+
+        var icon = document.createElement('span');
+        icon.className = 'ktui-tb-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<i></i><i></i><i></i>';
+
+        var label = document.createElement('span');
+        label.className = 'ktui-tb-label';
+        label.textContent = titleStr;
+
+        var indicator = document.createElement('span');
+        indicator.className = 'ktui-tb-indicator';
+
+        pill.appendChild(icon);
+        pill.appendChild(label);
+        pill.appendChild(indicator);
         pill.addEventListener('click', function() {
             _ktui_web_on_taskbar_click(win_id);
         });
-        taskbar.appendChild(pill);
+        appsHost.appendChild(pill);
         Module['ktuiTaskbarItems'].set(win_id, pill);
     }
 });
 
 EM_JS(void, ktui_js_update_window_geometry, (int win_id, float x, float y, float w, float h, int z_index,
-                                             int visible, int maximized, int active, int resizable), {
+                                             int visible, int minimized, int maximized, int active, int resizable), {
     var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
     if (!entry) return;
-    entry.maximized = maximized !== 0;
-    entry.resizable = resizable !== 0;
     var wrap = entry.wrap;
     var canvas = entry.canvas;
-    wrap.style.left = Math.round(x) + 'px';
-    wrap.style.top = Math.round(y) + 'px';
-    wrap.style.width = Math.round(w) + 'px';
-    wrap.style.height = Math.round(h) + 'px';
-    wrap.style.zIndex = String(z_index);
-    wrap.style.display = visible ? 'block' : 'none';
-    wrap.style.borderRadius = maximized ? '0px' : '6px';
-    wrap.style.boxShadow = maximized
-        ? 'none'
-        : (active
-            ? '0 20px 56px rgba(0,0,0,0.65),0 2px 12px rgba(0,0,0,0.40)'
-            : '0 10px 28px rgba(0,0,0,0.42)');
-    canvas.style.width = Math.round(w) + 'px';
-    canvas.style.height = Math.round(h) + 'px';
+    var isVisible = visible !== 0;
+    var isMinimized = minimized !== 0;
+    var isMaximized = maximized !== 0;
+    var isActive = active !== 0;
+    var prevVisible = entry.visible;
+    var prevMinimized = entry.minimized;
+    var prevMaximized = entry.maximized;
+    var isDragging = !!(window._ktuiDrag && window._ktuiDrag.winId === win_id);
+
+    entry.maximized = isMaximized;
+    entry.minimized = isMinimized;
+    entry.visible = isVisible;
+    entry.resizable = resizable !== 0;
+
+    if (entry.hideTimer) {
+        clearTimeout(entry.hideTimer);
+        entry.hideTimer = 0;
+    }
 
     var pill = Module['ktuiTaskbarItems'] && Module['ktuiTaskbarItems'].get(win_id);
+    var computeTaskbarDelta = function(winLeft, winTop, winW, winH) {
+        var cx = winLeft + winW * 0.5;
+        var cy = winTop + winH * 0.5;
+        var tx = window.innerWidth * 0.5;
+        var ty = window.innerHeight - 24;
+        if (pill) {
+            var pr = pill.getBoundingClientRect();
+            if (pr.width > 0 && pr.height > 0) {
+                tx = pr.left + pr.width * 0.5;
+                ty = pr.top + pr.height * 0.5;
+            }
+        }
+        return [tx - cx, ty - cy];
+    };
+
+    var nx = Math.round(x);
+    var ny = Math.round(y);
+    var nw = Math.round(w);
+    var nh = Math.round(h);
+
+    var prevRect = (entry.initialized && prevVisible && isVisible && !isDragging && prevMaximized !== isMaximized)
+        ? wrap.getBoundingClientRect()
+        : null;
+
+    wrap.style.zIndex = String(z_index);
+    wrap.classList.toggle('maximized', isMaximized);
+    wrap.classList.toggle('inactive', !isActive);
+    wrap.style.boxShadow = isMaximized
+        ? 'none'
+        : (isActive
+            ? '0 22px 58px rgba(0,0,0,0.64),0 2px 12px rgba(0,0,0,0.40)'
+            : '0 10px 28px rgba(0,0,0,0.42)');
+
+    // 1. 最小化动效：缩放并滑向对应任务栏图标
+    if (entry.initialized && prevVisible && !isVisible && isMinimized) {
+        var minDelta = computeTaskbarDelta(nx, ny, nw, nh);
+        wrap.style.pointerEvents = 'none';
+        wrap.style.transformOrigin = '50% 50%';
+        wrap.style.transition = 'transform 210ms cubic-bezier(0.4, 0, 1, 1), opacity 180ms ease';
+        wrap.style.transform = 'translate3d(' + Math.round(minDelta[0]) + 'px,' + Math.round(minDelta[1]) + 'px,0) scale(0.16)';
+        wrap.style.opacity = '0';
+        entry.hideTimer = setTimeout(function() {
+            entry.hideTimer = 0;
+            if (!entry.visible) {
+                wrap.style.visibility = 'hidden';
+            }
+        }, 220);
+    } else if (!isVisible) {
+        // 隐藏或关闭
+        wrap.style.transition = 'none';
+        wrap.style.visibility = 'hidden';
+        wrap.style.pointerEvents = 'none';
+        wrap.style.opacity = '0';
+    } else {
+        // 可见状态：先更新目标几何与画布尺寸
+        wrap.style.left = nx + 'px';
+        wrap.style.top = ny + 'px';
+        wrap.style.width = nw + 'px';
+        wrap.style.height = nh + 'px';
+        canvas.style.width = nw + 'px';
+        canvas.style.height = nh + 'px';
+        wrap.style.visibility = 'visible';
+        wrap.style.pointerEvents = 'auto';
+
+        if (!entry.initialized) {
+            // 首次显示：Windows 11 弹出入场动效
+            entry.initialized = true;
+            wrap.style.transition = 'none';
+            wrap.style.transformOrigin = '50% 50%';
+            wrap.style.transform = 'translate3d(0, 10px, 0) scale(0.96)';
+            wrap.style.opacity = '0';
+            void wrap.offsetWidth;
+            wrap.style.transition = 'transform 190ms cubic-bezier(0.1, 0.9, 0.2, 1), opacity 160ms ease';
+            wrap.style.transform = 'translate3d(0, 0, 0) scale(1)';
+            wrap.style.opacity = '1';
+        } else if (!prevVisible && prevMinimized) {
+            // 从任务栏还原动效：从任务栏图标位置弹性展开
+            var resDelta = computeTaskbarDelta(nx, ny, nw, nh);
+            wrap.style.transition = 'none';
+            wrap.style.transformOrigin = '50% 50%';
+            wrap.style.transform = 'translate3d(' + Math.round(resDelta[0]) + 'px,' + Math.round(resDelta[1]) + 'px,0) scale(0.16)';
+            wrap.style.opacity = '0';
+            void wrap.offsetWidth;
+            wrap.style.transition = 'transform 240ms cubic-bezier(0.1, 0.9, 0.2, 1), opacity 190ms ease';
+            wrap.style.transform = 'translate3d(0, 0, 0) scale(1)';
+            wrap.style.opacity = '1';
+        } else if (prevRect && prevRect.width > 0 && prevRect.height > 0 && nw > 0 && nh > 0) {
+            // 最大化 / 还原 FLIP 丝滑动效（纯 GPU Transform，零闪烁）
+            var dx = prevRect.left - nx;
+            var dy = prevRect.top - ny;
+            var sx = prevRect.width / nw;
+            var sy = prevRect.height / nh;
+            wrap.style.transition = 'none';
+            wrap.style.transformOrigin = '0 0';
+            wrap.style.transform = 'translate3d(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px,0) scale(' + sx.toFixed(4) + ',' + sy.toFixed(4) + ')';
+            void wrap.offsetWidth;
+            wrap.style.transition = 'transform 220ms cubic-bezier(0.1, 0.9, 0.2, 1), border-radius 220ms ease';
+            wrap.style.transform = 'translate3d(0, 0, 0) scale(1, 1)';
+            wrap.style.opacity = '1';
+        } else {
+            // 普通拖拽 / 缩放 / 焦点切换：零延迟
+            wrap.style.transition = 'none';
+            wrap.style.transform = 'none';
+            wrap.style.opacity = '1';
+        }
+    }
+
     if (pill) {
-        pill.style.background = (active && visible) ? 'rgba(43,127,255,0.30)' : 'rgba(255,255,255,0.06)';
-        pill.style.borderColor = (active && visible) ? 'rgba(70,150,255,0.55)' : 'rgba(255,255,255,0.08)';
-        pill.style.opacity = visible ? '1.0' : '0.55';
+        pill.classList.toggle('active', isActive && isVisible);
+        pill.classList.toggle('minimized', isMinimized || !isVisible);
     }
 });
 
@@ -388,7 +605,13 @@ EM_JS(void, ktui_js_update_window_constraints, (int win_id, float min_w, float m
 EM_JS(void, ktui_js_set_window_title, (int win_id, const char* title), {
     var str = UTF8ToString(title);
     var pill = Module['ktuiTaskbarItems'] && Module['ktuiTaskbarItems'].get(win_id);
-    if (pill) pill.textContent = str || ('Window ' + win_id);
+    if (pill) {
+        var displayTitle = str || ('Window ' + win_id);
+        var label = pill.querySelector('.ktui-tb-label');
+        if (label) label.textContent = displayTitle;
+        else pill.textContent = displayTitle;
+        pill.title = displayTitle;
+    }
     if (str) document.title = str;
 });
 
@@ -605,7 +828,7 @@ public:
 // ==================== Web 虚拟桌面多窗口实现 ====================
 class WebWindow : public IPlatformWindow {
 public:
-    static constexpr float kTaskbarHeight = 40.0f;
+    static constexpr float kTaskbarHeight = 48.0f;
 
     WebWindow(int win_id, const WindowDesc& desc, int z_index,
               std::function<void(WebWindow*)> on_activate_req,
@@ -623,16 +846,24 @@ public:
           m_on_activate_req(std::move(on_activate_req)),
           m_on_destroyed(std::move(on_destroyed))
     {
+        m_last_dpi_scale = dpi_scale();
         Rect desk = work_area();
+        // 适配移动端/小屏视口：若初始窗口大于可用桌面区域，自动收缩以完整显示
+        const float max_init_w = std::max(280.0f, desk.width() - 16.0f);
+        const float max_init_h = std::max(220.0f, desk.height() - 16.0f);
+        if (m_size.x > max_init_w) m_size.x = max_init_w;
+        if (m_size.y > max_init_h) m_size.y = max_init_h;
+        m_normal_size = m_size;
+
         if (desc.position.x >= 0.0f && desc.position.y >= 0.0f) {
             m_position = desc.position;
         } else {
             // 首窗居中，后续窗口依次级联偏移，贴近真实桌面体验
-            float base_x = std::max(16.0f, (desk.width() - m_size.x) * 0.5f);
-            float base_y = std::max(16.0f, (desk.height() - m_size.y) * 0.5f);
+            float base_x = std::max(8.0f, (desk.width() - m_size.x) * 0.5f);
+            float base_y = std::max(8.0f, (desk.height() - m_size.y) * 0.5f);
             float cascade = static_cast<float>((win_id - 1) % 8) * 28.0f;
-            m_position.x = std::clamp(base_x + cascade, 12.0f, std::max(12.0f, desk.width() - m_size.x - 12.0f));
-            m_position.y = std::clamp(base_y + cascade, 12.0f, std::max(12.0f, desk.height() - m_size.y - 12.0f));
+            m_position.x = std::clamp(base_x + cascade, 8.0f, std::max(8.0f, desk.width() - m_size.x - 8.0f));
+            m_position.y = std::clamp(base_y + cascade, 8.0f, std::max(8.0f, desk.height() - m_size.y - 8.0f));
         }
         m_normal_pos = m_position;
 
@@ -708,6 +939,8 @@ public:
     bool is_visible() const override { return m_visible && m_state != WindowState::Minimized; }
 
     void minimize() override {
+        if (m_state == WindowState::Minimized) return;
+        m_was_maximized_before_min = (m_state == WindowState::Maximized);
         m_state = WindowState::Minimized;
         m_active = false;
         m_focused = false;
@@ -721,6 +954,7 @@ public:
             m_normal_pos = m_position;
             m_normal_size = m_size;
         }
+        m_was_maximized_before_min = false;
         m_state = WindowState::Maximized;
         Rect desk = work_area();
         m_position = Vec2{0.0f, 0.0f};
@@ -731,10 +965,20 @@ public:
     }
 
     void restore() override {
-        m_state = WindowState::Normal;
+        const bool from_minimized = (m_state == WindowState::Minimized);
         m_visible = true;
-        m_position = m_normal_pos;
-        m_size = m_normal_size;
+        if (from_minimized && m_was_maximized_before_min) {
+            m_was_maximized_before_min = false;
+            m_state = WindowState::Maximized;
+            Rect desk = work_area();
+            m_position = Vec2{0.0f, 0.0f};
+            m_size = Vec2{std::max(m_min_size.x, desk.width()), std::max(m_min_size.y, desk.height())};
+        } else {
+            m_was_maximized_before_min = false;
+            m_state = WindowState::Normal;
+            m_position = m_normal_pos;
+            m_size = m_normal_size;
+        }
         sync_dom_geometry();
         if (m_move_handler) m_move_handler(m_position);
         if (m_resize_handler) m_resize_handler(m_size);
@@ -912,6 +1156,11 @@ public:
     }
 
     void handle_viewport_resized() {
+        const float cur_dpi = dpi_scale();
+        if (cur_dpi != m_last_dpi_scale) {
+            m_last_dpi_scale = cur_dpi;
+            if (m_dpi_handler) m_dpi_handler(cur_dpi);
+        }
         if (m_state == WindowState::Maximized) {
             Rect desk = work_area();
             m_position = Vec2{0.0f, 0.0f};
@@ -935,10 +1184,11 @@ private:
 
     void sync_dom_geometry() {
         int effective_z = m_always_on_top ? (m_z_index + 100000) : m_z_index;
+        int min_flag = (m_state == WindowState::Minimized) ? 1 : 0;
         int vis = (m_visible && !m_is_closed && m_state != WindowState::Minimized) ? 1 : 0;
         int max_flag = (m_state == WindowState::Maximized || m_state == WindowState::Fullscreen) ? 1 : 0;
         ktui_js_update_window_geometry(m_win_id, m_position.x, m_position.y, m_size.x, m_size.y,
-                                       effective_z, vis, max_flag, m_active ? 1 : 0, m_resizable ? 1 : 0);
+                                       effective_z, vis, min_flag, max_flag, m_active ? 1 : 0, m_resizable ? 1 : 0);
     }
 
     int m_win_id{0};
@@ -957,7 +1207,9 @@ private:
     bool m_decorated{false};
     bool m_always_on_top{false};
     bool m_is_closed{false};
+    bool m_was_maximized_before_min{false};
     float m_opacity{1.0f};
+    float m_last_dpi_scale{1.0f};
     WindowState m_state{WindowState::Normal};
     CursorShape m_cursor{CursorShape::Arrow};
 
@@ -1085,6 +1337,34 @@ public:
             m_focused_window = nullptr;
         } else {
             activate_window(w);
+        }
+    }
+
+    void handle_show_desktop(int mode) {
+        bool any_visible = false;
+        for (auto* w : m_windows) {
+            if (w && w->is_visible() && !w->is_minimized()) {
+                any_visible = true;
+                break;
+            }
+        }
+        const bool should_minimize = (mode == 1) || (mode == 0 && any_visible);
+        if (should_minimize) {
+            for (auto* w : m_windows) {
+                if (w && w->is_visible() && !w->is_minimized()) {
+                    w->minimize();
+                }
+            }
+            m_focused_window = nullptr;
+        } else {
+            WebWindow* last = nullptr;
+            for (auto* w : m_windows) {
+                if (w && w->is_minimized()) {
+                    w->restore();
+                    last = w;
+                }
+            }
+            if (last) activate_window(last);
         }
     }
 
@@ -1294,6 +1574,11 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE
     inline void ktui_web_on_taskbar_click(int win_id) {
         if (WebBackend::instance()) WebBackend::instance()->handle_taskbar_click(win_id);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_show_desktop(int mode) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_show_desktop(mode);
     }
 
     EMSCRIPTEN_KEEPALIVE

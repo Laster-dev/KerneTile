@@ -9,6 +9,9 @@
             box-sizing: border-box;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            tap-highlight-color: transparent;
         }
 
         html, body {
@@ -17,19 +20,21 @@
             width: 100vw;
             height: 100vh;
             overflow: hidden;
-            font-family: system-ui, -apple-system, sans-serif;
+            font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
             background:
-                radial-gradient(circle at 18% 22%, rgba(43, 127, 255, 0.24), transparent 46%),
-                radial-gradient(circle at 82% 76%, rgba(124, 58, 237, 0.20), transparent 48%),
-                radial-gradient(circle at 60% 18%, rgba(14, 165, 233, 0.14), transparent 42%),
-                linear-gradient(145deg, #0d0f15 0%, #131622 52%, #0c0e14 100%);
+                radial-gradient(circle at 18% 22%, rgba(43, 127, 255, 0.26), transparent 46%),
+                radial-gradient(circle at 82% 76%, rgba(124, 58, 237, 0.22), transparent 48%),
+                radial-gradient(circle at 60% 18%, rgba(14, 165, 233, 0.16), transparent 42%),
+                linear-gradient(145deg, #0c101b 0%, #131827 52%, #0a0d16 100%);
             color: #eef0f6;
+            touch-action: none;
         }
 
         #ktui-desktop {
             position: fixed;
             inset: 0;
             overflow: hidden;
+            touch-action: none;
         }
 
         .desktop-watermark {
@@ -69,31 +74,83 @@
             color: rgba(200, 206, 224, 0.65);
         }
 
+        /* ==================== Windows 11 风格窗口容器 ==================== */
+        .ktui-win {
+            position: absolute;
+            overflow: hidden;
+            border-radius: 8px;
+            background: #202020;
+            will-change: transform, opacity;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 抗锯齿圆角 1px 描边叠加层，确保圆角弧线处边框完整连续不裁切 */
+        .ktui-win::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            z-index: 2;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+            transition: box-shadow 160ms ease;
+        }
+
+        .ktui-win.inactive::after {
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+
+        .ktui-win.maximized {
+            border-radius: 0;
+            box-shadow: none !important;
+        }
+
+        .ktui-win.maximized::after {
+            box-shadow: none;
+        }
+
+        .ktui-win canvas {
+            display: block;
+            outline: none;
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* ==================== Windows 11 虚拟任务栏 ==================== */
         #ktui-taskbar {
             position: fixed;
             left: 0;
             right: 0;
             bottom: 0;
-            height: 40px;
+            height: 48px;
             z-index: 900000;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            padding: 0 4px 0 12px;
+            background: rgba(22, 24, 31, 0.82);
+            backdrop-filter: blur(26px) saturate(160%);
+            -webkit-backdrop-filter: blur(26px) saturate(160%);
+            border-top: 1px solid rgba(255, 255, 255, 0.09);
+            box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.28);
+        }
+
+        .taskbar-left {
             display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 0 12px;
-            background: rgba(18, 19, 24, 0.84);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            gap: 8px;
+            min-width: 0;
         }
 
         .taskbar-status {
-            margin-left: auto;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 7px;
             font-size: 11.5px;
-            color: rgba(210, 214, 228, 0.78);
-            padding-right: 4px;
+            color: rgba(220, 224, 236, 0.82);
+            padding: 5px 10px;
+            border-radius: 5px;
+            white-space: nowrap;
         }
 
         .status-dot {
@@ -102,12 +159,282 @@
             border-radius: 50%;
             background-color: #4caf50;
             box-shadow: 0 0 8px rgba(76, 175, 80, 0.65);
+            flex-shrink: 0;
         }
 
         .status-dot.loading {
             background-color: #ff9800;
             box-shadow: 0 0 8px rgba(255, 152, 0, 0.65);
             animation: pulse 1s infinite alternate;
+        }
+
+        .taskbar-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            height: 100%;
+            min-width: 0;
+        }
+
+        #ktui-taskbar-apps {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            height: 100%;
+        }
+
+        .ktui-start-btn {
+            width: 40px;
+            height: 38px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 120ms ease, transform 100ms ease;
+            flex-shrink: 0;
+        }
+
+        .ktui-start-btn:hover {
+            background: rgba(255, 255, 255, 0.09);
+        }
+
+        .ktui-start-btn:active {
+            background: rgba(255, 255, 255, 0.05);
+            transform: scale(0.92);
+        }
+
+        .ktui-start-btn.open {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .ktui-win-logo {
+            width: 18px;
+            height: 18px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5px;
+        }
+
+        .ktui-win-logo span {
+            border-radius: 1.5px;
+            background: linear-gradient(135deg, #4cc2ff 0%, #0078d4 100%);
+        }
+
+        .ktui-tb-item {
+            position: relative;
+            height: 38px;
+            min-width: 42px;
+            max-width: 190px;
+            padding: 0 11px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #eef1f7;
+            font-size: 12px;
+            font-family: inherit;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 140ms ease, border-color 140ms ease, transform 100ms ease;
+            outline: none;
+        }
+
+        .ktui-tb-item:hover {
+            background: rgba(255, 255, 255, 0.09);
+        }
+
+        .ktui-tb-item:active {
+            transform: scale(0.96);
+        }
+
+        .ktui-tb-item.active {
+            background: rgba(255, 255, 255, 0.11);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .ktui-tb-item.minimized {
+            color: rgba(226, 230, 240, 0.72);
+        }
+
+        .ktui-tb-icon {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            background: linear-gradient(135deg, #1b9bff 0%, #0067c0 100%);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 2px;
+            padding: 3.5px;
+            flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+        }
+
+        .ktui-tb-icon i {
+            display: block;
+            border-radius: 1px;
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .ktui-tb-icon i:nth-child(2) {
+            background: rgba(255, 255, 255, 0.65);
+        }
+
+        .ktui-tb-icon i:nth-child(3) {
+            grid-column: 1 / span 2;
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        .ktui-tb-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ktui-tb-indicator {
+            position: absolute;
+            left: 50%;
+            bottom: 2px;
+            transform: translateX(-50%);
+            height: 3px;
+            width: 6px;
+            border-radius: 999px;
+            background: rgba(210, 218, 234, 0.55);
+            transition: width 180ms cubic-bezier(0.1, 0.9, 0.2, 1), background 180ms ease;
+        }
+
+        .ktui-tb-item.active .ktui-tb-indicator {
+            width: 16px;
+            background: #60cdff;
+            box-shadow: 0 0 8px rgba(96, 205, 255, 0.65);
+        }
+
+        .taskbar-tray {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            height: 100%;
+        }
+
+        .tray-clock {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 5px;
+            line-height: 1.25;
+            font-variant-numeric: tabular-nums;
+            cursor: default;
+            transition: background 120ms ease;
+        }
+
+        .tray-clock:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .tray-time {
+            font-size: 12px;
+            font-weight: 500;
+            color: #f3f5fa;
+        }
+
+        .tray-date {
+            font-size: 11px;
+            color: rgba(216, 222, 236, 0.78);
+        }
+
+        #ktui-show-desktop {
+            width: 10px;
+            height: 100%;
+            border: none;
+            border-left: 1px solid rgba(255, 255, 255, 0.14);
+            background: transparent;
+            cursor: pointer;
+            margin-left: 4px;
+            transition: background 120ms ease;
+        }
+
+        #ktui-show-desktop:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        #ktui-start-menu {
+            position: fixed;
+            left: 50%;
+            bottom: 58px;
+            transform: translateX(-50%) translateY(16px) scale(0.96);
+            width: min(320px, calc(100vw - 24px));
+            padding: 16px;
+            border-radius: 10px;
+            background: rgba(28, 31, 40, 0.90);
+            backdrop-filter: blur(28px) saturate(160%);
+            -webkit-backdrop-filter: blur(28px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 22px 54px rgba(0, 0, 0, 0.62);
+            z-index: 900001;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 160ms ease, transform 180ms cubic-bezier(0.1, 0.9, 0.2, 1);
+        }
+
+        #ktui-start-menu.open {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0) scale(1);
+        }
+
+        .start-menu-header {
+            font-size: 13px;
+            font-weight: 600;
+            color: #f3f5fa;
+            margin-bottom: 4px;
+        }
+
+        .start-menu-desc {
+            font-size: 11.5px;
+            color: rgba(200, 206, 224, 0.72);
+            margin-bottom: 12px;
+        }
+
+        .start-menu-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .start-menu-btn {
+            flex: 1;
+            height: 32px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            background: rgba(255, 255, 255, 0.07);
+            color: #eef1f7;
+            font-size: 12px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 120ms ease;
+        }
+
+        .start-menu-btn:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        @media (max-width: 640px) {
+            .taskbar-status #status-text {
+                display: none;
+            }
+            .ktui-tb-label {
+                max-width: 92px;
+            }
+            .tray-date {
+                display: none;
+            }
         }
 
         @keyframes pulse {
@@ -125,10 +452,35 @@
             </div>
             <div class="desktop-sub">无边框自绘标题栏 · 多窗口桌面环境 · 拖拽 / 缩放 / 最小化至任务栏</div>
         </div>
+
+        <div id="ktui-start-menu" role="dialog" aria-label="开始菜单">
+            <div class="start-menu-header">KerneTile Studio Web Desktop</div>
+            <div class="start-menu-desc">WebAssembly 多窗口虚拟桌面 · 支持 DPI 缩放与窗口动效</div>
+            <div class="start-menu-actions">
+                <button type="button" class="start-menu-btn" id="ktui-menu-show-desktop">显示桌面</button>
+                <button type="button" class="start-menu-btn" id="ktui-menu-restore-all">还原窗口</button>
+            </div>
+        </div>
+
         <div id="ktui-taskbar">
-            <div class="taskbar-status">
-                <span id="status-dot" class="status-dot loading"></span>
-                <span id="status-text">正在加载 WebAssembly...</span>
+            <div class="taskbar-left">
+                <div class="taskbar-status">
+                    <span id="status-dot" class="status-dot loading"></span>
+                    <span id="status-text">正在加载 WebAssembly...</span>
+                </div>
+            </div>
+            <div class="taskbar-center">
+                <button type="button" id="ktui-start-btn" class="ktui-start-btn" title="开始">
+                    <span class="ktui-win-logo" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+                </button>
+                <div id="ktui-taskbar-apps"></div>
+            </div>
+            <div class="taskbar-tray">
+                <div class="tray-clock" id="ktui-tray-clock">
+                    <span class="tray-time" id="ktui-tray-time">--:--</span>
+                    <span class="tray-date" id="ktui-tray-date">----/--/--</span>
+                </div>
+                <button type="button" id="ktui-show-desktop" title="显示桌面"></button>
             </div>
         </div>
     </div>
@@ -136,6 +488,20 @@
     <script type="text/javascript">
         var statusDot = document.getElementById('status-dot');
         var statusText = document.getElementById('status-text');
+
+        (function initClock() {
+            var timeEl = document.getElementById('ktui-tray-time');
+            var dateEl = document.getElementById('ktui-tray-date');
+            function tick() {
+                var now = new Date();
+                var hh = String(now.getHours()).padStart(2, '0');
+                var mm = String(now.getMinutes()).padStart(2, '0');
+                if (timeEl) timeEl.textContent = hh + ':' + mm;
+                if (dateEl) dateEl.textContent = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
 
         var Module = {
             preRun: [],
