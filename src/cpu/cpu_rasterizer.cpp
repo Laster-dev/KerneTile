@@ -42,9 +42,41 @@ void CpuTileRasterizer::render_tile(
     uint8_t* dst_framebuffer,
     const uint8_t* atlas_pixels,
     uint32_t atlas_width,
-    uint32_t atlas_height)
+    uint32_t atlas_height,
+    bool mica_enabled,
+    const std::array<uint32_t, 16>* mica_grid)
 {
     if (tile_id >= tile_headers.size()) return;
+
+    const bool use_mica = mica_enabled && (mica_grid != nullptr);
+    auto sample_mica_pixel = [&](float p_x, float p_y, float& r, float& g, float& b, float& a) {
+        float u = std::clamp(p_x / std::max(1.0f, static_cast<float>(width)), 0.0f, 1.0f) * 3.0f;
+        float v = std::clamp(p_y / std::max(1.0f, static_cast<float>(height)), 0.0f, 1.0f) * 3.0f;
+        uint32_t ix = std::min<uint32_t>(static_cast<uint32_t>(u), 2u);
+        uint32_t iy = std::min<uint32_t>(static_cast<uint32_t>(v), 2u);
+        float fx = u - static_cast<float>(ix);
+        float fy = v - static_cast<float>(iy);
+        auto unpack = [&](uint32_t x, uint32_t y, float& cr, float& cg, float& cb, float& ca) {
+            uint32_t pk = (*mica_grid)[y * 4u + x];
+            cr = static_cast<float>(pk & 255u) * (1.0f / 255.0f);
+            cg = static_cast<float>((pk >> 8u) & 255u) * (1.0f / 255.0f);
+            cb = static_cast<float>((pk >> 16u) & 255u) * (1.0f / 255.0f);
+            ca = static_cast<float>((pk >> 24u) & 255u) * (1.0f / 255.0f);
+        };
+        float r00, g00, b00, a00, r10, g10, b10, a10, r01, g01, b01, a01, r11, g11, b11, a11;
+        unpack(ix, iy, r00, g00, b00, a00);
+        unpack(ix + 1u, iy, r10, g10, b10, a10);
+        unpack(ix, iy + 1u, r01, g01, b01, a01);
+        unpack(ix + 1u, iy + 1u, r11, g11, b11, a11);
+        float r0 = r00 + (r10 - r00) * fx, r1 = r01 + (r11 - r01) * fx;
+        float g0 = g00 + (g10 - g00) * fx, g1 = g01 + (g11 - g01) * fx;
+        float b0 = b00 + (b10 - b00) * fx, b1 = b01 + (b11 - b01) * fx;
+        float a0 = a00 + (a10 - a00) * fx, a1 = a01 + (a11 - a01) * fx;
+        r = r0 + (r1 - r0) * fy;
+        g = g0 + (g1 - g0) * fy;
+        b = b0 + (b1 - b0) * fy;
+        a = a0 + (a1 - a0) * fy;
+    };
 
     core::TileHeader header = tile_headers[tile_id];
     uint32_t prim_count = header.primitive_count;
@@ -56,11 +88,27 @@ void CpuTileRasterizer::render_tile(
     uint32_t end_y = std::min(start_y + 16, height);
     uint32_t tile_w = end_x - start_x;
 
-    // 0. 空瓦片极速早出 (直接以 0 填充整块，耗时趋近 0ns)
+    // 0. 空瓦片极速早出 (直接以 0 或云母底色填充整块)
     if (prim_count == 0) {
+        if (!use_mica) {
+            for (uint32_t py = start_y; py < end_y; ++py) {
+                uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
+                std::fill_n(row_dst, tile_w, 0u);
+            }
+            return;
+        }
         for (uint32_t py = start_y; py < end_y; ++py) {
-            uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
-            std::fill_n(row_dst, tile_w, 0u);
+            float p_y = static_cast<float>(py) + 0.5f;
+            uint8_t* row_dst = dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4;
+            for (uint32_t px = start_x; px < end_x; ++px) {
+                float r, g, b, a;
+                sample_mica_pixel(static_cast<float>(px) + 0.5f, p_y, r, g, b, a);
+                row_dst[0] = static_cast<uint8_t>(std::clamp(r * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[1] = static_cast<uint8_t>(std::clamp(g * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[2] = static_cast<uint8_t>(std::clamp(b * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[3] = static_cast<uint8_t>(std::clamp(a * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst += 4;
+            }
         }
         return;
     }
@@ -200,9 +248,25 @@ void CpuTileRasterizer::render_tile(
     }
 
     if (active_prim_count == 0) {
+        if (!use_mica) {
+            for (uint32_t py = start_y; py < end_y; ++py) {
+                uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
+                std::fill_n(row_dst, tile_w, 0u);
+            }
+            return;
+        }
         for (uint32_t py = start_y; py < end_y; ++py) {
-            uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
-            std::fill_n(row_dst, tile_w, 0u);
+            float p_y = static_cast<float>(py) + 0.5f;
+            uint8_t* row_dst = dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4;
+            for (uint32_t px = start_x; px < end_x; ++px) {
+                float r, g, b, a;
+                sample_mica_pixel(static_cast<float>(px) + 0.5f, p_y, r, g, b, a);
+                row_dst[0] = static_cast<uint8_t>(std::clamp(r * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[1] = static_cast<uint8_t>(std::clamp(g * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[2] = static_cast<uint8_t>(std::clamp(b * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst[3] = static_cast<uint8_t>(std::clamp(a * 255.0f + 0.5f, 0.0f, 255.0f));
+                row_dst += 4;
+            }
         }
         return;
     }
@@ -226,6 +290,9 @@ void CpuTileRasterizer::render_tile(
             float accum_g = 0.0f;
             float accum_b = 0.0f;
             float accum_a = 0.0f;
+            if (use_mica) {
+                sample_mica_pixel(p_x, p_y, accum_r, accum_g, accum_b, accum_a);
+            }
 
             // Back-to-front 画家算法合成瓦片内图元
             for (uint32_t i = 0; i < active_prim_count; ++i) {
@@ -402,7 +469,8 @@ void CpuTileRasterizer::render(
                         params.primitives, params.tile_indices,
                         params.tile_headers, params.clip_rects,
                         dst_framebuffer,
-                        params.atlas_pixels, params.atlas_width, params.atlas_height);
+                        params.atlas_pixels, params.atlas_width, params.atlas_height,
+                        params.mica_enabled, &params.mica_grid);
         }
         return;
     }
@@ -429,7 +497,8 @@ void CpuTileRasterizer::render(
                             params.primitives, params.tile_indices,
                             params.tile_headers, params.clip_rects,
                             dst_framebuffer,
-                            params.atlas_pixels, params.atlas_width, params.atlas_height);
+                            params.atlas_pixels, params.atlas_width, params.atlas_height,
+                            params.mica_enabled, &params.mica_grid);
             }
         });
     }

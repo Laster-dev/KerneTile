@@ -27,6 +27,16 @@ public:
     virtual void center_on_screen() = 0;
     virtual Rect screen_bounds() const = 0;
 
+    // 窗口客户区在当前显示器上的归一化坐标 [0..1]，用于自算云母 (Mica) 屏幕空间壁纸采样
+    virtual Rect monitor_uv_rect() const {
+        Rect sb = screen_bounds();
+        Vec2 pos = position();
+        Vec2 sz = size();
+        float mw = std::max(1.0f, sb.width());
+        float mh = std::max(1.0f, sb.height());
+        return Rect::from_xywh((pos.x - sb.min_x) / mw, (pos.y - sb.min_y) / mh, sz.x / mw, sz.y / mh);
+    }
+
     // ==================== 呈现状态 ====================
     virtual void show() = 0;
     virtual void hide() = 0;

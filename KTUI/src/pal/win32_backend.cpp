@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 
 #include "win32_backend.hpp"
+#include <ktui/presentation/mica_backdrop.hpp>
 #include <imm.h>
 #include <algorithm>
 #include <cmath>
@@ -252,6 +253,27 @@ Rect Win32Window::screen_bounds() const {
     GetWindowRect(m_hwnd, &r);
     return Rect{static_cast<float>(r.left), static_cast<float>(r.top),
                 static_cast<float>(r.right - r.left), static_cast<float>(r.bottom - r.top)};
+}
+
+Rect Win32Window::monitor_uv_rect() const {
+    if (!m_hwnd) return Rect::from_xywh(0.0f, 0.0f, 1.0f, 1.0f);
+    POINT pt_client{0, 0};
+    ClientToScreen(m_hwnd, &pt_client);
+    RECT cr{};
+    GetClientRect(m_hwnd, &cr);
+    const float cw = static_cast<float>(std::max<LONG>(1, cr.right - cr.left));
+    const float ch = static_cast<float>(std::max<LONG>(1, cr.bottom - cr.top));
+
+    HMONITOR hmon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{sizeof(mi)};
+    if (!GetMonitorInfoW(hmon, &mi)) {
+        mi.rcMonitor = {0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    }
+    const float mw = static_cast<float>(std::max<LONG>(1, mi.rcMonitor.right - mi.rcMonitor.left));
+    const float mh = static_cast<float>(std::max<LONG>(1, mi.rcMonitor.bottom - mi.rcMonitor.top));
+    const float rel_x = static_cast<float>(pt_client.x - mi.rcMonitor.left);
+    const float rel_y = static_cast<float>(pt_client.y - mi.rcMonitor.top);
+    return Rect::from_xywh(rel_x / mw, rel_y / mh, cw / mw, ch / mh);
 }
 
 void Win32Window::show() {
@@ -683,7 +705,26 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             if (m_on_moved) {
                 m_on_moved(m_position);
             }
+            if (!IsIconic(m_hwnd) && m_on_paint) {
+                m_on_paint();
+            }
             return 0;
+        }
+        case WM_SETTINGCHANGE: {
+            if (wparam == SPI_SETDESKWALLPAPER) {
+                MicaBackdropEngine::invalidate_wallpaper();
+                if (!IsIconic(m_hwnd) && m_on_paint) {
+                    m_on_paint();
+                }
+            }
+            break;
+        }
+        case WM_THEMECHANGED: {
+            MicaBackdropEngine::invalidate_wallpaper();
+            if (!IsIconic(m_hwnd) && m_on_paint) {
+                m_on_paint();
+            }
+            break;
         }
         case WM_CLOSE: {
             if (m_on_close) {

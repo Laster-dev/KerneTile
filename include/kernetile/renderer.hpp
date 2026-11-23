@@ -13,6 +13,7 @@
 #include "kernetile/text/text_streamer.hpp"
 #include "kernetile/fx/clip_stack.hpp"
 #include "kernetile/cpu/cpu_rasterizer.hpp"
+#include <array>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -90,6 +91,11 @@ public:
     virtual void set_compute_target(void* window, void* display = nullptr) { (void)window; (void)display; }
     virtual bool compute_ready() const noexcept { return false; }
     virtual bool present_computed_frame(bool force_present = false) { (void)force_present; return false; }
+
+    // 自算云母背景 (4x4 屏幕空间模糊壁纸色场，D3D12 / Vulkan / WebGPU / CPU 全后端零额外纹理一致渲染)
+    virtual void set_mica_backdrop(bool enabled, const std::array<uint32_t, 16>& grid) {
+        (void)enabled; (void)grid;
+    }
 
     // 性能指标查询
     virtual const FrameStats& get_last_frame_stats() const = 0;

@@ -174,7 +174,7 @@ void D3D12Device::init_root_signatures() {
     root_params[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     root_params[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    root_params[6].Constants.Num32BitValues = 5;
+    root_params[6].Constants.Num32BitValues = 24;
     root_params[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     // 静态采样器 (Clamp s0)

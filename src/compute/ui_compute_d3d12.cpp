@@ -140,7 +140,14 @@ private:
         commands.set_compute_atlas(*m_atlas);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
-        const std::array parameters{frame.width, frame.height, count, groups_x, static_cast<uint32_t>(frame.clips.size())};
+        std::array<uint32_t, 24> parameters{};
+        parameters[0] = frame.width;
+        parameters[1] = frame.height;
+        parameters[2] = count;
+        parameters[3] = groups_x;
+        parameters[4] = static_cast<uint32_t>(frame.clips.size());
+        parameters[5] = frame.mica_enabled ? 1u : 0u;
+        for (size_t i = 0; i < 16; ++i) parameters[8 + i] = frame.mica_grid[i];
         commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
         commands.dispatch(groups_x, (count + groups_x - 1) / groups_x, 1);
     }

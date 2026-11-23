@@ -3,6 +3,7 @@
 set(KTUI_PAL_SOURCES
     src/pal/headless_backend.cpp
     src/pal/platform_backend.cpp
+    src/pal/mica_wallpaper.cpp
     src/app/application.cpp
 )
 
@@ -20,7 +21,7 @@ target_include_directories(ktui_pal PUBLIC
 )
 target_link_libraries(ktui_pal PUBLIC kernetile_core kernetile_engine)
 if (WIN32)
-    target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib)
+    target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib ole32.lib windowscodecs.lib)
 elseif (EMSCRIPTEN)
     # Emscripten HTML5 / Canvas 2D 库由编译器内置提供
 elseif (ANDROID)

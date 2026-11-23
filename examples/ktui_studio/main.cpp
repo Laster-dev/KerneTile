@@ -28,20 +28,20 @@ int main() {
     Property<int> render_mode{1};
     Property<std::string> input_text{"KerneTile KTUI"};
     Property<std::string> input_preview{"输入预览: KerneTile KTUI"};
-    Property<Color> window_bg{Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f}};
-    Property<Color> card_bg{Color{0x27 / 255.0f, 0x28 / 255.0f, 0x2C / 255.0f, 1.0f}};
-    Property<Color> card_border{Color{1.0f, 1.0f, 1.0f, 0.06f}};
+    Property<Color> window_bg{Color::transparent()};
+    Property<Color> card_bg{Color{1.0f, 1.0f, 1.0f, 0.045f}};
+    Property<Color> card_border{Color{1.0f, 1.0f, 1.0f, 0.07f}};
     Property<Color> muted_text{Color{0xC5 / 255.0f, 0xC5 / 255.0f, 0xC5 / 255.0f, 1.0f}};
 
     app.theme.subscribe([&](const Theme& t) {
         if (t.is_dark) {
-            window_bg.set(Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f});
-            card_bg.set(Color{0x27 / 255.0f, 0x28 / 255.0f, 0x2C / 255.0f, 1.0f});
-            card_border.set(Color{1.0f, 1.0f, 1.0f, 0.06f});
+            window_bg.set(Color::transparent());
+            card_bg.set(Color{1.0f, 1.0f, 1.0f, 0.045f});
+            card_border.set(Color{1.0f, 1.0f, 1.0f, 0.07f});
             muted_text.set(Color{0xC5 / 255.0f, 0xC5 / 255.0f, 0xC5 / 255.0f, 1.0f});
         } else {
-            window_bg.set(Color{0xEA / 255.0f, 0xED / 255.0f, 0xF1 / 255.0f, 1.0f});
-            card_bg.set(Color{0xFA / 255.0f, 0xFB / 255.0f, 0xFD / 255.0f, 1.0f});
+            window_bg.set(Color::transparent());
+            card_bg.set(Color{1.0f, 1.0f, 1.0f, 0.65f});
             card_border.set(Color{0.0f, 0.0f, 0.0f, 0.07f});
             muted_text.set(Color{0x59 / 255.0f, 0x60 / 255.0f, 0x6A / 255.0f, 1.0f});
         }

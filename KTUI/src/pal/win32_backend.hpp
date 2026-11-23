@@ -32,6 +32,7 @@ public:
     void set_position(Vec2 pos) override;
     void center_on_screen() override;
     Rect screen_bounds() const override;
+    Rect monitor_uv_rect() const override;
 
     void show() override;
     void hide() override;

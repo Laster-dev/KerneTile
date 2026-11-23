@@ -108,7 +108,8 @@ EM_JS(void, stop_webgpu, (int id), {
 EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
     const void* prim, unsigned prim_bytes, const void* indices, unsigned index_bytes,
     const void* tiles, unsigned tile_count, const void* clips, unsigned clip_bytes,
-    const void* atlas, unsigned atlas_width, unsigned atlas_height, const void* atlas_updates, unsigned update_count), {
+    const void* atlas, unsigned atlas_width, unsigned atlas_height, const void* atlas_updates, unsigned update_count,
+    unsigned mica_enabled, const uint32_t* mica_grid), {
     var state = Module['ktuiGpuStates'] && Module['ktuiGpuStates'].get(id);
     if (!state || !state.ready) return 0;
     var canvas = state.canvas;
@@ -162,6 +163,17 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                 return {buffer: buffer, size: required};
             };
             var groupsX = Math.min(tile_count, 1024);
+            var uniformData = new Uint32Array(24);
+            uniformData[0] = width;
+            uniformData[1] = height;
+            uniformData[2] = tile_count;
+            uniformData[3] = groupsX;
+            uniformData[4] = clip_bytes >>> 5;
+            uniformData[5] = mica_enabled;
+            if (mica_enabled && mica_grid) {
+                var mIdx = mica_grid >>> 2;
+                for (var mi = 0; mi < 16; ++mi) uniformData[8 + mi] = HEAPU32[mIdx + mi];
+            }
             var data = [
                 upload(0, HEAPU8.subarray(prim, prim + prim_bytes), 80, GPUBufferUsage.STORAGE),
                 upload(1, HEAPU8.subarray(indices, indices + index_bytes), 4, GPUBufferUsage.STORAGE),
@@ -170,7 +182,7 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                 state.atlasView,
                 state.sampler,
                 state.outputView,
-                upload(4, new Uint32Array([width, height, tile_count, groupsX]), 16, GPUBufferUsage.UNIFORM)
+                upload(4, uniformData, 96, GPUBufferUsage.UNIFORM)
             ];
             var group = device.createBindGroup({
                 layout: state.compute.getBindGroupLayout(0),
@@ -235,7 +247,8 @@ public:
             frame.tiles.data(), frame.tiles.size(),
             frame.clips.data(), frame.clips.size_bytes(),
             frame.atlas.data(), frame.atlas_width, frame.atlas_height,
-            frame.atlas_updates.data(), frame.atlas_updates.size()) != 0;
+            frame.atlas_updates.data(), frame.atlas_updates.size(),
+            frame.mica_enabled ? 1u : 0u, frame.mica_grid.data()) != 0;
     }
 
 private:

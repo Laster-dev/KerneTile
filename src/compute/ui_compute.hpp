@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -28,6 +29,8 @@ struct Frame {
     uint32_t atlas_width;
     uint32_t atlas_height;
     std::span<const atlas::RectU32> atlas_updates;
+    bool mica_enabled{false};
+    std::array<uint32_t, 16> mica_grid{};
 };
 
 class Backend {

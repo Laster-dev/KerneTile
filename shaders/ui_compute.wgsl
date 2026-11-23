@@ -25,6 +25,11 @@ struct Frame {
     extent: vec2u,
     tile_count: u32,
     groups_x: u32,
+    clip_count: u32,
+    mica_enabled: u32,
+    pad0: u32,
+    pad1: u32,
+    mica_grid: array<vec4u, 4>,
 }
 @group(0) @binding(0) var<storage, read> primitives: array<Primitive>;
 @group(0) @binding(1) var<storage, read> indices: array<u32>;
@@ -84,6 +89,34 @@ fn coverage(p: vec2f, prim: Primitive) -> f32 {
     return clamp(0.5 - distance, 0.0, 1.0);
 }
 
+fn unpack_rgba8(packed: u32) -> vec4f {
+    return vec4f(
+        f32(packed & 255u),
+        f32((packed >> 8u) & 255u),
+        f32((packed >> 16u) & 255u),
+        f32((packed >> 24u) & 255u)
+    ) / 255.0;
+}
+
+fn mica_cell(ix: u32, iy: u32) -> u32 {
+    let row = frame.mica_grid[iy];
+    if (ix == 0u) { return row.x; }
+    if (ix == 1u) { return row.y; }
+    if (ix == 2u) { return row.z; }
+    return row.w;
+}
+
+fn sample_mica(p: vec2f) -> vec4f {
+    let uv = clamp(p / max(vec2f(frame.extent), vec2f(1.0)), vec2f(0.0), vec2f(1.0)) * 3.0;
+    let i0 = min(vec2u(uv), vec2u(2u, 2u));
+    let f = uv - vec2f(i0);
+    let c00 = unpack_rgba8(mica_cell(i0.x, i0.y));
+    let c10 = unpack_rgba8(mica_cell(i0.x + 1u, i0.y));
+    let c01 = unpack_rgba8(mica_cell(i0.x, i0.y + 1u));
+    let c11 = unpack_rgba8(mica_cell(i0.x + 1u, i0.y + 1u));
+    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}
+
 @compute @workgroup_size(16, 16)
 fn compose(@builtin(workgroup_id) group: vec3u,
            @builtin(local_invocation_id) local: vec3u,
@@ -97,7 +130,7 @@ fn compose(@builtin(workgroup_id) group: vec3u,
     let primitive_count = workgroupUniformLoad(&tile_count_shared);
     let pixel = vec2u(tile.x, tile.y) * 16u + local.xy;
     let p = vec2f(pixel) + 0.5;
-    var color = vec4f(0.0);
+    var color = select(vec4f(0.0), sample_mica(p), frame.mica_enabled != 0u);
 
     for (var start = 0u; start < primitive_count; start += 64u) {
         let count = min(64u, primitive_count - start);

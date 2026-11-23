@@ -8,6 +8,7 @@
 #include <ktui/event/focus_tree.hpp>
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/mica_backdrop.hpp>
 #include <kernetile/renderer.hpp>
 #include <string>
 #include <memory>
@@ -181,6 +182,17 @@ public:
         return m_platform_window ? m_platform_window->opacity() : 1.0f;
     }
 
+    // ==================== 自算云母背景材质 (Homemade Mica) ====================
+    void set_backdrop(WindowBackdrop backdrop) {
+        if (m_backdrop != backdrop) {
+            m_backdrop = backdrop;
+            request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
+        }
+    }
+
+    [[nodiscard]] WindowBackdrop backdrop() const noexcept { return m_backdrop; }
+
     // ==================== DPI 与显示参数 ====================
     [[nodiscard]] float dpi_scale() const {
         return m_platform_window ? m_platform_window->dpi_scale() : 1.0f;
@@ -323,7 +335,17 @@ public:
         }
         clear_redraw_flag();
 
-        // 3. 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
+        // 3. 更新自算云母 (Homemade Mica) 屏幕空间壁纸采样色场
+        std::array<uint32_t, 16> mica_grid{};
+        const bool mica_active = MicaBackdropEngine::build_mica_grid(
+            m_backdrop,
+            ThemeContext::current().is_dark,
+            m_window_focused,
+            m_platform_window->monitor_uv_rect(),
+            mica_grid);
+        m_renderer->set_mica_backdrop(mica_active, mica_grid);
+
+        // 3.1 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
         m_renderer->begin_frame();
         PaintContext ctx(m_renderer.get(), scale);
         if (tb_h > 0.0f) {
@@ -333,7 +355,7 @@ public:
                 m_root_render_box->paint(ctx);
             }
             ctx.pop_clip();
-            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top());
+            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top(), mica_active);
         } else {
             m_root_render_box->paint(ctx);
         }
@@ -711,6 +733,12 @@ private:
             }
         });
 
+        m_platform_window->on_moved([this](Vec2) {
+            if (m_backdrop != WindowBackdrop::None) {
+                request_redraw();
+            }
+        });
+
         m_platform_window->on_close_requested([this]() -> bool {
             bool allow_close = true;
             for (auto& cb : m_close_callbacks) {
@@ -750,6 +778,7 @@ private:
     bool m_compute_was_ready{false};
     bool m_show_titlebar{true};
     bool m_window_focused{true};
+    WindowBackdrop m_backdrop{WindowBackdrop::Mica};
     float m_render_scale{1.0f};
     void* m_last_native_handle{nullptr};
     WindowTitlebar m_titlebar;

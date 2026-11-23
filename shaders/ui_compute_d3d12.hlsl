@@ -21,9 +21,30 @@ KT_BINDING(5) SamplerState atlas_sampler : register(s0);
 KT_BINDING(6) RWTexture2D<float4> output : register(u0);
 KT_BINDING(7) cbuffer Frame : register(b0) {
     uint2 extent;
-    uint tile_count, groups_x, clip_count;
+    uint tile_count, groups_x, clip_count, mica_enabled, pad0, pad1;
+    uint4 mica_grid[4];
 };
 groupshared uint tile_indices[64];
+
+float4 unpack_rgba8(uint packed) {
+    return float4(packed & 255u, (packed >> 8u) & 255u, (packed >> 16u) & 255u, (packed >> 24u) & 255u) / 255.0;
+}
+
+uint mica_cell(uint ix, uint iy) {
+    uint4 row = mica_grid[iy];
+    return (ix == 0u) ? row.x : ((ix == 1u) ? row.y : ((ix == 2u) ? row.z : row.w));
+}
+
+float4 sample_mica(float2 p) {
+    float2 uv = saturate(p / max(float2(extent), float2(1.0, 1.0))) * 3.0;
+    uint2 i0 = min(uint2(uv), uint2(2u, 2u));
+    float2 f = uv - float2(i0);
+    float4 c00 = unpack_rgba8(mica_cell(i0.x, i0.y));
+    float4 c10 = unpack_rgba8(mica_cell(i0.x + 1u, i0.y));
+    float4 c01 = unpack_rgba8(mica_cell(i0.x, i0.y + 1u));
+    float4 c11 = unpack_rgba8(mica_cell(i0.x + 1u, i0.y + 1u));
+    return lerp(lerp(c00, c10, f.x), lerp(c01, c11, f.x), f.y);
+}
 
 float box_distance(float2 p, float4 bounds, float4 radii) {
     float2 delta = p - (bounds.xy + bounds.zw) * 0.5;
@@ -73,7 +94,7 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
     Tile tile = tiles[tile_index];
     uint2 pixel = uint2(tile.x, tile.y) * 16 + local.xy;
     float2 p = float2(pixel) + 0.5;
-    float4 color = 0;
+    float4 color = (mica_enabled != 0u) ? sample_mica(p) : float4(0, 0, 0, 0);
     [loop]
     for (uint start = 0; start < tile.count; start += 64) {
         uint count = min(64u, tile.count - start);

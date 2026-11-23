@@ -278,7 +278,8 @@ public:
 
     // ==================== CUI.Core 风格自绘管线 ====================
     void paint(PaintContext& ctx, Vec2 win_size, const std::string& title,
-               bool is_active, bool resizable, bool maximized, bool is_pinned) const {
+               bool is_active, bool resizable, bool maximized, bool is_pinned,
+               bool transparent_bg = false) const {
         if (win_size.x <= 0.0f || win_size.y <= 0.0f) return;
 
         const Theme& theme = ThemeContext::current();
@@ -306,8 +307,10 @@ public:
 
         const float cy = kHeight * 0.5f;
 
-        // 1. 标题栏平直底盘 (与窗口底色一致，无缝衔接)
-        ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, win_size.x, kHeight), bar_bg, 0.0f, 0.0f);
+        // 1. 标题栏底盘 (启用自算云母时完全透出底层流动云母，非云母模式填充主题纯色)
+        if (!transparent_bg) {
+            ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, win_size.x, kHeight), bar_bg, 0.0f, 0.0f);
+        }
 
         // 2. 左侧应用图标 (16x16 @ x=10) + 左对齐标题文本 (裁剪在按钮区左侧 - 8px)
         const float title_right = buttons_left(win_size, resizable) - 8.0f;

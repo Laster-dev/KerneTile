@@ -5,6 +5,7 @@
 #include "kernetile/core/tile_header.hpp"
 #include "kernetile/tile/tile_grid.hpp"
 #include "kernetile/fx/clip_stack.hpp"
+#include <array>
 #include <vector>
 #include <cstdint>
 #include <cstddef>
@@ -37,6 +38,8 @@ public:
         uint32_t                           atlas_width{0};
         uint32_t                           atlas_height{0};
         uint32_t                           thread_count{0}; // 0 代表自适应计算
+        bool                               mica_enabled{false};
+        std::array<uint32_t, 16>           mica_grid{};
     };
 
     // 执行纯 CPU 瓦片光栅化渲染，写出至 RGBA8 帧缓冲区
@@ -58,7 +61,9 @@ public:
         uint8_t* dst_framebuffer,
         const uint8_t* atlas_pixels = nullptr,
         uint32_t atlas_width = 0,
-        uint32_t atlas_height = 0);
+        uint32_t atlas_height = 0,
+        bool mica_enabled = false,
+        const std::array<uint32_t, 16>* mica_grid = nullptr);
 
     // 数学内核 (与 Slang / DXIL 着色器完全相同的 Abramowitz & Stegun 系数)
     static float erf_approx(float x) noexcept;

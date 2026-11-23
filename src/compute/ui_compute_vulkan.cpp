@@ -429,8 +429,14 @@ private:
         upload_atlas(frame);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
-        const std::array<uint32_t, 8> params{frame.width, frame.height, count, groups_x,
-                                            static_cast<uint32_t>(frame.clips.size())};
+        std::array<uint32_t, 24> params{};
+        params[0] = frame.width;
+        params[1] = frame.height;
+        params[2] = count;
+        params[3] = groups_x;
+        params[4] = static_cast<uint32_t>(frame.clips.size());
+        params[5] = frame.mica_enabled ? 1u : 0u;
+        for (size_t i = 0; i < 16; ++i) params[8 + i] = frame.mica_grid[i];
         const std::array<std::span<const std::byte>, 5> input{std::as_bytes(frame.primitives),
             std::as_bytes(frame.indices), std::as_bytes(frame.tiles), std::as_bytes(frame.clips),
             std::as_bytes(std::span(params))};

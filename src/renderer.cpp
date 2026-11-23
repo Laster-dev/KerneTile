@@ -177,6 +177,15 @@ public:
 
     bool compute_ready() const noexcept override { return m_backend && m_backend->ready(); }
 
+    void set_mica_backdrop(bool enabled, const std::array<uint32_t, 16>& grid) override {
+        if (m_mica_enabled != enabled || (enabled && m_mica_grid != grid)) {
+            m_mica_enabled = enabled;
+            m_mica_grid = grid;
+            m_dirty_tracker.reset();
+            m_gpu_full_frame = true;
+        }
+    }
+
     bool present_computed_frame(bool force_present) override {
         if (compute_ready()) {
             const auto& dirty = m_last_dirty_result.dirty_tiles;
@@ -199,7 +208,7 @@ public:
             const compute::Frame frame{m_config.width, m_config.height, m_primitives,
                 m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                 {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
-                atlas_height, m_atlas.get_dirty_rects()};
+                atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid};
             const auto start = std::chrono::steady_clock::now();
             if (m_backend->submit(frame)) {
                 m_atlas.clear_dirty_rects();
@@ -246,6 +255,8 @@ public:
         params.atlas_pixels = m_atlas.get_pixels();
         params.atlas_width = m_atlas.get_width();
         params.atlas_height = m_atlas.get_height();
+        params.mica_enabled = m_mica_enabled;
+        params.mica_grid = m_mica_grid;
 
         cpu::CpuTileRasterizer::render(params, dst_buffer);
 
@@ -300,6 +311,8 @@ private:
     std::vector<core::ClipRect> m_previous_clips;
     bool m_gpu_full_frame = true;
     bool m_gpu_active = false;
+    bool m_mica_enabled = false;
+    std::array<uint32_t, 16> m_mica_grid{};
 
     std::vector<core::UiPrimitive> m_primitives{};
     std::vector<uint32_t> m_dirty_tile_ids{};
