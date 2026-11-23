@@ -79,6 +79,7 @@ EM_JS(int, start_webgpu, (const char* code, int win_id), {
         state.blit = shared.blit;
         state.sampler = shared.sampler;
         state.ready = true;
+        if (window._ktuiRequestFrame) window._ktuiRequestFrame();
     }).catch(onError);
     return id;
 });
@@ -144,13 +145,9 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                 device.queue.writeTexture({texture: state.atlas, origin: [x, y]}, bytes,
                     {bytesPerRow: atlas_width, rowsPerImage: h}, [w, h]);
             };
-            if (firstAtlasUpload) {
-                uploadAtlas(0, 0, atlas_width, atlas_height);
-            } else {
-                var rect = atlas_updates >>> 2;
-                for (var i = 0; i < update_count; ++i, rect += 4)
-                    uploadAtlas(HEAPU32[rect], HEAPU32[rect + 1], HEAPU32[rect + 2], HEAPU32[rect + 3]);
-            }
+            var rect = atlas_updates >>> 2;
+            for (var i = 0; i < update_count; ++i, rect += 4)
+                uploadAtlas(HEAPU32[rect], HEAPU32[rect + 1], HEAPU32[rect + 2], HEAPU32[rect + 3]);
 
             var upload = function(slot, bytes, minimum, usage) {
                 var required = Math.max(minimum, bytes.byteLength);
@@ -205,7 +202,17 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
         if (canvas.style.top !== top) canvas.style.top = top;
         if (canvas.style.width !== cssW) canvas.style.width = cssW;
         if (canvas.style.height !== cssH) canvas.style.height = cssH;
-        if (canvas.style.display !== 'block') canvas.style.display = 'block';
+        if (canvas.style.display !== 'block') {
+            canvas.style.display = 'block';
+            // WebGPU 接管呈现后，释放 2D 回退画布的像素缓存以节省内存
+            if (target.width > 1 || target.height > 1) {
+                target.width = 1;
+                target.height = 1;
+            }
+            var winId = Number(target.dataset && target.dataset.ktuiWinId);
+            var winEntry = Module['ktuiWindows'] && Module['ktuiWindows'].get(winId);
+            if (winEntry) winEntry.imgData = null;
+        }
         return 1;
     } catch (error) {
         state.ready = false;

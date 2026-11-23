@@ -80,7 +80,6 @@
             overflow: hidden;
             border-radius: 0;
             background: #202020;
-            will-change: transform, opacity;
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -491,15 +490,18 @@
         (function initClock() {
             var timeEl = document.getElementById('ktui-tray-time');
             var dateEl = document.getElementById('ktui-tray-date');
+            var lastTime = '', lastDate = '';
             function tick() {
                 var now = new Date();
                 var hh = String(now.getHours()).padStart(2, '0');
                 var mm = String(now.getMinutes()).padStart(2, '0');
-                if (timeEl) timeEl.textContent = hh + ':' + mm;
-                if (dateEl) dateEl.textContent = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+                var t = hh + ':' + mm;
+                var d = now.getFullYear() + '/' + (now.getMonth() + 1) + '/' + now.getDate();
+                if (timeEl && t !== lastTime) { lastTime = t; timeEl.textContent = t; }
+                if (dateEl && d !== lastDate) { lastDate = d; dateEl.textContent = d; }
             }
             tick();
-            setInterval(tick, 1000);
+            setInterval(tick, 5000);
         })();
 
         var assetVer = '__KTUI_ASSET_VER__';

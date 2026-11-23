@@ -80,7 +80,7 @@ EM_JS(void, ktui_js_init_desktop, (), {
         style.textContent =
             'html,body,#ktui-desktop,.ktui-win,.ktui-win canvas,#ktui-taskbar,#ktui-taskbar button{' +
                 '-webkit-tap-highlight-color:transparent;tap-highlight-color:transparent;-webkit-touch-callout:none;}' +
-            '.ktui-win{position:absolute;overflow:hidden;border-radius:0;background:#202020;will-change:transform,opacity;}' +
+            '.ktui-win{position:absolute;overflow:hidden;border-radius:0;background:#202020;}' +
             '.ktui-win::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;' +
                 'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);transition:box-shadow 160ms ease;}' +
             '.ktui-win.inactive::after{box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);}' +
@@ -748,12 +748,19 @@ EM_JS(void, ktui_js_get_window_size, (int* out_w, int* out_h), {
     HEAP32[out_h >> 2] = window.innerHeight;
 });
 
+EM_JS(void, ktui_js_wake_frame, (), {
+    if (window._ktuiRequestFrame) window._ktuiRequestFrame();
+});
+
 // ==================== Web 平台任务调度器 ====================
 class WebDispatcher : public IPlatformDispatcher {
 public:
     void post_task(std::function<void()> task) override {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.push_back(std::move(task));
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_queue.push_back(std::move(task));
+        }
+        ktui_js_wake_frame();
     }
 
     size_t process_tasks() override {
@@ -846,7 +853,7 @@ public:
           m_on_activate_req(std::move(on_activate_req)),
           m_on_destroyed(std::move(on_destroyed))
     {
-        m_last_dpi_scale = dpi_scale();
+        m_last_dpi_scale = ktui_js_get_dpi_scale();
         Rect desk = work_area();
         // 适配移动端/小屏视口：若初始窗口大于可用桌面区域，自动收缩以完整显示
         const float max_init_w = std::max(280.0f, desk.width() - 16.0f);
@@ -1047,8 +1054,8 @@ public:
     }
 
     // ==================== 显示器与 DPI ====================
-    float dpi_scale() const override { return ktui_js_get_dpi_scale(); }
-    float render_scale() const override { return dpi_scale(); }
+    float dpi_scale() const override { return m_last_dpi_scale; }
+    float render_scale() const override { return m_last_dpi_scale; }
     uint32_t refresh_rate() const override { return 60; }
 
     // ==================== 原生句柄 ====================
@@ -1074,7 +1081,7 @@ public:
     }
 
     void invalidate() override {
-        // Web 端由 requestAnimationFrame (Application::step_frame) 统一按 VSync 节拍驱动重绘
+        ktui_js_wake_frame();
     }
     void on_paint_requested(std::function<void()> handler) override {
         m_paint_handler = std::move(handler);
@@ -1156,10 +1163,11 @@ public:
     }
 
     void handle_viewport_resized() {
-        const float cur_dpi = dpi_scale();
+        const float cur_dpi = ktui_js_get_dpi_scale();
         if (cur_dpi != m_last_dpi_scale) {
             m_last_dpi_scale = cur_dpi;
             if (m_dpi_handler) m_dpi_handler(cur_dpi);
+            ktui_js_wake_frame();
         }
         if (m_state == WindowState::Maximized) {
             Rect desk = work_area();
@@ -1189,6 +1197,7 @@ private:
         int max_flag = (m_state == WindowState::Maximized || m_state == WindowState::Fullscreen) ? 1 : 0;
         ktui_js_update_window_geometry(m_win_id, m_position.x, m_position.y, m_size.x, m_size.y,
                                        effective_z, vis, min_flag, max_flag, m_active ? 1 : 0, m_resizable ? 1 : 0);
+        if (vis) ktui_js_wake_frame();
     }
 
     int m_win_id{0};
@@ -1306,6 +1315,7 @@ public:
         if (m_event_callback) {
             m_event_callback(pe);
         }
+        ktui_js_wake_frame();
     }
 
     WebWindow* find_window(int win_id) const {

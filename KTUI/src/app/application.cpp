@@ -4,6 +4,43 @@
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
+
+extern "C" {
+EMSCRIPTEN_KEEPALIVE
+inline void ktui_web_step_frame() {
+    if (auto* app = ktui::Application::current()) {
+        app->step_frame();
+    }
+}
+}
+
+EM_JS(void, ktui_js_schedule_next_frame, (int immediate, int delay_ms), {
+    if (!window._ktuiRafId) window._ktuiRafId = 0;
+    if (!window._ktuiTimerId) window._ktuiTimerId = 0;
+
+    if (!window._ktuiRequestFrame) {
+        window._ktuiRequestFrame = function() {
+            if (window._ktuiRafId) return;
+            if (window._ktuiTimerId) {
+                clearTimeout(window._ktuiTimerId);
+                window._ktuiTimerId = 0;
+            }
+            window._ktuiRafId = requestAnimationFrame(function() {
+                window._ktuiRafId = 0;
+                _ktui_web_step_frame();
+            });
+        };
+    }
+
+    if (immediate) {
+        window._ktuiRequestFrame();
+    } else if (delay_ms > 0 && !window._ktuiRafId && !window._ktuiTimerId) {
+        window._ktuiTimerId = setTimeout(function() {
+            window._ktuiTimerId = 0;
+            window._ktuiRequestFrame();
+        }, delay_ms);
+    }
+});
 #endif
 
 namespace ktui {
@@ -110,7 +147,34 @@ void Application::step_frame() {
 #if defined(__EMSCRIPTEN__)
     if (m_windows.empty()) {
         quit(0);
-        emscripten_cancel_main_loop();
+        return;
+    }
+    // 按需调度下一帧：有动画/脏状态则立即挂下一帧 rAF；仅有光标闪烁则精确 setTimeout；完全闲置时 0% CPU！
+    bool has_dirty = false;
+    uint32_t min_blink_wait = 0;
+    for (const auto& win : m_windows) {
+        if (win && !win->is_closed()) {
+            if (win->needs_redraw() ||
+                (win->root_render_box() && (win->root_render_box()->needs_paint() ||
+                                            win->root_render_box()->needs_layout() ||
+                                            win->root_render_box()->child_needs_layout()))) {
+                has_dirty = true;
+                break;
+            }
+            if (win->has_blinking_cursor()) {
+                uint32_t rem = win->time_until_next_blink_ms();
+                if (rem == 0) {
+                    has_dirty = true;
+                    break;
+                }
+                min_blink_wait = (min_blink_wait == 0) ? rem : std::min(min_blink_wait, rem);
+            }
+        }
+    }
+    if (has_dirty) {
+        ktui_js_schedule_next_frame(1, 0);
+    } else if (min_blink_wait > 0) {
+        ktui_js_schedule_next_frame(0, static_cast<int>(min_blink_wait));
     }
 #endif
 }
@@ -120,9 +184,8 @@ int Application::run() {
     m_exit_code = 0;
 
 #if defined(__EMSCRIPTEN__)
-    emscripten_set_main_loop_arg([](void* arg) {
-        static_cast<Application*>(arg)->step_frame();
-    }, this, 0, 1);
+    // 事件驱动按需 rAF：静止时彻底休眠 0% CPU，交互/动画/光标闪烁时自动唤醒
+    ktui_js_schedule_next_frame(1, 0);
     return m_exit_code;
 #elif defined(__ANDROID__)
     // Android 端由 Choreographer 按屏幕刷新率回调 Application::step_frame()
