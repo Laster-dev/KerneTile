@@ -791,6 +791,7 @@ public:
     uint64_t request_frame(std::function<void(double timestamp_seconds)> callback) override {
         uint64_t id = m_next_id++;
         m_requests.push_back({id, std::move(callback)});
+        ktui_js_wake_frame();
         return id;
     }
 

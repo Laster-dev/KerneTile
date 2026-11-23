@@ -7,7 +7,7 @@
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE
-inline void ktui_web_step_frame() {
+void ktui_web_step_frame() {
     if (auto* app = ktui::Application::current()) {
         app->step_frame();
     }
@@ -186,6 +186,8 @@ int Application::run() {
 #if defined(__EMSCRIPTEN__)
     // 事件驱动按需 rAF：静止时彻底休眠 0% CPU，交互/动画/光标闪烁时自动唤醒
     ktui_js_schedule_next_frame(1, 0);
+    // 阻止 main() 正常返回并析构栈上的 Application 与 Window 对象，保持 Wasm 运行时常驻
+    emscripten_exit_with_live_runtime();
     return m_exit_code;
 #elif defined(__ANDROID__)
     // Android 端由 Choreographer 按屏幕刷新率回调 Application::step_frame()
