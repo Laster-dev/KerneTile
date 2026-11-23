@@ -80,9 +80,9 @@ EM_JS(void, ktui_js_init_desktop, (), {
         style.textContent =
             'html,body,#ktui-desktop,.ktui-win,.ktui-win canvas,#ktui-taskbar,#ktui-taskbar button{' +
                 '-webkit-tap-highlight-color:transparent;tap-highlight-color:transparent;-webkit-touch-callout:none;}' +
-            '.ktui-win{position:absolute;overflow:hidden;border-radius:8px;background:#202020;will-change:transform,opacity;}' +
-            '.ktui-win::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:2;' +
-                'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.16);transition:box-shadow 160ms ease;}' +
+            '.ktui-win{position:absolute;overflow:hidden;border-radius:0;background:#202020;will-change:transform,opacity;}' +
+            '.ktui-win::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;' +
+                'box-shadow:inset 0 0 0 1px rgba(255,255,255,0.14);transition:box-shadow 160ms ease;}' +
             '.ktui-win.inactive::after{box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);}' +
             '.ktui-win.maximized{border-radius:0;box-shadow:none!important;}' +
             '.ktui-win.maximized::after{box-shadow:none;}' +
@@ -576,7 +576,7 @@ EM_JS(void, ktui_js_update_window_geometry, (int win_id, float x, float y, float
             wrap.style.transformOrigin = '0 0';
             wrap.style.transform = 'translate3d(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px,0) scale(' + sx.toFixed(4) + ',' + sy.toFixed(4) + ')';
             void wrap.offsetWidth;
-            wrap.style.transition = 'transform 220ms cubic-bezier(0.1, 0.9, 0.2, 1), border-radius 220ms ease';
+            wrap.style.transition = 'transform 220ms cubic-bezier(0.1, 0.9, 0.2, 1)';
             wrap.style.transform = 'translate3d(0, 0, 0) scale(1, 1)';
             wrap.style.opacity = '1';
         } else {

@@ -54,6 +54,9 @@ jobs:
           cp build-web/ktui_studio_demo.html dist/index.html
           cp build-web/ktui_studio_demo.js dist/ktui_studio_demo.js
           cp build-web/ktui_studio_demo.wasm dist/ktui_studio_demo.wasm
+          # 为 JS/WASM 资源注入提交哈希版本号，防止浏览器混用新版 index.html 与旧缓存 JS/WASM
+          sed -i "s|ktui_studio_demo\.js|ktui_studio_demo.js?v=${{ github.sha }}|g" dist/index.html
+          sed -i "s|__KTUI_ASSET_VER__|${{ github.sha }}|g" dist/index.html
           touch dist/.nojekyll
 
       - name: Upload GitHub Pages Artifact

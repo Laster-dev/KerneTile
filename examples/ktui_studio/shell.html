@@ -74,25 +74,24 @@
             color: rgba(200, 206, 224, 0.65);
         }
 
-        /* ==================== Windows 11 风格窗口容器 ==================== */
+        /* ==================== Windows 风格窗口容器 ==================== */
         .ktui-win {
             position: absolute;
             overflow: hidden;
-            border-radius: 8px;
+            border-radius: 0;
             background: #202020;
             will-change: transform, opacity;
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* 抗锯齿圆角 1px 描边叠加层，确保圆角弧线处边框完整连续不裁切 */
+        /* 1px 外框描边叠加层 */
         .ktui-win::after {
             content: '';
             position: absolute;
             inset: 0;
-            border-radius: inherit;
             pointer-events: none;
             z-index: 2;
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
             transition: box-shadow 160ms ease;
         }
 
@@ -503,7 +502,15 @@
             setInterval(tick, 1000);
         })();
 
+        var assetVer = '__KTUI_ASSET_VER__';
         var Module = {
+            locateFile: function(path, prefix) {
+                var url = (prefix || '') + path;
+                if (assetVer && assetVer.indexOf('__KTUI_') !== 0 && url.indexOf('?') === -1) {
+                    return url + '?v=' + assetVer;
+                }
+                return url;
+            },
             preRun: [],
             postRun: [function() {
                 if (statusDot) statusDot.className = 'status-dot';
