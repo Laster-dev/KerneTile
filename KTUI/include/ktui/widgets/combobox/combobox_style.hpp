@@ -69,7 +69,7 @@ public:
             style.chevron          = Color{1.0f, 1.0f, 1.0f, 0.78f};
 
             // Flyout Surface (SolidBackgroundFillColorQuarternary / Acrylic Dark)
-            style.popup_bg         = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 0.985f}; // #2C2C2C
+            style.popup_bg         = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 1.0f}; // #2C2C2C
             style.popup_border     = Color{1.0f, 1.0f, 1.0f, 0.09f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.34f};
 
@@ -97,7 +97,7 @@ public:
             style.chevron          = Color{0.0f, 0.0f, 0.0f, 0.65f};
 
             // Flyout Surface (Acrylic Light)
-            style.popup_bg         = Color{250.0f / 255.0f, 250.0f / 255.0f, 250.0f / 255.0f, 0.99f}; // #FAFAFA
+            style.popup_bg         = Color{250.0f / 255.0f, 250.0f / 255.0f, 250.0f / 255.0f, 1.0f}; // #FAFAFA
             style.popup_border     = Color{0.0f, 0.0f, 0.0f, 0.09f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.14f};
 

@@ -96,18 +96,8 @@ public:
 
         Rect panel_rect = Rect::from_xywh(0.0f, anim_y, size().x, anim_h);
 
-        // 1. 多层柔和圆角阴影 (WinUI 3 Flyout Elevation Shadow)
-        if (style.popup_shadow.a > 0.001f) {
-            Color sh1 = style.popup_shadow;
-            sh1.a *= 0.35f * alpha_mul;
-            ctx.draw_rect(Rect::from_xywh(-2.0f, anim_y + 4.0f, size().x + 4.0f, anim_h + 2.0f),
-                          sh1, style.popup_corner_radius + 2.0f, 0.0f);
-
-            Color sh2 = style.popup_shadow;
-            sh2.a *= 0.60f * alpha_mul;
-            ctx.draw_rect(Rect::from_xywh(-0.5f, anim_y + 2.0f, size().x + 1.0f, anim_h + 0.5f),
-                          sh2, style.popup_corner_radius + 0.5f, 0.0f);
-        }
+        // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
+        ctx.draw_elevation_shadow(panel_rect, style.popup_corner_radius, theme.is_dark, 32.0f, alpha_mul);
 
         // 2. 浮层背景板 (8px 圆角 + 1px 精致边框)
         Color bg = style.popup_bg;

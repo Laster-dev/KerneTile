@@ -143,6 +143,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem::separator(),
             NavigationViewItem::header("图形与状态"),
             NavigationViewItem{ .id = "progress", .label = "滑块与进度", .icon = NavigationIcon::Progress },
+            NavigationViewItem{ .id = "dialogs",  .label = "弹窗与菜单", .icon = NavigationIcon::Layout, .badge = "New" },
             NavigationViewItem{ .id = "svg",      .label = "NanoSVG 矢量", .icon = NavigationIcon::Palette }
         },
         .footer_items = {
@@ -161,6 +162,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "inputs")       return pages::build_inputs_page(*this);
             if (page_id == "selection")    return pages::build_selection_page(*this);
             if (page_id == "progress")     return pages::build_progress_page(*this);
+            if (page_id == "dialogs")      return pages::build_dialogs_menus_page(*this);
             if (page_id == "svg")          return pages::build_svg_page(*this);
             if (page_id == "__settings__") return pages::build_settings_page(*this);
             if (page_id == "about")        return pages::build_about_page(*this);

@@ -2,6 +2,7 @@
 
 #include <ktui/pal/platform_types.hpp>
 #include <kernetile/renderer.hpp>
+#include <algorithm>
 #include <vector>
 #include <string_view>
 
@@ -84,6 +85,38 @@ public:
                                           shadow_offset * m_render_scale);
         }
         m_primitive_count += 2; // 阴影图元 + 本体图元
+    }
+
+    // 绘制 WinUI 3 / Fluent 2 双层解析高斯软阴影 (Key Shadow + Ambient Shadow)
+    // 通过 KerneTile 引擎原生 erf() 解析高斯核渲染，内缩 1.5px 避免面板抗锯齿边缘黑边与圆角露角
+    void draw_elevation_shadow(Rect rect, float corner_radius, bool is_dark,
+                               float elevation = 32.0f, float opacity_scale = 1.0f,
+                               Vec2 direction_offset = Vec2{0.0f, 1.0f}) {
+        if (opacity_scale <= 0.001f || elevation <= 0.0f) return;
+        float w = rect.width();
+        float h = rect.height();
+        if (w <= 2.0f || h <= 2.0f) return;
+
+        float inset = std::min({1.5f, w * 0.25f, h * 0.25f});
+        Rect sr = Rect::from_xywh(rect.min_x + inset, rect.min_y + inset,
+                                  w - inset * 2.0f, h - inset * 2.0f);
+        float sr_radius = std::max(0.0f, corner_radius - inset);
+
+        // KerneTile shadow_blur = Gaussian sigma (约为 CSS blur-radius 的 0.5x)
+        float key_sigma = std::clamp(elevation * 0.28f, 4.5f, 20.0f);
+        float key_dist  = std::clamp(elevation * 0.18f, 2.5f, 12.0f);
+        float key_alpha = (is_dark ? 0.44f : 0.17f) * opacity_scale;
+
+        float amb_sigma = std::clamp(elevation * 0.09f, 2.5f, 6.0f);
+        float amb_dist  = std::clamp(elevation * 0.035f, 1.0f, 2.5f);
+        float amb_alpha = (is_dark ? 0.24f : 0.09f) * opacity_scale;
+
+        draw_shadowed_box(sr, Color{0.0f, 0.0f, 0.0f, key_alpha},
+                          sr_radius, key_sigma, 0.0f,
+                          Vec2{direction_offset.x * key_dist, direction_offset.y * key_dist});
+        draw_shadowed_box(sr, Color{0.0f, 0.0f, 0.0f, amb_alpha},
+                          sr_radius, amb_sigma, 0.0f,
+                          Vec2{direction_offset.x * amb_dist, direction_offset.y * amb_dist});
     }
 
     // 绘制文本

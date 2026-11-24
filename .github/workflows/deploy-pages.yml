@@ -1,4 +1,4 @@
-name: Deploy WebAssembly Demo to GitHub Pages
+name: Deploy KTUI Gallery WebAssembly to GitHub Pages
 
 on:
   push:
@@ -16,15 +16,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url || steps.deployment_retry.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Setup Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -60,22 +60,21 @@ jobs:
           sed -i "s|__KTUI_ASSET_VER__|${{ github.sha }}|g" dist/index.html
           sed -i "s|wallpaper_dark\.jpg|wallpaper_dark.jpg?v=${{ github.sha }}|g" dist/index.html
           touch dist/.nojekyll
+          ls -la dist
 
       - name: Upload GitHub Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages
           path: dist
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-
-      - name: Wait Before Retrying GitHub Pages Deployment
-        if: steps.deployment.outcome == 'failure'
-        run: sleep 15
-
-      - name: Retry GitHub Pages Deployment
-        id: deployment_retry
-        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4

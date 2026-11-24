@@ -68,22 +68,22 @@ Java_com_kernetile_studio_KerneTileBridge_nativeInit(JNIEnv* env, jclass clazz) 
 }
 
 JNIEXPORT void JNICALL
-Java_com_kernetile_studio_KerneTileBridge_nativeSetSurface(JNIEnv* env, jclass, jobject surface, jint width, jint height, jfloat density) {
+Java_com_kernetile_studio_KerneTileBridge_nativeSurfaceChanged(JNIEnv* env, jclass, jobject surface, jint width, jint height, jfloat density) {
     if (auto* backend = ktui::AndroidBackend::instance()) {
         ANativeWindow* native_window = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
-        backend->set_surface(native_window, static_cast<uint32_t>(width), static_cast<uint32_t>(height), density);
+        backend->on_surface_changed(native_window, width, height, density);
     }
 }
 
 JNIEXPORT void JNICALL
 Java_com_kernetile_studio_KerneTileBridge_nativeSurfaceDestroyed(JNIEnv*, jclass) {
     if (auto* backend = ktui::AndroidBackend::instance()) {
-        backend->clear_surface();
+        backend->on_surface_destroyed();
     }
 }
 
 JNIEXPORT void JNICALL
-Java_com_kernetile_studio_KerneTileBridge_nativeOnFrame(JNIEnv*, jclass) {
+Java_com_kernetile_studio_KerneTileBridge_nativeStepFrame(JNIEnv*, jclass) {
     if (g_gallery && g_gallery->app) {
         g_gallery->app->step_frame();
     }
@@ -97,9 +97,16 @@ Java_com_kernetile_studio_KerneTileBridge_nativeOnTouch(JNIEnv*, jclass, jint ac
 }
 
 JNIEXPORT void JNICALL
-Java_com_kernetile_studio_KerneTileBridge_nativeOnKeyDown(JNIEnv*, jclass, jint key_code) {
+Java_com_kernetile_studio_KerneTileBridge_nativeOnKey(JNIEnv*, jclass, jint action, jint key_code, jboolean shift, jboolean ctrl, jboolean alt) {
     if (auto* backend = ktui::AndroidBackend::instance()) {
-        backend->on_key_down(key_code);
+        backend->on_key(action, key_code, shift == JNI_TRUE, ctrl == JNI_TRUE, alt == JNI_TRUE);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_kernetile_studio_KerneTileBridge_nativeOnImeComposition(JNIEnv* env, jclass, jstring text, jint cursor_byte) {
+    if (auto* backend = ktui::AndroidBackend::instance()) {
+        backend->on_ime_composition(jstring_to_utf8(env, text), static_cast<size_t>(cursor_byte));
     }
 }
 

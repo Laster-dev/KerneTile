@@ -76,13 +76,8 @@ public:
 
         Rect panel = Rect::from_xywh(0.0f, 0.0f, size().x, anim_h);
 
-        // 1. 柔和圆角阴影
-        Color sh1 = style.pane_overlay_shadow;
-        sh1.a *= 0.32f * alpha_mul;
-        ctx.draw_rect(Rect::from_xywh(-2.0f, 4.0f, size().x + 4.0f, anim_h + 2.0f), sh1, 10.0f, 0.0f);
-        Color sh2 = style.pane_overlay_shadow;
-        sh2.a *= 0.55f * alpha_mul;
-        ctx.draw_rect(Rect::from_xywh(-0.5f, 2.0f, size().x + 1.0f, anim_h + 0.5f), sh2, 8.5f, 0.0f);
+        // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
+        ctx.draw_elevation_shadow(panel, 8.0f, theme.is_dark, 32.0f, alpha_mul);
 
         // 2. 8px 圆角浮层底板与 1px 描边
         Color bg = style.pane_overlay_bg;
@@ -722,9 +717,8 @@ private:
         float ty = std::round(item_cy - th * 0.5f);
         Rect tr = Rect::from_xywh(tx, ty, tw, th);
 
-        Color sh = style.pane_overlay_shadow;
-        sh.a *= 0.35f;
-        ctx.draw_rect(Rect::from_xywh(tx - 1.0f, ty + 2.0f, tw + 2.0f, th + 1.0f), sh, 5.0f, 0.0f);
+        const bool is_dark = ThemeContext::current().is_dark;
+        ctx.draw_elevation_shadow(tr, 4.0f, is_dark, 16.0f, 1.0f);
         ctx.draw_rect(tr, style.pane_overlay_bg, 4.0f, 0.0f);
         ctx.draw_rect(tr, style.pane_overlay_border, 4.0f, 1.0f);
         ctx.draw_text(label, PointF{std::round(tx + 9.0f), std::round(ty + (th - ts.y) * 0.5f)}, 12.0f, style.item_selected_text);
@@ -749,9 +743,8 @@ private:
         Rect pane_rect = Rect::from_xywh(0.0f, 0.0f, pane_w, size().y);
 
         if (overlay) {
-            Color sh = style.pane_overlay_shadow;
-            sh.a *= m_pane_open_anim * 0.45f;
-            ctx.draw_rect(Rect::from_xywh(pane_w, 0.0f, 10.0f, size().y), sh, 0.0f, 0.0f);
+            const bool is_dark = ThemeContext::current().is_dark;
+            ctx.draw_elevation_shadow(pane_rect, 8.0f, is_dark, 48.0f, m_pane_open_anim, Vec2{1.0f, 0.0f});
             ctx.draw_rounded_rect(pane_rect, style.pane_overlay_bg, 0.0f, 8.0f, 8.0f, 0.0f);
             ctx.draw_rect(Rect::from_xywh(pane_w - 1.0f, 0.0f, 1.0f, size().y), style.pane_overlay_border, 0.0f, 0.0f);
         }

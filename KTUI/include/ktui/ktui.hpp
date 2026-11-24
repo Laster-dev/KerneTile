@@ -80,4 +80,8 @@
 #include <ktui/widgets/scroll_view.hpp>
 #include <ktui/widgets/combobox.hpp>
 #include <ktui/widgets/svg.hpp>
+#include <ktui/widgets/info_bar.hpp>
+#include <ktui/widgets/content_dialog.hpp>
+#include <ktui/widgets/menu_flyout.hpp>
+#include <ktui/widgets/dropdown_button.hpp>
 #include <ktui/widgets/navigation_view.hpp>

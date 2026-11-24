@@ -17,7 +17,7 @@ import kotlin.math.floor
 
 object KerneTileBridge {
     init {
-        System.loadLibrary("ktui_studio_demo")
+        System.loadLibrary("ktui_gallery")
     }
 
     private var activityRef: WeakReference<MainActivity>? = null

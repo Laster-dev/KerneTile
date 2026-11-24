@@ -266,6 +266,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/pages/home_page.cpp
     examples/ktui_gallery/pages/basic_input_pages.cpp
     examples/ktui_gallery/pages/progress_page.cpp
+    examples/ktui_gallery/pages/dialogs_menus_page.cpp
     examples/ktui_gallery/pages/settings_about_pages.cpp
 )
 if (ANDROID)
@@ -601,6 +602,27 @@ if (BUILD_TESTING)
         kernetile_core
     )
     add_test(NAME test_ktui_navigation_view COMMAND test_ktui_navigation_view WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    # KTUI WinUI 3 InfoBar, ContentDialog, MenuFlyout & Split/DropDownButton 单元测试
+    add_executable(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp)
+    target_include_directories(test_ktui_overlays_and_menus PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_ktui_overlays_and_menus PRIVATE
+        ktui_pal
+        kernetile_engine
+        kernetile_hal
+        kernetile_tile
+        kernetile_text
+        kernetile_input
+        kernetile_platform
+        kernetile_cpu
+        kernetile_fx
+        kernetile_core
+    )
+    add_test(NAME test_ktui_overlays_and_menus COMMAND test_ktui_overlays_and_menus WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
 

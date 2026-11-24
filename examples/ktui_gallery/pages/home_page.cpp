@@ -77,6 +77,8 @@ WidgetPtr build_home_page(GalleryApp& app) {
             build_radio_card_group_card(app),
             build_slider_progress_card(app),
             build_progress_ring_card(app),
+            build_menus_and_buttons_card(app),
+            build_dialog_and_infobar_card(app),
             build_svg_showcase_card(app),
             build_text_input_card(app)
         }

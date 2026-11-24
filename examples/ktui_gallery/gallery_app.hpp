@@ -30,6 +30,11 @@ struct GalleryApp {
     ktui::Property<std::string> nav_selected{"home"};
     ktui::Property<ktui::NavigationPaneDisplayMode> nav_mode{ktui::NavigationPaneDisplayMode::Auto};
     ktui::Property<int> nav_mode_idx{0};
+    ktui::Property<bool> menu_auto_save{true};
+    ktui::Property<std::string> menu_status{"提示: 点击按钮下拉箭头或在下方卡片右键弹出菜单"};
+    ktui::Property<std::string> dialog_status{"尚未打开对话框"};
+    ktui::Property<bool> infobar_open{true};
+    ktui::Property<ktui::InfoBarSeverity> infobar_severity{ktui::InfoBarSeverity::Informational};
 
     ktui::Property<ktui::Color> window_bg{ktui::Color::transparent()};
     ktui::Property<ktui::Color> card_bg{ktui::Color{1.0f, 1.0f, 1.0f, 0.045f}};
