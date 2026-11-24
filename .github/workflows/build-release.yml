@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+env:
+  CCACHE_ENABLE: '1'
+  CCACHE_SLOPPINESS: 'pch_defines,time_macros,include_file_mtime,include_file_ctime'
+  CCACHE_COMPRESS: 'true'
+
 jobs:
   # ============================================================================
   # Windows: x64 / x86 / arm64 (Clang-CL -Oz -flto=thin + lld-link + Hybrid CRT)
@@ -38,6 +43,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup ccache (Incremental C++ Cache)
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: win-${{ matrix.arch }}
+          max-size: 300M
 
       - name: Setup MSVC Developer Environment (${{ matrix.vcvars }})
         uses: ilammy/msvc-dev-cmd@v1
@@ -103,6 +114,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup ccache (Incremental C++ Cache)
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-${{ matrix.arch }}
+          max-size: 300M
+
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
@@ -130,7 +147,7 @@ jobs:
           path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
 
   # ============================================================================
-  # Linux 32-bit: x86 (i686) via native i386 Debian container
+  # Linux 32-bit: x86 (i686) via native i386 Debian container + ccache
   # ============================================================================
   build-linux-x86:
     name: Linux (x86)
@@ -140,16 +157,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore ccache (Linux x86)
+        uses: actions/cache@v4
+        with:
+          path: .ccache-linux-x86
+          key: ccache-linux-x86-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-x86-
+
       - name: Build inside i386/debian:bookworm (Clang -Oz ThinLTO)
         run: |
+          mkdir -p "${{ github.workspace }}/.ccache-linux-x86"
           docker run --rm --platform linux/386 \
+            -e CCACHE_ENABLE=1 \
+            -e CCACHE_DIR=/ccache \
+            -e CCACHE_MAXSIZE=300M \
+            -e CCACHE_COMPRESS=true \
+            -e CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime \
             -v "${{ github.workspace }}:/src" \
+            -v "${{ github.workspace }}/.ccache-linux-x86:/ccache" \
             -w /src \
             i386/debian:bookworm \
             bash -exc '
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                cmake ninja-build clang lld pkg-config \
+                cmake ninja-build clang lld ccache pkg-config \
                 libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
                 libvulkan-dev glslang-tools
               cmake -B /tmp/build-linux -G Ninja \
@@ -157,6 +189,7 @@ jobs:
                 -DBUILD_TESTING=OFF \
                 -DCMAKE_CXX_COMPILER=clang++
               cmake --build /tmp/build-linux --target ktui_gallery
+              ccache -s || true
               mkdir -p /src/dist/linux-x86
               cp /tmp/build-linux/ktui_gallery /src/dist/linux-x86/ktui_gallery-linux-x86
               chmod +x /src/dist/linux-x86/ktui_gallery-linux-x86
@@ -170,7 +203,7 @@ jobs:
           path: dist/linux-x86/ktui_gallery-linux-x86
 
   # ============================================================================
-  # Android: 按 ABI 拆分为 4 个独立最小体积 APK
+  # Android: 按 ABI 拆分为 4 个独立最小体积 APK + Gradle/ccache 增量缓存
   #   - arm64-v8a  (64位 ARM / ARMv8，主流安卓手机)
   #   - armeabi-v7a (32位 ARM / ARMv7，老款安卓设备)
   #   - x86_64     (64位 x86，现代模拟器 / Chromebook)
@@ -185,12 +218,21 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android CMake 3.22.1 & NDK
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup ccache (Incremental Android NDK C++ Cache)
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-all-abis
+          max-size: 500M
+
+      - name: Install Android CMake 3.22.1 & SDK 34
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
@@ -199,7 +241,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --build-cache --no-daemon
 
       - name: Collect & Inspect Per-ABI APKs
         run: |
@@ -240,11 +282,13 @@ jobs:
           path: dist/android/ktui_gallery-android-x86.apk
 
   # ============================================================================
-  # Tag 发布时自动归集全部架构产物到 GitHub Release
+  # 自动发布到 GitHub Release：
+  #   - 推送 v* Tag：发布正式版本 Release
+  #   - 推送 main 分支 / 手动触发：自动更新 rolling 的 `latest` Release
   # ============================================================================
   release:
     name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name != 'pull_request'
     needs: [build-windows, build-linux-native, build-linux-x86, build-android]
     runs-on: ubuntu-24.04
     steps:
@@ -254,7 +298,19 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Create GitHub Release
+      - name: Publish Versioned Release (v* Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          files: release-assets/*
+
+      - name: Update Rolling Latest Release (main)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build (main)
+          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`/`x86`) 与 Android 独立分包 (`arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`) 最小体积产物。"
+          prerelease: true
+          make_latest: false
           files: release-assets/*

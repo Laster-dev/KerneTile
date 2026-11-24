@@ -5,6 +5,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# CI 增量编译加速：当环境变量 CCACHE_ENABLE=1 且存在 ccache 时自动启用内容哈希缓存
+if (DEFINED ENV{CCACHE_ENABLE})
+    find_program(KT_CCACHE ccache)
+    if (KT_CCACHE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${KT_CCACHE}")
+        message(STATUS "KerneTile: ccache incremental build enabled (${KT_CCACHE})")
+    endif()
+endif()
+
 # 统一编译器警告、MSVC 静态运行时 (/MT)、零异常/零RTTI、体积优化与严格标准检查
 if (MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
