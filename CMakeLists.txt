@@ -83,7 +83,7 @@ else()
                 $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
                 $<$<CONFIG:Release>:-fno-unwind-tables>
             )
-            set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,--gc-sections -Wl,--icf=all -Wl,--strip-all")
+            set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,--gc-sections -Wl,--strip-all")
         elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
             string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
