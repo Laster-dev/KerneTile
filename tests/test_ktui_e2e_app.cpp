@@ -450,6 +450,84 @@ void test_cursor_blink_and_on_demand_rendering() {
     std::cout << "  -> 闲置 0% CPU 挂起休眠与聚焦 530ms 光标定时驱动切换全部验证通过！" << std::endl;
 }
 
+void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
+    std::cout << "[Test 10] 移动端触控惯性滑行、抗末帧抖动与顶底橡皮筋越界回弹..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    SmoothScrollPhysics p;
+    p.set_viewport_extent(500.0f);
+    p.set_max_scroll(1200.0f);
+
+    // 1. 快速上滑 + 抬手前补发 0 位移事件，仍应触发强劲惯性滑行
+    p.begin_touch_drag();
+    for (int i = 0; i < 6; ++i) {
+        p.apply_touch_drag_with_dt(-28.0f, 0.016);
+    }
+    p.apply_touch_drag_with_dt(0.0f, 0.004); // 模拟 Android/Web 抬手前零位移抖动
+    float pos_at_lift = p.offset();
+    require(pos_at_lift > 160.0f, "pos_at_lift > 160");
+    p.end_touch_drag_for_test(0.0);
+    require(p.is_flinging() && p.is_animating(), "fling started");
+
+    for (int i = 0; i < 180 && p.step_touch_for_test(0.016); ++i) {}
+    require(p.offset() > pos_at_lift + 300.0f, "fling glided > 300px");
+    require(!p.is_animating(), "fling settled");
+
+    // 2. 顶部下拉越界橡皮筋阻力 + 放手弹性回弹至 0
+    p.jump_to(0.0f);
+    p.begin_touch_drag();
+    for (int i = 0; i < 5; ++i) {
+        p.apply_touch_drag_with_dt(30.0f, 0.016); // 总下拉 150px
+    }
+    require(p.offset() < -20.0f && p.offset() > -140.0f, "top rubber band stretch");
+    require(p.overscroll_amount() < -20.0f, "top overscroll_amount < -20");
+    p.end_touch_drag_for_test(0.0);
+    require(p.is_bouncing() && p.is_animating(), "top bounce started");
+    for (int i = 0; i < 120 && p.step_touch_for_test(0.016); ++i) {}
+    require(std::abs(p.offset()) < 0.5f && !p.is_bouncing(), "top bounce settled at 0");
+
+    // 3. 底部上拉越界橡皮筋阻力 + 放手弹性回弹至 max_scroll
+    p.jump_to(1200.0f);
+    p.begin_touch_drag();
+    for (int i = 0; i < 5; ++i) {
+        p.apply_touch_drag_with_dt(-30.0f, 0.016);
+    }
+    require(p.offset() > 1220.0f && p.offset() < 1350.0f, "bottom rubber band stretch");
+    p.end_touch_drag_for_test(0.0);
+    require(p.is_bouncing(), "bottom bounce started");
+    for (int i = 0; i < 120 && p.step_touch_for_test(0.016); ++i) {}
+    require(std::abs(p.offset() - 1200.0f) < 0.5f && !p.is_bouncing(), "bottom bounce settled at max");
+
+    // 4. 高速惯性撞击底边 -> 过冲并弹回 max_scroll
+    p.jump_to(1050.0f);
+    p.begin_touch_drag();
+    for (int i = 0; i < 4; ++i) {
+        p.apply_touch_drag_with_dt(-30.0f, 0.016);
+    }
+    p.end_touch_drag_for_test(0.0);
+    require(p.is_flinging(), "fast fling toward bottom");
+    bool saw_overshoot = false;
+    for (int i = 0; i < 200 && p.step_touch_for_test(0.016); ++i) {
+        if (p.offset() > 1205.0f) saw_overshoot = true;
+    }
+    require(saw_overshoot, "boundary fling overshoot observed");
+    require(std::abs(p.offset() - 1200.0f) < 0.5f, "boundary overshoot bounced back");
+
+    // 5. 滑动后停顿 > 95ms 再抬手 -> 不触发误惯性
+    p.jump_to(200.0f);
+    p.begin_touch_drag();
+    p.apply_touch_drag_with_dt(-40.0f, 0.016);
+    p.end_touch_drag_for_test(0.12);
+    require(!p.is_flinging(), "pause before lift suppresses fling");
+
+    std::cout << "  -> 移动端触控惯性、顶底橡皮筋越界与撞边弹性回弹全部验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -464,6 +542,7 @@ int main() {
     test_overlay_manager_and_desktop_popups();
     test_text_input_undo_redo_and_word_selection();
     test_cursor_blink_and_on_demand_rendering();
+    test_mobile_touch_scroll_inertia_and_overscroll_bounce();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

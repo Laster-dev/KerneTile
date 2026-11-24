@@ -78,8 +78,14 @@ public:
         m.thumb_lane_rect = Rect::from_xywh(x, lane_y, kTrackWidth, lane_h);
 
         float ratio = std::clamp(view_h / content_height, 0.0f, 1.0f);
-        float thumb_h = std::clamp(lane_h * ratio, std::min(kMinThumbHeight, lane_h), lane_h);
+        float base_thumb_h = std::clamp(lane_h * ratio, std::min(kMinThumbHeight, lane_h), lane_h);
         float max_scroll = std::max(1.0f, content_height - view_h);
+        // 顶部/底部越界拉动时，滑块按越界比例弹性压缩并紧贴边缘 (iOS / Android 移动端手感)
+        float overscroll = 0.0f;
+        if (scroll_offset < 0.0f) overscroll = -scroll_offset;
+        else if (scroll_offset > max_scroll) overscroll = scroll_offset - max_scroll;
+        float min_squish_h = std::min(kMinThumbHeight * 0.45f, base_thumb_h);
+        float thumb_h = std::max(min_squish_h, base_thumb_h - overscroll * 0.55f);
         float frac = std::clamp(scroll_offset / max_scroll, 0.0f, 1.0f);
         float thumb_y = lane_y + frac * (lane_h - thumb_h);
 

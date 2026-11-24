@@ -184,6 +184,20 @@ public:
 
 private:
     void setup_behavior() {
+        // 移动端触控按下滑块时立即锁定手势捕获，防止拖拽过程中轻微纵向偏移被外层 ScrollView 抢占
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (m_state.is_disabled || e.device_kind != PointerDeviceKind::Touch) return;
+            if (e.type == PlatformEventType::PointerDown) {
+                m_state.is_pressed = true;
+                m_state.is_dragging = true;
+                m_last_anim_time = std::chrono::steady_clock::now();
+                update_value_from_pos(e.local_position.x);
+                e.gesture_capture_target = this;
+                e.stop_propagation();
+                mark_needs_paint();
+            }
+        };
+
         on_pointer_enter = [this](PointerEvent&) {
             m_state.is_hovered = true;
             m_last_anim_time = std::chrono::steady_clock::now();

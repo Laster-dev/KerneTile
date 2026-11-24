@@ -86,6 +86,7 @@ public:
         }
         float final_h = m_constraints.constrain_height(desired_h);
         set_size(Vec2{target_w, final_h});
+        m_physics.set_viewport_extent(final_h);
         m_physics.set_max_scroll(std::max(0.0f, m_content_height - final_h));
         if (m_child_box) {
             m_child_box->set_offset(Vec2{0.0f, -m_physics.offset()});
@@ -182,8 +183,14 @@ private:
                     e.stop_propagation();
                 }
             } else if (e.type == PlatformEventType::PointerUp) {
-                m_touch_tracking = false;
-                m_touch_dragging = false;
+                if (!m_touch_dragging && m_touch_tracking) {
+                    m_touch_tracking = false;
+                    // 若在回弹中途被手指轻触停住后直接抬起，确保继续弹回边界
+                    if (std::abs(m_physics.overscroll_amount()) > 0.05f) {
+                        m_physics.end_touch_drag();
+                        mark_needs_paint();
+                    }
+                }
             }
         };
 

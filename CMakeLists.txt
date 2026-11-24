@@ -71,7 +71,20 @@ else()
         )
         set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} -flto=thin -Wl,--gc-sections -Wl,--icf=all -Wl,--exclude-libs,ALL -Wl,--strip-all")
     elseif (NOT EMSCRIPTEN)
-        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        option(KERNETILE_ZIG_CXX "Build with zig c++ for portable glibc targeting" OFF)
+        if (KERNETILE_ZIG_CXX)
+            # zig c++ 内置 Clang 19 + LLD + 静态 libc++，可锁定 glibc 2.28 跨发行版运行
+            string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+            string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+            add_compile_options(
+                $<$<CONFIG:Release>:-Oz>
+                $<$<CONFIG:Release>:-ffunction-sections>
+                $<$<CONFIG:Release>:-fdata-sections>
+                $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
+                $<$<CONFIG:Release>:-fno-unwind-tables>
+            )
+            set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Wl,--gc-sections -Wl,--icf=all -Wl,--strip-all")
+        elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
             string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
             add_compile_options(
@@ -124,7 +137,7 @@ if (KERNETILE_STATIC AND NOT WIN32)
     set(BUILD_SHARED_LIBS OFF)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 else()
-    if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
+    if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID AND NOT KERNETILE_ZIG_CXX)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++ -static-libgcc")
     endif()
 endif()
@@ -391,7 +404,7 @@ target_include_directories(ktui_gallery PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.16" AND NOT KERNETILE_ZIG_CXX)
     target_precompile_headers(ktui_gallery PRIVATE <ktui/ktui.hpp>)
 endif()
 target_link_libraries(ktui_gallery PRIVATE

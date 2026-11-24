@@ -298,8 +298,13 @@ private:
                     e.stop_propagation();
                 }
             } else if (e.type == PlatformEventType::PointerUp) {
-                m_touch_tracking = false;
-                m_touch_dragging = false;
+                if (!m_touch_dragging && m_touch_tracking) {
+                    m_touch_tracking = false;
+                    if (std::abs(m_physics.overscroll_amount()) > 0.05f) {
+                        m_physics.end_touch_drag();
+                        mark_needs_paint();
+                    }
+                }
             }
         };
 

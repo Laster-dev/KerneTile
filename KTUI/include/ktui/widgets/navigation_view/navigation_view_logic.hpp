@@ -1415,8 +1415,13 @@ private:
                     return;
                 }
             } else if (e.type == PlatformEventType::PointerUp) {
-                m_touch_tracking = false;
-                m_touch_mode = TouchGestureMode::None;
+                if (m_touch_mode == TouchGestureMode::None && m_touch_tracking) {
+                    m_touch_tracking = false;
+                    if (std::abs(m_menu_scroll.overscroll_amount()) > 0.05f) {
+                        m_menu_scroll.end_touch_drag();
+                        mark_needs_paint();
+                    }
+                }
             }
         };
 

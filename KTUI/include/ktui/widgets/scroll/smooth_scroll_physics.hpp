@@ -29,16 +29,30 @@ public:
     [[nodiscard]] float offset() const noexcept { return static_cast<float>(m_current); }
     [[nodiscard]] float target() const noexcept { return static_cast<float>(m_target); }
     [[nodiscard]] float max_scroll() const noexcept { return static_cast<float>(m_max_scroll); }
-    [[nodiscard]] bool is_animating() const noexcept { return m_animating; }
+    [[nodiscard]] float velocity() const noexcept { return static_cast<float>(m_velocity); }
+    [[nodiscard]] bool is_animating() const noexcept { return m_animating || m_flinging || m_bouncing; }
+    [[nodiscard]] bool is_flinging() const noexcept { return m_flinging; }
+    [[nodiscard]] bool is_bouncing() const noexcept { return m_bouncing; }
+    [[nodiscard]] float overscroll_amount() const noexcept {
+        if (m_current < 0.0) return static_cast<float>(m_current);
+        if (m_current > m_max_scroll) return static_cast<float>(m_current - m_max_scroll);
+        return 0.0f;
+    }
+
+    void set_viewport_extent(float extent) noexcept {
+        m_viewport_extent = std::max(120.0, static_cast<double>(extent));
+    }
 
     void set_max_scroll(float max_scroll) noexcept {
         m_max_scroll = std::max(0.0, static_cast<double>(max_scroll));
         m_target = std::clamp(m_target, 0.0, m_max_scroll);
-        m_current = std::clamp(m_current, 0.0, m_max_scroll);
-        if (std::abs(m_target - m_current) < 0.05) {
-            m_current = m_target;
-            m_velocity = 0.0;
-            m_animating = false;
+        if (!m_touch_dragging && !m_bouncing) {
+            m_current = std::clamp(m_current, 0.0, m_max_scroll);
+            if (!m_flinging && std::abs(m_target - m_current) < 0.05) {
+                m_current = m_target;
+                m_velocity = 0.0;
+                m_animating = false;
+            }
         }
     }
 
@@ -48,49 +62,62 @@ public:
         m_current = clamped;
         m_start = clamped;
         m_target = clamped;
+        m_raw_drag_pos = clamped;
         m_velocity = 0.0;
         m_animating = false;
         m_flinging = false;
+        m_bouncing = false;
+        m_touch_dragging = false;
     }
 
-    // 触控手指直接拖拽 (1:1 跟手 + 速度追踪)
+    // 触控手指直接拖拽 (1:1 跟手 + 顶部/底部橡皮筋越界阻力 + 滑动窗口速度追踪)
     void begin_touch_drag() noexcept {
         m_animating = false;
         m_flinging = false;
+        m_bouncing = false;
+        m_touch_dragging = true;
         m_velocity = 0.0;
-        m_target = m_current;
-        m_fling_last_time = std::chrono::steady_clock::now();
+        m_target = std::clamp(m_current, 0.0, m_max_scroll);
+        // 若在回弹中途被手指再次接住，将当前视觉越界量反解为虚拟拖拽位移，实现零跳变无缝接管
+        if (m_current < 0.0) {
+            m_raw_drag_pos = inv_rubber_band(m_current, m_viewport_extent);
+        } else if (m_current > m_max_scroll) {
+            m_raw_drag_pos = m_max_scroll + inv_rubber_band(m_current - m_max_scroll, m_viewport_extent);
+        } else {
+            m_raw_drag_pos = m_current;
+        }
+        m_sample_count = 0;
+        m_sample_head = 0;
+        m_virtual_time = 0.0;
+        auto now = std::chrono::steady_clock::now();
+        m_fling_last_time = now;
+        m_drag_origin_time = now;
+        push_touch_sample(0.0, m_raw_drag_pos);
     }
 
     void apply_touch_drag(float finger_delta_y) noexcept {
         auto now = std::chrono::steady_clock::now();
-        double dt = std::chrono::duration<double>(now - m_fling_last_time).count();
+        double t_sec = std::chrono::duration<double>(now - m_drag_origin_time).count();
         m_fling_last_time = now;
+        apply_touch_drag_internal(finger_delta_y, t_sec);
+    }
 
-        // 手指向上滑 (finger_delta_y < 0) -> 滚动偏移量增大
-        double prev = m_current;
-        m_current = std::clamp(m_current - static_cast<double>(finger_delta_y), 0.0, m_max_scroll);
-        m_target = m_current;
-        m_start = m_current;
-        m_animating = false;
-        m_flinging = false;
-
-        if (dt > 0.001 && dt < 0.15) {
-            double inst_v = (m_current - prev) / dt;
-            m_velocity = m_velocity * 0.35 + inst_v * 0.65;
-        }
+    // 确定性测试接口：按指定时间间隔 dt_sec 推入触控拖拽增量
+    void apply_touch_drag_with_dt(float finger_delta_y, double dt_sec) noexcept {
+        m_virtual_time += std::max(0.0, dt_sec);
+        apply_touch_drag_internal(finger_delta_y, m_virtual_time);
     }
 
     void end_touch_drag() noexcept {
-        if (std::abs(m_velocity) < 60.0) {
-            m_velocity = 0.0;
-            m_flinging = false;
-            return;
-        }
-        m_velocity = std::clamp(m_velocity, -4800.0, 4800.0);
-        m_flinging = true;
-        m_animating = false;
-        m_fling_last_time = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        double t_sec = std::chrono::duration<double>(now - m_drag_origin_time).count();
+        end_touch_drag_internal(t_sec, now);
+    }
+
+    // 确定性测试接口：在当前虚拟时间点结束触控拖拽
+    void end_touch_drag_for_test(double pause_before_lift_sec = 0.0) noexcept {
+        m_virtual_time += std::max(0.0, pause_before_lift_sec);
+        end_touch_drag_internal(m_virtual_time, std::chrono::steady_clock::now());
     }
 
     // 相对增量平滑滚动
@@ -151,37 +178,11 @@ public:
 
     // 每帧推进物理状态，返回 true 表示仍在动画中
     bool update() noexcept {
-        if (m_flinging) {
+        if (m_bouncing || m_flinging) {
             auto now = std::chrono::steady_clock::now();
             double dt = std::clamp(std::chrono::duration<double>(now - m_fling_last_time).count(), 0.0, 0.05);
             m_fling_last_time = now;
-            // 指数摩擦衰减 (Android / iOS 触控惯性手感)
-            constexpr double kFriction = 3.8;
-            double decay = std::exp(-kFriction * dt);
-            double next = m_current + m_velocity * dt;
-            if (next <= 0.0) {
-                m_current = 0.0;
-                m_target = 0.0;
-                m_velocity = 0.0;
-                m_flinging = false;
-                return false;
-            }
-            if (next >= m_max_scroll) {
-                m_current = m_max_scroll;
-                m_target = m_max_scroll;
-                m_velocity = 0.0;
-                m_flinging = false;
-                return false;
-            }
-            m_current = next;
-            m_target = next;
-            m_velocity *= decay;
-            if (std::abs(m_velocity) < 18.0) {
-                m_velocity = 0.0;
-                m_flinging = false;
-                return false;
-            }
-            return true;
+            return step_touch_physics(dt);
         }
         if (!m_animating) return false;
         return step_internal(std::chrono::steady_clock::now());
@@ -191,6 +192,12 @@ public:
     bool step_for_test(float elapsed_sec) noexcept {
         if (!m_animating) return false;
         return evaluate_at(static_cast<double>(elapsed_sec));
+    }
+
+    // 指定步长 dt_sec 步进触控惯性/回弹物理 (用于确定性单元测试)
+    bool step_touch_for_test(double dt_sec) noexcept {
+        if (!m_flinging && !m_bouncing) return false;
+        return step_touch_physics(std::clamp(dt_sec, 0.0, 0.05));
     }
 
 private:
@@ -283,17 +290,226 @@ private:
         return true;
     }
 
+    struct TouchSample {
+        double t_sec{0.0};
+        double pos{0.0};
+    };
+
+    static constexpr double kRubberBandCoeff = 0.55;
+    static constexpr double kFlingDeceleration = 2.1;  // iOS UIScrollView / Android 流畅滑行衰减系数
+    static constexpr double kBounceOmega = 15.0;       // 临界阻尼回弹自然频率 (rad/s)，紧致无多余晃动
+
+    [[nodiscard]] static double max_overscroll_cap(double dim) noexcept {
+        double d = std::max(120.0, dim);
+        return std::clamp(d * 0.38, 64.0, 160.0);
+    }
+
+    // iOS UIScrollView 渐进阻尼橡皮筋映射: (d * c * D) / (d + c * D)
+    [[nodiscard]] static double rubber_band(double dist, double dim) noexcept {
+        double d = std::max(120.0, dim);
+        double ad = std::abs(dist);
+        double res = (ad * kRubberBandCoeff * d) / (ad + kRubberBandCoeff * d);
+        res = std::min(res, max_overscroll_cap(d));
+        return dist < 0.0 ? -res : res;
+    }
+
+    [[nodiscard]] static double inv_rubber_band(double visual, double dim) noexcept {
+        double d = std::max(120.0, dim);
+        double cap = max_overscroll_cap(d);
+        double av = std::min(std::abs(visual), cap * 0.99);
+        double denom = std::max(1e-4, kRubberBandCoeff * d - av);
+        double res = (av * kRubberBandCoeff * d) / denom;
+        return visual < 0.0 ? -res : res;
+    }
+
+    void push_touch_sample(double t_sec, double pos) noexcept {
+        m_samples[m_sample_head] = TouchSample{t_sec, pos};
+        m_sample_head = (m_sample_head + 1) % kMaxSamples;
+        if (m_sample_count < kMaxSamples) {
+            ++m_sample_count;
+        }
+    }
+
+    [[nodiscard]] double estimate_release_velocity(double lift_t_sec) const noexcept {
+        if (m_sample_count < 2) return 0.0;
+        const TouchSample& newest = m_samples[(m_sample_head + kMaxSamples - 1) % kMaxSamples];
+        // 若抬手前手指已停顿超过 95ms，视为用户有意停住，不触发惯性滑行
+        if (lift_t_sec - newest.t_sec > 0.095) {
+            return 0.0;
+        }
+        // 在最近 100ms 窗口内选取最早的有效样本计算平均速度，抗单帧 dy=0 / 抬手微抖
+        const TouchSample* oldest = &newest;
+        for (int i = 1; i < m_sample_count; ++i) {
+            int idx = (m_sample_head + kMaxSamples - 1 - i) % kMaxSamples;
+            const TouchSample& s = m_samples[idx];
+            if (newest.t_sec - s.t_sec <= 0.100) {
+                oldest = &s;
+            } else {
+                break;
+            }
+        }
+        double dt = newest.t_sec - oldest->t_sec;
+        if (dt < 0.004) return 0.0;
+        return (newest.pos - oldest->pos) / dt;
+    }
+
+    void apply_touch_drag_internal(float finger_delta_y, double t_sec) noexcept {
+        m_touch_dragging = true;
+        m_animating = false;
+        m_flinging = false;
+        m_bouncing = false;
+
+        // 手指向上滑 (finger_delta_y < 0) -> 滚动偏移量增大
+        m_raw_drag_pos -= static_cast<double>(finger_delta_y);
+        if (m_raw_drag_pos < 0.0) {
+            m_current = rubber_band(m_raw_drag_pos, m_viewport_extent);
+        } else if (m_raw_drag_pos > m_max_scroll) {
+            m_current = m_max_scroll + rubber_band(m_raw_drag_pos - m_max_scroll, m_viewport_extent);
+        } else {
+            m_current = m_raw_drag_pos;
+        }
+        m_target = std::clamp(m_current, 0.0, m_max_scroll);
+        m_start = m_current;
+
+        // 仅当有实质位移时才推入速度样本，避免抬手前夕浏览器/Android 补发 dy=0 事件清空惯性速度
+        if (std::abs(finger_delta_y) > 0.01f) {
+            push_touch_sample(t_sec, m_raw_drag_pos);
+        }
+    }
+
+    void start_bounce(double boundary, double initial_vel) noexcept {
+        m_bouncing = true;
+        m_flinging = false;
+        m_animating = false;
+        m_bounce_boundary = boundary;
+        m_bounce_x0 = m_current - boundary;
+        m_bounce_v0 = initial_vel;
+        m_bounce_elapsed = 0.0;
+        m_target = boundary;
+        m_velocity = initial_vel;
+    }
+
+    void end_touch_drag_internal(double lift_t_sec, std::chrono::steady_clock::time_point now) noexcept {
+        m_touch_dragging = false;
+        double v = estimate_release_velocity(lift_t_sec);
+        m_fling_last_time = now;
+
+        // 1. 若松手时处于顶部或底部越界拉伸态，直接启动临界阻尼弹性回弹
+        if (m_current < -0.05) {
+            start_bounce(0.0, std::clamp(v * 0.2, -600.0, 600.0));
+            return;
+        }
+        if (m_current > m_max_scroll + 0.05) {
+            start_bounce(m_max_scroll, std::clamp(v * 0.2, -600.0, 600.0));
+            return;
+        }
+
+        // 2. 界内松手：达到阈值则启动惯性滑行
+        if (std::abs(v) < 45.0) {
+            m_velocity = 0.0;
+            m_flinging = false;
+            return;
+        }
+        m_velocity = std::clamp(v, -6500.0, 6500.0);
+        m_flinging = true;
+        m_animating = false;
+        m_bouncing = false;
+    }
+
+    bool step_touch_physics(double dt) noexcept {
+        if (m_bouncing) {
+            m_bounce_elapsed += dt;
+            double t = m_bounce_elapsed;
+            double e = std::exp(-kBounceOmega * t);
+            double c2 = m_bounce_v0 + kBounceOmega * m_bounce_x0;
+            double disp = (m_bounce_x0 + c2 * t) * e;
+            double vel = (m_bounce_v0 - kBounceOmega * c2 * t) * e;
+            double cap = max_overscroll_cap(m_viewport_extent);
+            disp = std::clamp(disp, -cap, cap);
+            m_current = m_bounce_boundary + disp;
+            m_target = m_bounce_boundary;
+            m_velocity = vel;
+            if (std::abs(disp) < 0.25 && std::abs(vel) < 8.0) {
+                m_current = m_bounce_boundary;
+                m_target = m_bounce_boundary;
+                m_velocity = 0.0;
+                m_bouncing = false;
+                return false;
+            }
+            return true;
+        }
+
+        if (m_flinging) {
+            // 解析积分位移 Δx = v * (1 - e^(-k*dt)) / k，与帧率严格无关
+            double decay = std::exp(-kFlingDeceleration * dt);
+            double step_dx = (dt > 1e-6) ? (m_velocity * (1.0 - decay) / kFlingDeceleration) : 0.0;
+            double next = m_current + step_dx;
+            m_velocity *= decay;
+
+            // 惯性撞击顶部/底部边界时柔和过冲并弹性回弹
+            if (next < 0.0) {
+                m_current = 0.0;
+                double impact_v = std::clamp(m_velocity * 0.38, -1500.0, 0.0);
+                if (std::abs(impact_v) > 40.0) {
+                    start_bounce(0.0, impact_v);
+                    return true;
+                }
+                m_target = 0.0;
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+            if (next > m_max_scroll) {
+                m_current = m_max_scroll;
+                double impact_v = std::clamp(m_velocity * 0.38, 0.0, 1500.0);
+                if (std::abs(impact_v) > 40.0) {
+                    start_bounce(m_max_scroll, impact_v);
+                    return true;
+                }
+                m_target = m_max_scroll;
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+
+            m_current = next;
+            m_target = next;
+            if (std::abs(m_velocity) < 12.0) {
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    static constexpr int kMaxSamples = 8;
+
     CubicBezier m_bezier;
     double m_current{0.0};
     double m_start{0.0};
     double m_target{0.0};
     double m_max_scroll{0.0};
+    double m_viewport_extent{420.0};
+    double m_raw_drag_pos{0.0};
     double m_velocity{0.0};
     double m_duration{0.2};
+    double m_bounce_boundary{0.0};
+    double m_bounce_x0{0.0};
+    double m_bounce_v0{0.0};
+    double m_bounce_elapsed{0.0};
+    double m_virtual_time{0.0};
     bool m_animating{false};
     bool m_flinging{false};
+    bool m_bouncing{false};
+    bool m_touch_dragging{false};
+    TouchSample m_samples[kMaxSamples]{};
+    int m_sample_count{0};
+    int m_sample_head{0};
     std::chrono::steady_clock::time_point m_start_time;
     std::chrono::steady_clock::time_point m_fling_last_time;
+    std::chrono::steady_clock::time_point m_drag_origin_time;
 };
 
 } // namespace ktui

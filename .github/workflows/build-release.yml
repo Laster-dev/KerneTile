@@ -96,7 +96,7 @@ jobs:
           path: dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
 
   # ============================================================================
-  # Linux Native: x64 (x86_64) & arm64 (aarch64) — Clang -Oz -flto=thin + lld
+  # Linux Native: x64 (x86_64) & arm64 (aarch64) — zig c++ (glibc 2.28, -Oz)
   # ============================================================================
   build-linux-native:
     name: Linux (${{ matrix.arch }})
@@ -107,38 +107,69 @@ jobs:
         include:
           - arch: x64
             runner: ubuntu-24.04
+            zig_target: x86_64-linux-gnu.2.28
+            multiarch: x86_64-linux-gnu
           - arch: arm64
             runner: ubuntu-24.04-arm
+            zig_target: aarch64-linux-gnu.2.28
+            multiarch: aarch64-linux-gnu
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Zig 0.14.0
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.0
+
       - name: Setup ccache (Incremental C++ Cache)
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: linux-${{ matrix.arch }}
+          key: linux-zig-${{ matrix.arch }}
           max-size: 300M
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build clang lld pkg-config \
+            cmake ninja-build pkg-config \
             libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
             libvulkan-dev glslang-tools
 
-      - name: Configure & Build (Linux ${{ matrix.arch }} Clang -Oz ThinLTO)
+      - name: Create zig c++ Compiler Wrappers (${{ matrix.zig_target }})
+        run: |
+          cat <<'EOF' | sudo tee /usr/local/bin/zig-cxx >/dev/null
+          #!/usr/bin/env bash
+          exec zig c++ -target ${{ matrix.zig_target }} "$@"
+          EOF
+          cat <<'EOF' | sudo tee /usr/local/bin/zig-ar >/dev/null
+          #!/usr/bin/env bash
+          exec zig ar "$@"
+          EOF
+          cat <<'EOF' | sudo tee /usr/local/bin/zig-ranlib >/dev/null
+          #!/usr/bin/env bash
+          exec zig ranlib "$@"
+          EOF
+          sudo chmod +x /usr/local/bin/zig-cxx /usr/local/bin/zig-ar /usr/local/bin/zig-ranlib
+
+      - name: Configure & Build (Linux ${{ matrix.arch }} zig c++ glibc 2.28 -Oz)
         run: |
           cmake -B build-linux-${{ matrix.arch }} -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DCMAKE_CXX_COMPILER=clang++
+            -DKERNETILE_ZIG_CXX=ON \
+            -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
+            -DCMAKE_AR=/usr/local/bin/zig-ar \
+            -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
+            -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/${{ matrix.multiarch }}"
           cmake --build build-linux-${{ matrix.arch }} --target ktui_gallery
           mkdir -p dist/linux-${{ matrix.arch }}
           cp build-linux-${{ matrix.arch }}/ktui_gallery dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
           chmod +x dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
           ls -lh dist/linux-${{ matrix.arch }}/
+          echo "Required GLIBC versions:"
+          objdump -T dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }} | grep -oE 'GLIBC_[0-9.]+' | sort -uV || true
 
       - name: Upload Artifact (Linux ${{ matrix.arch }})
         uses: actions/upload-artifact@v4
@@ -147,7 +178,7 @@ jobs:
           path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
 
   # ============================================================================
-  # Linux 32-bit: x86 (i686) via native i386 Debian container + ccache
+  # Linux 32-bit: x86 (i686) via native i386 Debian container + zig c++ (glibc 2.28)
   # ============================================================================
   build-linux-x86:
     name: Linux (x86)
@@ -157,17 +188,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore ccache (Linux x86)
+      - name: Restore ccache & Zig (Linux x86)
         uses: actions/cache@v4
         with:
-          path: .ccache-linux-x86
-          key: ccache-linux-x86-${{ github.sha }}
+          path: |
+            .ccache-linux-x86
+            .zig-linux-x86
+          key: ccache-zig-linux-x86-${{ github.sha }}
           restore-keys: |
-            ccache-linux-x86-
+            ccache-zig-linux-x86-
 
-      - name: Build inside i386/debian:bookworm (Clang -Oz ThinLTO)
+      - name: Build inside i386/debian:bookworm (zig c++ glibc 2.28 -Oz)
         run: |
-          mkdir -p "${{ github.workspace }}/.ccache-linux-x86"
+          mkdir -p "${{ github.workspace }}/.ccache-linux-x86" "${{ github.workspace }}/.zig-linux-x86"
           docker run --rm --platform linux/386 \
             -e CCACHE_ENABLE=1 \
             -e CCACHE_DIR=/ccache \
@@ -176,24 +209,37 @@ jobs:
             -e CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime \
             -v "${{ github.workspace }}:/src" \
             -v "${{ github.workspace }}/.ccache-linux-x86:/ccache" \
+            -v "${{ github.workspace }}/.zig-linux-x86:/zig" \
             -w /src \
             i386/debian:bookworm \
             bash -exc '
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                cmake ninja-build clang lld ccache pkg-config \
+                cmake ninja-build ccache pkg-config curl xz-utils ca-certificates binutils \
                 libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
                 libvulkan-dev glslang-tools
+              if [ ! -x /zig/zig ]; then
+                curl -fsSL https://ziglang.org/download/0.14.0/zig-linux-x86-0.14.0.tar.xz | tar -xJ --strip-components=1 -C /zig
+              fi
+              printf "#!/usr/bin/env bash\nexec /zig/zig c++ -target x86-linux-gnu.2.28 \"\$@\"\n" > /usr/local/bin/zig-cxx
+              printf "#!/usr/bin/env bash\nexec /zig/zig ar \"\$@\"\n" > /usr/local/bin/zig-ar
+              printf "#!/usr/bin/env bash\nexec /zig/zig ranlib \"\$@\"\n" > /usr/local/bin/zig-ranlib
+              chmod +x /usr/local/bin/zig-cxx /usr/local/bin/zig-ar /usr/local/bin/zig-ranlib
               cmake -B /tmp/build-linux -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_TESTING=OFF \
-                -DCMAKE_CXX_COMPILER=clang++
+                -DKERNETILE_ZIG_CXX=ON \
+                -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
+                -DCMAKE_AR=/usr/local/bin/zig-ar \
+                -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
+                -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/i386-linux-gnu"
               cmake --build /tmp/build-linux --target ktui_gallery
               ccache -s || true
               mkdir -p /src/dist/linux-x86
               cp /tmp/build-linux/ktui_gallery /src/dist/linux-x86/ktui_gallery-linux-x86
               chmod +x /src/dist/linux-x86/ktui_gallery-linux-x86
               ls -lh /src/dist/linux-x86/
+              objdump -T /src/dist/linux-x86/ktui_gallery-linux-x86 | grep -oE "GLIBC_[0-9.]+" | sort -uV || true
             '
 
       - name: Upload Artifact (Linux x86)
