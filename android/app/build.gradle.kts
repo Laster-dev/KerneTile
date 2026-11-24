@@ -11,8 +11,8 @@ android {
         applicationId = "com.kernetile.studio"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "0.01"
 
         externalNativeBuild {
             cmake {
@@ -42,6 +42,18 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val ksFilePath = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (!ksFilePath.isNullOrBlank() && file(ksFilePath).exists()) {
+                storeFile = file(ksFilePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -50,7 +62,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseKs = System.getenv("ANDROID_KEYSTORE_FILE")
+            signingConfig = if (!releaseKs.isNullOrBlank() && file(releaseKs).exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
