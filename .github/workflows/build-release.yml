@@ -130,38 +130,22 @@ jobs:
           path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
 
   # ============================================================================
-  # Linux 32-bit: x86 (i686) & arm32 (armv7 / armhf) via Debian containers
+  # Linux 32-bit: x86 (i686) via native i386 Debian container
   # ============================================================================
-  build-linux-32bit:
-    name: Linux (${{ matrix.arch }})
+  build-linux-x86:
+    name: Linux (x86)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86
-            platform: linux/386
-            image: i386/debian:bookworm
-          - arch: armhf
-            platform: linux/arm/v7
-            image: arm32v7/debian:bookworm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup QEMU (for armhf)
-        if: matrix.arch == 'armhf'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm
-
-      - name: Build inside ${{ matrix.image }} (Clang -Oz ThinLTO)
+      - name: Build inside i386/debian:bookworm (Clang -Oz ThinLTO)
         run: |
-          docker run --rm --platform ${{ matrix.platform }} \
+          docker run --rm --platform linux/386 \
             -v "${{ github.workspace }}:/src" \
             -w /src \
-            ${{ matrix.image }} \
+            i386/debian:bookworm \
             bash -exc '
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -173,17 +157,17 @@ jobs:
                 -DBUILD_TESTING=OFF \
                 -DCMAKE_CXX_COMPILER=clang++
               cmake --build /tmp/build-linux --target ktui_gallery
-              mkdir -p /src/dist/linux-${{ matrix.arch }}
-              cp /tmp/build-linux/ktui_gallery /src/dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
-              chmod +x /src/dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
-              ls -lh /src/dist/linux-${{ matrix.arch }}/
+              mkdir -p /src/dist/linux-x86
+              cp /tmp/build-linux/ktui_gallery /src/dist/linux-x86/ktui_gallery-linux-x86
+              chmod +x /src/dist/linux-x86/ktui_gallery-linux-x86
+              ls -lh /src/dist/linux-x86/
             '
 
-      - name: Upload Artifact (Linux ${{ matrix.arch }})
+      - name: Upload Artifact (Linux x86)
         uses: actions/upload-artifact@v4
         with:
-          name: ktui_gallery-linux-${{ matrix.arch }}
-          path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+          name: ktui_gallery-linux-x86
+          path: dist/linux-x86/ktui_gallery-linux-x86
 
   # ============================================================================
   # Android: 按 ABI 拆分为 4 个独立最小体积 APK
@@ -261,7 +245,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows, build-linux-native, build-linux-32bit, build-android]
+    needs: [build-windows, build-linux-native, build-linux-x86, build-android]
     runs-on: ubuntu-24.04
     steps:
       - name: Download All Artifacts
