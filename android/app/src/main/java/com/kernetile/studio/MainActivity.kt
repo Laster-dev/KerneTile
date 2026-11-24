@@ -92,10 +92,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback, Choreographer.FrameCall
     fun setSoftKeyboardVisible(visible: Boolean) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
         if (visible) {
-            surfaceView.requestFocus()
-            imm.showSoftInput(surfaceView, InputMethodManager.SHOW_IMPLICIT)
+            surfaceView.post {
+                surfaceView.isFocusable = true
+                surfaceView.isFocusableInTouchMode = true
+                surfaceView.requestFocus()
+                imm.restartInput(surfaceView)
+                imm.showSoftInput(surfaceView, InputMethodManager.SHOW_IMPLICIT)
+            }
         } else {
-            imm.hideSoftInputFromWindow(surfaceView.windowToken, 0)
+            surfaceView.post {
+                imm.hideSoftInputFromWindow(surfaceView.windowToken, 0)
+            }
         }
     }
 }
@@ -131,7 +138,7 @@ private class KerneTileSurfaceView(context: Context) : SurfaceView(context) {
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_DONE
         return object : BaseInputConnection(this, false) {
             override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -151,6 +158,12 @@ private class KerneTileSurfaceView(context: Context) : SurfaceView(context) {
                     KerneTileBridge.nativeOnImeCommit(s)
                 }
                 KerneTileBridge.nativeOnImeComposition("", 0)
+                return true
+            }
+
+            override fun performEditorAction(editorAction: Int): Boolean {
+                KerneTileBridge.nativeOnKey(0, KeyEvent.KEYCODE_ENTER, false, false, false)
+                KerneTileBridge.nativeOnKey(1, KeyEvent.KEYCODE_ENTER, false, false, false)
                 return true
             }
 

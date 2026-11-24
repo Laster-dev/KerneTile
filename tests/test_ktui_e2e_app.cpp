@@ -566,18 +566,41 @@ void test_touch_long_press_synthesizes_secondary_click() {
     up1.type = PlatformEventType::PointerUp;
     win->handle_platform_event(up1);
 
-    // 2. 触控静止长按到期 -> 自动合成右键并弹出 TextBox 上下文菜单
-    win->handle_platform_event(down1);
-    require(win->has_pending_touch_long_press(), "long press re-armed");
-    require(!win->overlay_manager().has_active_overlay(), "no overlay before long press");
-    require(win->trigger_touch_long_press_for_test(), "long press fired");
-    require(win->overlay_manager().has_active_overlay(), "TextBox context menu opened via touch long press");
+    // 2. 触控静止长按到期 -> 自动合成右键、选中所在词并弹出 TextBox 上下文菜单
+    // （用新窗口/新 TextBox 避免紧接上一步的 <400ms 误算为双击）
+    auto win2 = app.create_window(desc);
+    win2->set_content(TextBox{ .text = "Hello Touch" });
+    win2->render_frame();
+    win2->handle_platform_event(down1);
+    require(win2->has_pending_touch_long_press(), "long press re-armed");
+    require(!win2->overlay_manager().has_active_overlay(), "no overlay before long press");
+    require(win2->trigger_touch_long_press_for_test(), "long press fired");
+    require(win2->overlay_manager().has_active_overlay(), "TextBox context menu opened via touch long press");
 
-    // 3. 长按弹出菜单后抬手 -> 被吞掉，不误关闭菜单
-    win->handle_platform_event(up1);
-    require(win->overlay_manager().has_active_overlay(), "context menu remains open after finger lift");
+    // 3. 长按弹出菜单后抬手 -> 被吞掉，不误关闭菜单，且自动选中了所在词
+    win2->handle_platform_event(up1);
+    require(win2->overlay_manager().has_active_overlay(), "context menu remains open after finger lift");
+    auto* tb = static_cast<RenderTextBox*>(win2->root_render_box());
+    require(tb && tb->has_selection(), "touch long press auto-selected word");
 
-    std::cout << "  -> 触控长按全局右键合成（含 TextBox 菜单弹出与抬手防误触）验证通过！" << std::endl;
+    // 4. 全选后再次触控长按 -> 选区绝不被 PointerDown 清空，直接保持选区并弹出菜单
+    win2->overlay_manager().dismiss_all();
+    tb->select_all();
+    require(tb->selected_text() == "Hello Touch", "select_all selected full text");
+    win2->handle_platform_event(down1);
+    require(tb->selected_text() == "Hello Touch", "touch down on existing selection must NOT clear selection");
+    require(win2->trigger_touch_long_press_for_test(), "second long press fired");
+    require(tb->selected_text() == "Hello Touch", "selection preserved after second long press");
+    require(win2->overlay_manager().has_active_overlay(), "context menu re-opened with selection intact");
+    win2->handle_platform_event(up1);
+
+    // 5. 短按已选中的文本并抬手 -> 正常折叠取消选区
+    win2->overlay_manager().dismiss_all();
+    win2->handle_platform_event(down1);
+    win2->handle_platform_event(up1);
+    require(!tb->has_selection(), "short tap collapsed selection");
+
+    std::cout << "  -> 触控长按全局右键合成（含 Telegram 风格自动选词、全选保活与短按折叠）验证通过！" << std::endl;
 }
 
 int main() {

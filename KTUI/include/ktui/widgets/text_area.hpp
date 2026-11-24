@@ -580,7 +580,9 @@ private:
         mark_needs_paint();
     }
 
-    void open_context_menu(Vec2 client_pos) {
+    void open_context_menu(Vec2 client_pos, bool is_touch = false) {
+        m_click_count = 0;
+        m_last_click_time = {};
         TextContextMenuActions actions;
         actions.can_undo = can_undo();
         actions.can_redo = can_redo();
@@ -606,7 +608,12 @@ private:
             if (!clip.empty()) insert_text(clip);
         };
         actions.on_delete = [this]() { delete_selection(); };
-        actions.on_select_all = [this]() { select_all(); };
+        actions.on_select_all = [this, client_pos, is_touch]() {
+            select_all();
+            if (is_touch && has_selection()) {
+                open_context_menu(client_pos, true);
+            }
+        };
 
         show_winui_text_context_menu(client_pos, actions);
     }
@@ -617,6 +624,8 @@ private:
         };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = false;
+            m_pending_touch_collapse = false;
+            m_dragging = false;
             m_scrollbar.handle_pointer_exit();
             mark_needs_paint();
         };
@@ -651,7 +660,12 @@ private:
         on_pointer_down = [this](PointerEvent& e) {
             if (m_disabled) return;
             if (e.button == PointerButton::Secondary) {
-                open_context_menu(e.position);
+                m_pending_touch_collapse = false;
+                const bool is_touch = (e.device_kind == PointerDeviceKind::Touch);
+                if (is_touch && !has_selection() && !m_text.empty()) {
+                    select_word_at(byte_index_at_point(e.local_position));
+                }
+                open_context_menu(e.position, is_touch);
                 e.stop_propagation();
                 return;
             }
@@ -672,15 +686,36 @@ private:
 
             size_t idx = byte_index_at_point(e.local_position);
             if (m_click_count == 2) {
+                m_pending_touch_collapse = false;
                 select_word_at(idx);
                 m_dragging = false;
+                if (e.device_kind == PointerDeviceKind::Touch && has_selection()) {
+                    open_context_menu(e.position, true);
+                }
             } else if (m_click_count >= 3) {
+                m_pending_touch_collapse = false;
                 select_line_at(idx);
                 m_dragging = false;
+                if (e.device_kind == PointerDeviceKind::Touch && has_selection()) {
+                    open_context_menu(e.position, true);
+                }
             } else {
-                m_caret = idx;
-                if (!e.modifiers.shift) m_sel_anchor = m_caret;
-                m_dragging = true;
+                if (e.device_kind == PointerDeviceKind::Touch) {
+                    if (has_selection()) {
+                        m_pending_touch_collapse = true;
+                        m_pending_touch_collapse_idx = idx;
+                    } else {
+                        m_pending_touch_collapse = false;
+                        m_caret = idx;
+                        m_sel_anchor = m_caret;
+                    }
+                    m_dragging = false;
+                } else {
+                    m_pending_touch_collapse = false;
+                    m_caret = idx;
+                    if (!e.modifiers.shift) m_sel_anchor = m_caret;
+                    m_dragging = true;
+                }
             }
             reset_blink();
             mark_needs_paint();
@@ -688,6 +723,13 @@ private:
         };
         on_pointer_up = [this](PointerEvent&) {
             m_dragging = false;
+            if (m_pending_touch_collapse) {
+                m_pending_touch_collapse = false;
+                m_caret = std::min(m_pending_touch_collapse_idx, m_text.size());
+                m_sel_anchor = m_caret;
+                reset_blink();
+                mark_needs_paint();
+            }
             if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
         };
         on_focus = [this](FocusEvent& e) {
@@ -888,6 +930,8 @@ private:
     bool m_hovered{false};
     bool m_focused{false};
     bool m_dragging{false};
+    bool m_pending_touch_collapse{false};
+    size_t m_pending_touch_collapse_idx{0};
     bool m_caret_visible{true};
     size_t m_caret{0};
     size_t m_sel_anchor{0};

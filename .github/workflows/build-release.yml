@@ -139,19 +139,7 @@ jobs:
 
       - name: Create zig c++ Compiler Wrappers (${{ matrix.zig_target }})
         run: |
-          cat <<'EOF' | sudo tee /usr/local/bin/zig-cxx >/dev/null
-          #!/usr/bin/env bash
-          exec zig c++ -target ${{ matrix.zig_target }} "$@"
-          EOF
-          cat <<'EOF' | sudo tee /usr/local/bin/zig-ar >/dev/null
-          #!/usr/bin/env bash
-          exec zig ar "$@"
-          EOF
-          cat <<'EOF' | sudo tee /usr/local/bin/zig-ranlib >/dev/null
-          #!/usr/bin/env bash
-          exec zig ranlib "$@"
-          EOF
-          sudo chmod +x /usr/local/bin/zig-cxx /usr/local/bin/zig-ar /usr/local/bin/zig-ranlib
+          sudo bash scripts/make_zig_wrappers.sh "$(which zig)" "${{ matrix.zig_target }}" "${{ matrix.multiarch }}" /usr/local/bin
 
       - name: Configure & Build (Linux ${{ matrix.arch }} zig c++ glibc 2.28 -Oz)
         run: |
@@ -163,7 +151,7 @@ jobs:
             -DCMAKE_AR=/usr/local/bin/zig-ar \
             -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
             -DCMAKE_LIBRARY_PATH="/usr/lib/${{ matrix.multiarch }};/usr/lib" \
-            -DCMAKE_INCLUDE_PATH="/usr/include/${{ matrix.multiarch }};/usr/include" \
+            -DVulkan_INCLUDE_DIR=/usr/include \
             -DVulkan_LIBRARY="/usr/lib/${{ matrix.multiarch }}/libvulkan.so" \
             -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/${{ matrix.multiarch }}"
           cmake --build build-linux-${{ matrix.arch }} --target ktui_gallery
@@ -224,10 +212,7 @@ jobs:
               if [ ! -x /zig/zig ]; then
                 curl -fsSL https://ziglang.org/download/0.14.0/zig-linux-x86-0.14.0.tar.xz | tar -xJ --strip-components=1 -C /zig
               fi
-              printf "#!/usr/bin/env bash\nexec /zig/zig c++ -target x86-linux-gnu.2.28 \"\$@\"\n" > /usr/local/bin/zig-cxx
-              printf "#!/usr/bin/env bash\nexec /zig/zig ar \"\$@\"\n" > /usr/local/bin/zig-ar
-              printf "#!/usr/bin/env bash\nexec /zig/zig ranlib \"\$@\"\n" > /usr/local/bin/zig-ranlib
-              chmod +x /usr/local/bin/zig-cxx /usr/local/bin/zig-ar /usr/local/bin/zig-ranlib
+              bash /src/scripts/make_zig_wrappers.sh /zig/zig x86-linux-gnu.2.28 i386-linux-gnu /usr/local/bin
               cmake -B /tmp/build-linux -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DBUILD_TESTING=OFF \
@@ -236,7 +221,7 @@ jobs:
                 -DCMAKE_AR=/usr/local/bin/zig-ar \
                 -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
                 -DCMAKE_LIBRARY_PATH="/usr/lib/i386-linux-gnu;/usr/lib" \
-                -DCMAKE_INCLUDE_PATH="/usr/include/i386-linux-gnu;/usr/include" \
+                -DVulkan_INCLUDE_DIR=/usr/include \
                 -DVulkan_LIBRARY="/usr/lib/i386-linux-gnu/libvulkan.so" \
                 -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/i386-linux-gnu"
               cmake --build /tmp/build-linux --target ktui_gallery
@@ -334,6 +319,47 @@ jobs:
           path: dist/android/ktui_gallery-android-x86.apk
 
   # ============================================================================
+  # Web (WebAssembly): 打包为单一离线的 ktui_gallery-web.html（内置 JS + WASM + 壁纸）
+  # ============================================================================
+  build-web:
+    name: Web (Single-File WASM HTML)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ninja
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Setup Emscripten SDK 3.1.56
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.56
+
+      - name: Setup ccache (Incremental WASM Cache)
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: web-wasm
+          max-size: 300M
+
+      - name: Configure & Build WebAssembly
+        run: |
+          emcmake cmake -B build-web -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DBUILD_TESTING=OFF
+          cmake --build build-web --target ktui_gallery
+          python3 scripts/bundle_single_html.py build-web dist/web/ktui_gallery-web.html
+          ls -lh build-web/ktui_gallery.wasm build-web/ktui_gallery.js dist/web/ktui_gallery-web.html
+
+      - name: Upload Artifact (Web Single-File HTML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-web
+          path: dist/web/ktui_gallery-web.html
+
+  # ============================================================================
   # 自动发布到 GitHub Release：
   #   - 推送 v* Tag：发布正式版本 Release
   #   - 推送 main 分支 / 手动触发：自动更新 rolling 的 `latest` Release
@@ -341,7 +367,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: github.event_name != 'pull_request'
-    needs: [build-windows, build-linux-native, build-linux-x86, build-android]
+    needs: [build-windows, build-linux-native, build-linux-x86, build-android, build-web]
     runs-on: ubuntu-24.04
     steps:
       - name: Download All Artifacts
@@ -362,7 +388,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Build (main)
-          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`/`x86`) 与 Android 独立分包 (`arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`) 最小体积产物。"
+          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`/`x86`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
           prerelease: true
           make_latest: false
           files: release-assets/*

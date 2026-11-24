@@ -673,6 +673,8 @@ private:
             if (!m_state.is_disabled) {
                 m_state.is_hovered = false;
                 is_hovered = false;
+                m_pending_touch_collapse = false;
+                m_state.is_dragging_selection = false;
                 mark_needs_paint();
             }
         };
@@ -680,51 +682,15 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (m_state.is_disabled) return;
             if (ev.button == PointerButton::Secondary) {
-                const bool allow_copy_secret = (!m_data.is_password || m_data.is_password_revealed);
-                TextContextMenuActions actions;
-                actions.can_undo = can_undo() && !m_state.is_read_only;
-                actions.can_redo = can_redo() && !m_state.is_read_only;
-                actions.can_cut = has_selection() && !m_state.is_read_only && allow_copy_secret;
-                actions.can_copy = has_selection() && allow_copy_secret;
-                actions.can_paste = !m_state.is_read_only && !Clipboard::get_text().empty();
-                actions.can_delete = has_selection() && !m_state.is_read_only;
-                actions.can_select_all = !m_data.text.empty();
-                actions.on_undo = [this]() { undo(); };
-                actions.on_redo = [this]() { redo(); };
-                actions.on_cut = [this]() {
-                    if (has_selection() && !m_state.is_read_only) {
-                        push_undo_snapshot();
-                        Clipboard::set_text(selected_text());
-                        delete_selection_internal();
-                        notify_changed();
-                        ensure_cursor_visible();
-                        mark_needs_paint();
-                    }
-                };
-                actions.on_copy = [this]() {
-                    if (has_selection()) Clipboard::set_text(selected_text());
-                };
-                actions.on_paste = [this]() {
-                    if (!m_state.is_read_only) {
-                        std::string clip = Clipboard::get_text();
-                        std::string filtered;
-                        for (char c : clip) {
-                            if (c != '\r' && c != '\n') filtered += c;
-                        }
-                        if (!filtered.empty()) insert_text_internal(filtered);
-                    }
-                };
-                actions.on_delete = [this]() {
-                    if (has_selection() && !m_state.is_read_only) {
-                        push_undo_snapshot();
-                        delete_selection_internal();
-                        notify_changed();
-                        ensure_cursor_visible();
-                        mark_needs_paint();
-                    }
-                };
-                actions.on_select_all = [this]() { select_all(); };
-                show_winui_text_context_menu(ev.position, actions);
+                m_pending_touch_collapse = false;
+                const bool is_touch = (ev.device_kind == PointerDeviceKind::Touch);
+                if (is_touch && !has_selection() && !m_data.text.empty()) {
+                    auto style = resolve_current_style();
+                    float start_x = style.padding.left - m_scroll_offset_x;
+                    float click_x = ev.local_position.x - start_x;
+                    select_word_at(click_x, get_display_text(), style.font_size);
+                }
+                open_context_menu(ev.position, is_touch);
                 ev.stop_propagation();
                 return;
             }
@@ -755,16 +721,37 @@ private:
             std::string_view display_text = get_display_text();
 
             if (m_click_count == 2) {
+                m_pending_touch_collapse = false;
                 select_word_at(click_x, display_text, style.font_size);
+                if (ev.device_kind == PointerDeviceKind::Touch && has_selection()) {
+                    open_context_menu(ev.position, true);
+                }
             } else if (m_click_count >= 3) {
+                m_pending_touch_collapse = false;
                 select_all();
+                if (ev.device_kind == PointerDeviceKind::Touch && has_selection()) {
+                    open_context_menu(ev.position, true);
+                }
             } else {
                 size_t new_index = get_char_index_at(click_x, display_text, style.font_size);
-                m_cursor_index = new_index;
-                if (!ev.modifiers.shift) {
-                    m_selection_anchor = m_cursor_index;
+                if (ev.device_kind == PointerDeviceKind::Touch) {
+                    if (has_selection()) {
+                        m_pending_touch_collapse = true;
+                        m_pending_touch_collapse_index = new_index;
+                    } else {
+                        m_pending_touch_collapse = false;
+                        m_cursor_index = new_index;
+                        m_selection_anchor = m_cursor_index;
+                    }
+                    m_state.is_dragging_selection = false;
+                } else {
+                    m_pending_touch_collapse = false;
+                    m_cursor_index = new_index;
+                    if (!ev.modifiers.shift) {
+                        m_selection_anchor = m_cursor_index;
+                    }
+                    m_state.is_dragging_selection = true;
                 }
-                m_state.is_dragging_selection = true;
             }
 
             m_blink_visible = true;
@@ -787,6 +774,13 @@ private:
 
         on_pointer_up = [this](PointerEvent&) {
             m_state.is_dragging_selection = false;
+            if (m_pending_touch_collapse) {
+                m_pending_touch_collapse = false;
+                m_cursor_index = std::min(m_pending_touch_collapse_index, m_data.text.size());
+                m_selection_anchor = m_cursor_index;
+                ensure_cursor_visible();
+                mark_needs_paint();
+            }
         };
 
         on_key = [this](KeyEvent& ev) {
@@ -1057,6 +1051,64 @@ private:
     std::optional<Color> m_custom_placeholder;
     std::optional<float> m_custom_height;
     std::optional<float> m_custom_radius;
+    void open_context_menu(Vec2 client_pos, bool is_touch) {
+        m_click_count = 0;
+        m_last_click_time = {};
+        const bool allow_copy_secret = (!m_data.is_password || m_data.is_password_revealed);
+        TextContextMenuActions actions;
+        actions.can_undo = can_undo() && !m_state.is_read_only;
+        actions.can_redo = can_redo() && !m_state.is_read_only;
+        actions.can_cut = has_selection() && !m_state.is_read_only && allow_copy_secret;
+        actions.can_copy = has_selection() && allow_copy_secret;
+        actions.can_paste = !m_state.is_read_only && !Clipboard::get_text().empty();
+        actions.can_delete = has_selection() && !m_state.is_read_only;
+        actions.can_select_all = !m_data.text.empty();
+        actions.on_undo = [this]() { undo(); };
+        actions.on_redo = [this]() { redo(); };
+        actions.on_cut = [this]() {
+            if (has_selection() && !m_state.is_read_only) {
+                push_undo_snapshot();
+                Clipboard::set_text(selected_text());
+                delete_selection_internal();
+                notify_changed();
+                ensure_cursor_visible();
+                mark_needs_paint();
+            }
+        };
+        actions.on_copy = [this]() {
+            if (has_selection()) Clipboard::set_text(selected_text());
+        };
+        actions.on_paste = [this]() {
+            if (!m_state.is_read_only) {
+                std::string clip = Clipboard::get_text();
+                std::string filtered;
+                for (char c : clip) {
+                    if (c != '\r' && c != '\n') filtered += c;
+                }
+                if (!filtered.empty()) insert_text_internal(filtered);
+            }
+        };
+        actions.on_delete = [this]() {
+            if (has_selection() && !m_state.is_read_only) {
+                push_undo_snapshot();
+                delete_selection_internal();
+                notify_changed();
+                ensure_cursor_visible();
+                mark_needs_paint();
+            }
+        };
+        actions.on_select_all = [this, client_pos, is_touch]() {
+            select_all();
+            // Telegram 风格：移动端点击“全选”后直接刷新弹出菜单（此时剪切/复制/删除全部可用），无需再次长按
+            if (is_touch && has_selection()) {
+                open_context_menu(client_pos, true);
+            }
+        };
+        show_winui_text_context_menu(client_pos, actions);
+    }
+
+    bool m_pending_touch_collapse{false};
+    size_t m_pending_touch_collapse_index{0};
     std::optional<EdgeInsets> m_custom_padding;
     std::optional<float> m_custom_font_size;
 
