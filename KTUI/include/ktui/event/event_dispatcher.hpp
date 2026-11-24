@@ -207,6 +207,23 @@ public:
         }
     }
 
+    // 取消当前正在进行的按压/拖拽交互（例如触控长按触发右键菜单时，取消底层控件的点击态）
+    void cancel_active_interaction() {
+        if (m_active_target) {
+            RenderBox* prev = m_active_target;
+            m_active_target = nullptr;
+            prev->is_active = false;
+            prev->is_hovered = false;
+            if (prev->on_pointer_exit) {
+                PointerEvent exit_ev(PlatformEventType::PointerMove, Vec2{-10000.0f, -10000.0f}, PointerButton::None);
+                exit_ev.local_position = Vec2{-10000.0f, -10000.0f};
+                prev->on_pointer_exit(exit_ev);
+            }
+            prev->mark_needs_paint();
+        }
+        m_gesture_captured = false;
+    }
+
     void clear() {
         m_hovered_nodes.clear();
         m_active_target = nullptr;

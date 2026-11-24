@@ -195,6 +195,36 @@ public:
         return m_platform_window ? m_platform_window->opacity() : 1.0f;
     }
 
+    // ==================== 触控长按等价右键 (移动端 / 触屏 / 移动端 Web 统一兼容) ====================
+    static constexpr uint32_t kTouchLongPressMs = 480;
+    static constexpr float kTouchLongPressMoveSlop = 10.0f;
+
+    [[nodiscard]] bool has_pending_touch_long_press() const noexcept {
+        return m_touch_lp_active && !m_touch_lp_fired;
+    }
+
+    [[nodiscard]] uint32_t time_until_touch_long_press_ms() const noexcept {
+        if (!has_pending_touch_long_press()) return 0;
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_touch_lp_down_time).count();
+        if (elapsed >= static_cast<long long>(kTouchLongPressMs)) return 0;
+        return static_cast<uint32_t>(kTouchLongPressMs - static_cast<uint32_t>(elapsed));
+    }
+
+    bool tick_touch_long_press() {
+        if (!has_pending_touch_long_press() || !m_root_render_box) return false;
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_touch_lp_down_time).count();
+        if (elapsed < static_cast<long long>(kTouchLongPressMs)) return false;
+        return fire_touch_long_press();
+    }
+
+    // 确定性测试辅助：立即触发当前挂起的触控长按右键事件
+    bool trigger_touch_long_press_for_test() {
+        if (!has_pending_touch_long_press() || !m_root_render_box) return false;
+        return fire_touch_long_press();
+    }
+
     // ==================== 自算云母背景材质 (Homemade Mica) ====================
     void set_backdrop(WindowBackdrop backdrop) {
         if (m_backdrop != backdrop) {
@@ -651,6 +681,17 @@ public:
 
         switch (pe.type) {
             case PlatformEventType::PointerMove: {
+                if (pe.device_kind == PointerDeviceKind::Touch) {
+                    if (m_touch_lp_active) {
+                        float dist = std::hypot(client_pos.x - m_touch_lp_pos.x, client_pos.y - m_touch_lp_pos.y);
+                        if (dist > kTouchLongPressMoveSlop) {
+                            m_touch_lp_active = false;
+                        }
+                    }
+                    if (m_touch_lp_fired) {
+                        break;
+                    }
+                }
                 PointerEvent ev(PlatformEventType::PointerMove, client_pos, pe.button);
                 ev.device_kind = pe.device_kind;
                 ev.pointer_id = pe.pointer_id;
@@ -688,6 +729,17 @@ public:
                 break;
             }
             case PlatformEventType::PointerDown: {
+                // 触控主指按下：启动 480ms 静止长按计时器，到期自动合成为右键事件
+                if (pe.device_kind == PointerDeviceKind::Touch && pe.button == PointerButton::Primary) {
+                    m_touch_lp_active = true;
+                    m_touch_lp_fired = false;
+                    m_touch_lp_pos = client_pos;
+                    m_touch_lp_pointer_id = pe.pointer_id;
+                    m_touch_lp_down_time = std::chrono::steady_clock::now();
+                } else {
+                    m_touch_lp_active = false;
+                    m_touch_lp_fired = false;
+                }
                 // 焦点命中测试
                 HitTestResult hit_res;
                 RenderBox* new_focus = nullptr;
@@ -716,6 +768,14 @@ public:
                 break;
             }
             case PlatformEventType::PointerUp: {
+                if (pe.device_kind == PointerDeviceKind::Touch) {
+                    m_touch_lp_active = false;
+                    if (m_touch_lp_fired) {
+                        // 长按已弹出右键菜单：吞掉此次抬手，防止误触底层控件或立即关闭菜单
+                        m_touch_lp_fired = false;
+                        break;
+                    }
+                }
                 PointerEvent ev(PlatformEventType::PointerUp, client_pos, pe.button);
                 ev.device_kind = pe.device_kind;
                 ev.pointer_id = pe.pointer_id;
@@ -960,6 +1020,30 @@ private:
     float m_mica_focus_anim{1.0f};
     std::chrono::steady_clock::time_point m_mica_anim_time{};
     WindowBackdrop m_backdrop{WindowBackdrop::Mica};
+
+    bool fire_touch_long_press() {
+        m_touch_lp_active = false;
+        m_touch_lp_fired = true;
+        Window* prev_active = s_active_window;
+        s_active_window = this;
+        // 取消底层控件按压态，再于长按坐标派发合成的右键 PointerDown
+        m_event_dispatcher.cancel_active_interaction();
+        PointerEvent sec_ev(PlatformEventType::PointerDown, m_touch_lp_pos, PointerButton::Secondary);
+        sec_ev.device_kind = PointerDeviceKind::Touch;
+        sec_ev.pointer_id = m_touch_lp_pointer_id;
+        m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), sec_ev);
+        s_active_window = prev_active ? prev_active : this;
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+        return true;
+    }
+
+    // 触控长按合成右键状态
+    bool m_touch_lp_active{false};
+    bool m_touch_lp_fired{false};
+    Vec2 m_touch_lp_pos{0.0f, 0.0f};
+    uint32_t m_touch_lp_pointer_id{0};
+    std::chrono::steady_clock::time_point m_touch_lp_down_time{};
 
     // 圆形涟漪主题切换动画状态
     bool m_theme_ripple_active{false};

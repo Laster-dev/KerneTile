@@ -901,16 +901,39 @@
                 });
             }
 
-            // 桌面空白区右键菜单
+            // 桌面空白区右键菜单 + 移动端触控长按 (480ms) 兼容
             if (desktop && ctxMenu) {
+                var openDesktopCtx = function(x, y) {
+                    closeMenus();
+                    ctxMenu.style.left = Math.min(x, window.innerWidth - 200) + 'px';
+                    ctxMenu.style.top = Math.min(y, window.innerHeight - 190) + 'px';
+                    ctxMenu.classList.add('open');
+                };
                 desktop.addEventListener('contextmenu', function(e) {
                     if (e.target.closest('.ktui-win') || e.target.closest('#ktui-taskbar')) return;
                     e.preventDefault();
-                    closeMenus();
-                    ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
-                    ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
-                    ctxMenu.classList.add('open');
+                    openDesktopCtx(e.clientX, e.clientY);
                 });
+                var deskLpTimer = 0, deskLpX = 0, deskLpY = 0;
+                var clearDeskLp = function() {
+                    if (deskLpTimer) { clearTimeout(deskLpTimer); deskLpTimer = 0; }
+                };
+                desktop.addEventListener('pointerdown', function(e) {
+                    if (e.pointerType !== 'touch') return;
+                    if (e.target.closest('.ktui-win') || e.target.closest('#ktui-taskbar') || e.target.closest('.desktop-icon')) return;
+                    clearDeskLp();
+                    deskLpX = e.clientX;
+                    deskLpY = e.clientY;
+                    deskLpTimer = setTimeout(function() {
+                        deskLpTimer = 0;
+                        openDesktopCtx(deskLpX, deskLpY);
+                    }, 480);
+                });
+                desktop.addEventListener('pointermove', function(e) {
+                    if (deskLpTimer && Math.hypot(e.clientX - deskLpX, e.clientY - deskLpY) > 10) clearDeskLp();
+                });
+                desktop.addEventListener('pointerup', clearDeskLp);
+                desktop.addEventListener('pointercancel', clearDeskLp);
                 var bindCtx = function(id, fn) {
                     var el = document.getElementById(id);
                     if (el) el.addEventListener('click', function() { closeMenus(); fn(); });

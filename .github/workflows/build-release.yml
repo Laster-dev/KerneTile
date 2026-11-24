@@ -162,6 +162,9 @@ jobs:
             -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
             -DCMAKE_AR=/usr/local/bin/zig-ar \
             -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
+            -DCMAKE_LIBRARY_PATH="/usr/lib/${{ matrix.multiarch }};/usr/lib" \
+            -DCMAKE_INCLUDE_PATH="/usr/include/${{ matrix.multiarch }};/usr/include" \
+            -DVulkan_LIBRARY="/usr/lib/${{ matrix.multiarch }}/libvulkan.so" \
             -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/${{ matrix.multiarch }}"
           cmake --build build-linux-${{ matrix.arch }} --target ktui_gallery
           mkdir -p dist/linux-${{ matrix.arch }}
@@ -232,6 +235,9 @@ jobs:
                 -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
                 -DCMAKE_AR=/usr/local/bin/zig-ar \
                 -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
+                -DCMAKE_LIBRARY_PATH="/usr/lib/i386-linux-gnu;/usr/lib" \
+                -DCMAKE_INCLUDE_PATH="/usr/include/i386-linux-gnu;/usr/include" \
+                -DVulkan_LIBRARY="/usr/lib/i386-linux-gnu/libvulkan.so" \
                 -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/i386-linux-gnu"
               cmake --build /tmp/build-linux --target ktui_gallery
               ccache -s || true

@@ -528,6 +528,58 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
     std::cout << "  -> 移动端触控惯性、顶底橡皮筋越界与撞边弹性回弹全部验证通过！" << std::endl;
 }
 
+void test_touch_long_press_synthesizes_secondary_click() {
+    std::cout << "[Test 11] 触控长按 (480ms) 全局等价右键：TextBox 弹出菜单 + 移动取消..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    Application app(create_platform_backend(true));
+    WindowDesc desc;
+    desc.size = Vec2{480.0f, 320.0f};
+    desc.decorated = true;
+    auto win = app.create_window(desc);
+    win->set_content(TextBox{ .text = "Hello Touch" });
+    win->render_frame();
+
+    // 1. 触控按下后移动 > 10px -> 自动取消长按计时器
+    PlatformEvent down1;
+    down1.type = PlatformEventType::PointerDown;
+    down1.button = PointerButton::Primary;
+    down1.device_kind = PointerDeviceKind::Touch;
+    down1.position = Vec2{40.0f, 18.0f};
+    win->handle_platform_event(down1);
+    require(win->has_pending_touch_long_press(), "long press armed on touch down");
+
+    PlatformEvent move1;
+    move1.type = PlatformEventType::PointerMove;
+    move1.button = PointerButton::Primary;
+    move1.device_kind = PointerDeviceKind::Touch;
+    move1.position = Vec2{40.0f, 35.0f}; // 移动 17px > 10px
+    win->handle_platform_event(move1);
+    require(!win->has_pending_touch_long_press(), "long press cancelled on drag > 10px");
+
+    PlatformEvent up1 = down1;
+    up1.type = PlatformEventType::PointerUp;
+    win->handle_platform_event(up1);
+
+    // 2. 触控静止长按到期 -> 自动合成右键并弹出 TextBox 上下文菜单
+    win->handle_platform_event(down1);
+    require(win->has_pending_touch_long_press(), "long press re-armed");
+    require(!win->overlay_manager().has_active_overlay(), "no overlay before long press");
+    require(win->trigger_touch_long_press_for_test(), "long press fired");
+    require(win->overlay_manager().has_active_overlay(), "TextBox context menu opened via touch long press");
+
+    // 3. 长按弹出菜单后抬手 -> 被吞掉，不误关闭菜单
+    win->handle_platform_event(up1);
+    require(win->overlay_manager().has_active_overlay(), "context menu remains open after finger lift");
+
+    std::cout << "  -> 触控长按全局右键合成（含 TextBox 菜单弹出与抬手防误触）验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -543,6 +595,7 @@ int main() {
     test_text_input_undo_redo_and_word_selection();
     test_cursor_blink_and_on_demand_rendering();
     test_mobile_touch_scroll_inertia_and_overscroll_bounce();
+    test_touch_long_press_synthesizes_secondary_click();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

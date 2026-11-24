@@ -89,8 +89,13 @@ void Application::step_frame() {
     pump_events(false, 0);
 
     for (auto& win : m_windows) {
-        if (win && !win->is_closed() && win->has_blinking_cursor()) {
-            win->tick_blinking_cursor();
+        if (win && !win->is_closed()) {
+            if (win->has_pending_touch_long_press()) {
+                win->tick_touch_long_press();
+            }
+            if (win->has_blinking_cursor()) {
+                win->tick_blinking_cursor();
+            }
         }
     }
 
@@ -181,10 +186,15 @@ int Application::run() {
 
         pump_events(true, wait_ms);
 
-        // 若光标闪烁周期到达，精确触发单帧翻转重绘 (绝无无脑连续 request_redraw() 导致的 60FPS 满载空转)
+        // 精确推进触控长按右键与光标闪烁定时翻转
         for (auto& win : m_windows) {
-            if (win && !win->is_closed() && win->has_blinking_cursor()) {
-                win->tick_blinking_cursor();
+            if (win && !win->is_closed()) {
+                if (win->has_pending_touch_long_press()) {
+                    win->tick_touch_long_press();
+                }
+                if (win->has_blinking_cursor()) {
+                    win->tick_blinking_cursor();
+                }
             }
         }
 
@@ -213,6 +223,15 @@ uint32_t Application::compute_wait_timeout() const {
             if (win->root_render_box() && (win->root_render_box()->needs_paint() || win->root_render_box()->needs_layout() || win->root_render_box()->child_needs_layout())) {
                 has_dirty = true;
                 break;
+            }
+            if (win->has_pending_touch_long_press()) {
+                uint32_t rem = win->time_until_touch_long_press_ms();
+                if (rem > 0) {
+                    min_blink_wait = (min_blink_wait == 0) ? rem : std::min(min_blink_wait, rem);
+                } else {
+                    has_dirty = true;
+                    break;
+                }
             }
             if (win->has_blinking_cursor()) {
                 uint32_t rem = win->time_until_next_blink_ms();
