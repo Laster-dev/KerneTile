@@ -11,15 +11,17 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <iostream>
-#include <stdexcept>
+#include <cstdio>
 #include <vector>
 
 namespace kernetile::compute {
 namespace {
-void check(VkResult result, const char* operation) {
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-        throw std::runtime_error(std::string(operation) + ": " + std::to_string(result));
+bool check(VkResult result, const char* operation) noexcept {
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        std::fprintf(stderr, "KerneTile Vulkan: %s (%d)\n", operation ? operation : "", static_cast<int>(result));
+        return false;
+    }
+    return true;
 }
 
 struct Buffer {
@@ -115,59 +117,59 @@ public:
     bool ready() const noexcept override { return !m_failed; }
 
     bool submit(const Frame& frame) override {
-        try {
-            check(vkQueueWaitIdle(m_queue), "Wait for Vulkan frame");
-            if (!m_swapchain || frame.width != m_width || frame.height != m_height || m_recreate)
-                resize(frame);
-            uint32_t index = 0;
-            auto acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
-            if (acquire == VK_ERROR_OUT_OF_DATE_KHR) {
-                resize(frame);
-                acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
-            }
-            check(acquire, "Acquire Vulkan backbuffer");
-            check(vkResetCommandPool(m_device, m_pool, 0), "Reset Vulkan command pool");
-            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            check(vkBeginCommandBuffer(m_cmd, &begin), "Begin Vulkan frame");
-            if (!frame.tiles.empty()) compose(frame);
-            transition(m_output.handle, m_output.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-            m_output.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            const auto back = m_backbuffers[index];
-            transition(back, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
-            VkImageBlit blit{};
-            blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-            blit.srcOffsets[1] = {static_cast<int>(frame.width), static_cast<int>(frame.height), 1};
-            blit.dstOffsets[1] = {static_cast<int>(m_extent.width), static_cast<int>(m_extent.height), 1};
-            vkCmdBlitImage(m_cmd, m_output.handle, m_output.layout, back,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
-            transition(back, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                       VK_ACCESS_TRANSFER_WRITE_BIT, 0);
-            check(vkEndCommandBuffer(m_cmd), "End Vulkan frame");
-
-            const VkPipelineStageFlags wait = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            submit.waitSemaphoreCount = submit.signalSemaphoreCount = submit.commandBufferCount = 1;
-            submit.pWaitSemaphores = &m_acquired;
-            submit.pWaitDstStageMask = &wait;
-            submit.pCommandBuffers = &m_cmd;
-            submit.pSignalSemaphores = &m_finished;
-            check(vkQueueSubmit(m_queue, 1, &submit, VK_NULL_HANDLE), "Submit Vulkan frame");
-            VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-            present.waitSemaphoreCount = present.swapchainCount = 1;
-            present.pWaitSemaphores = &m_finished;
-            present.pSwapchains = &m_swapchain;
-            present.pImageIndices = &index;
-            const auto status = vkQueuePresentKHR(m_queue, &present);
-            m_recreate = status == VK_ERROR_OUT_OF_DATE_KHR || status == VK_SUBOPTIMAL_KHR;
-            if (!m_recreate) check(status, "Present Vulkan frame");
-            return true;
-        } catch (const std::exception& error) {
-            std::cerr << "KerneTile Vulkan: " << error.what() << '\n';
-            m_failed = true;
-            return false;
+        if (m_failed) return false;
+        if (!check(vkQueueWaitIdle(m_queue), "Wait for Vulkan frame")) { m_failed = true; return false; }
+        if (!m_swapchain || frame.width != m_width || frame.height != m_height || m_recreate) {
+            resize(frame);
+            if (m_failed || !m_swapchain) return false;
         }
+        uint32_t index = 0;
+        auto acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
+        if (acquire == VK_ERROR_OUT_OF_DATE_KHR) {
+            resize(frame);
+            if (m_failed || !m_swapchain) return false;
+            acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
+        }
+        if (!check(acquire, "Acquire Vulkan backbuffer") ||
+            !check(vkResetCommandPool(m_device, m_pool, 0), "Reset Vulkan command pool")) {
+            m_failed = true; return false;
+        }
+        VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (!check(vkBeginCommandBuffer(m_cmd, &begin), "Begin Vulkan frame")) { m_failed = true; return false; }
+        if (!frame.tiles.empty()) compose(frame);
+        transition(m_output.handle, m_output.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        m_output.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        const auto back = m_backbuffers[index];
+        transition(back, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
+        VkImageBlit blit{};
+        blit.srcSubresource = blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        blit.srcOffsets[1] = {static_cast<int>(frame.width), static_cast<int>(frame.height), 1};
+        blit.dstOffsets[1] = {static_cast<int>(m_extent.width), static_cast<int>(m_extent.height), 1};
+        vkCmdBlitImage(m_cmd, m_output.handle, m_output.layout, back,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+        transition(back, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, 0);
+        if (!check(vkEndCommandBuffer(m_cmd), "End Vulkan frame")) { m_failed = true; return false; }
+
+        const VkPipelineStageFlags wait = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.waitSemaphoreCount = submit.signalSemaphoreCount = submit.commandBufferCount = 1;
+        submit.pWaitSemaphores = &m_acquired;
+        submit.pWaitDstStageMask = &wait;
+        submit.pCommandBuffers = &m_cmd;
+        submit.pSignalSemaphores = &m_finished;
+        if (!check(vkQueueSubmit(m_queue, 1, &submit, VK_NULL_HANDLE), "Submit Vulkan frame")) { m_failed = true; return false; }
+        VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        present.waitSemaphoreCount = present.swapchainCount = 1;
+        present.pWaitSemaphores = &m_finished;
+        present.pSwapchains = &m_swapchain;
+        present.pImageIndices = &index;
+        const auto status = vkQueuePresentKHR(m_queue, &present);
+        m_recreate = status == VK_ERROR_OUT_OF_DATE_KHR || status == VK_SUBOPTIMAL_KHR;
+        if (!m_recreate && !check(status, "Present Vulkan frame")) { m_failed = true; return false; }
+        return true;
     }
 
 private:
@@ -206,7 +208,8 @@ private:
                 }
             }
         }
-        throw std::runtime_error("No hardware Vulkan device with X11 presentation");
+        std::fprintf(stderr, "KerneTile Vulkan: No hardware Vulkan device with presentation\n");
+        m_failed = true;
     }
 
     void create_pipeline() {
@@ -258,8 +261,9 @@ private:
         const bool changed_size = frame.width != m_width || frame.height != m_height;
         VkSurfaceCapabilitiesKHR caps{};
         check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physical, m_surface, &caps), "Vulkan surface capabilities");
-        if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT))
-            throw std::runtime_error("Vulkan surface cannot receive the composed texture");
+        if (!(caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)) {
+            m_failed = true; return;
+        }
         uint32_t count = 0;
         check(vkGetPhysicalDeviceSurfaceFormatsKHR(m_physical, m_surface, &count, nullptr), "List Vulkan formats");
         std::vector<VkSurfaceFormatKHR> formats(count);
@@ -270,12 +274,12 @@ private:
             return (format.format == VK_FORMAT_B8G8R8A8_UNORM || format.format == VK_FORMAT_R8G8B8A8_UNORM) &&
                 (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT);
         });
-        if (selected == formats.end()) throw std::runtime_error("No Vulkan UNORM presentation format");
+        if (selected == formats.end()) { m_failed = true; return; }
         m_extent = caps.currentExtent;
         if (m_extent.width == UINT32_MAX)
             m_extent = {std::clamp(frame.width, caps.minImageExtent.width, caps.maxImageExtent.width),
                         std::clamp(frame.height, caps.minImageExtent.height, caps.maxImageExtent.height)};
-        if (!m_extent.width || !m_extent.height) throw std::runtime_error("Empty Vulkan surface");
+        if (!m_extent.width || !m_extent.height) { m_failed = true; return; }
         VkSwapchainCreateInfoKHR swap{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
         swap.surface = m_surface;
         swap.minImageCount = caps.maxImageCount ? std::min(caps.minImageCount + 1, caps.maxImageCount) : caps.minImageCount + 1;
@@ -319,7 +323,8 @@ private:
             check(vkAllocateMemory(m_device, &info, nullptr, &result), "Allocate Vulkan resource");
             return result;
         }
-        throw std::runtime_error("No compatible Vulkan memory type");
+        m_failed = true;
+        return VK_NULL_HANDLE;
     }
 
     void destroy(Buffer& buffer) {
@@ -504,12 +509,7 @@ std::unique_ptr<Backend> create(void* window, void* display) {
     if (!window || !display) return nullptr;
 #endif
     auto backend = std::make_unique<VulkanBackend>();
-    try {
-        backend->setup(window, display);
-        return backend;
-    } catch (const std::exception& error) {
-        std::cerr << "KerneTile Vulkan: " << error.what() << '\n';
-        return nullptr;
-    }
+    backend->setup(window, display);
+    return backend->ready() ? std::move(backend) : nullptr;
 }
 } // namespace kernetile::compute

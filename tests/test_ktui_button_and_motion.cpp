@@ -203,13 +203,10 @@ void test_button_reactive_bindings() {
     Property<std::string> label_prop("Initial Label");
     Property<bool> lock_prop(false);
 
-    Button desc{
-        .text = Bind(label_prop),
-        .disabled = Bind(lock_prop)
-    };
-
-    auto widget = static_cast<WidgetPtr>(desc);
-    auto node = std::dynamic_pointer_cast<RenderButton>(widget->create_render_node());
+    WidgetPtr widget = Button{}
+        .bind(&RenderButton::set_text, label_prop)
+        .bind(&RenderButton::set_disabled, lock_prop);
+    auto node = std::static_pointer_cast<RenderButton>(widget->create_render_node());
     assert(node != nullptr);
 
     assert(node->text() == "Initial Label");

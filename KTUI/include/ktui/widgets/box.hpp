@@ -132,42 +132,44 @@ private:
 class BoxWidget;
 
 // C++20 指定初始化器声明式聚合体 (Box)
-// 桌面专业标准：默认微圆角 0.0f~4.0f，绝不大圆角；默认开启内容防溢出裁剪；支持全属性 Bind(...)
-struct Box {
-    Bindable<float> width{-1.0f};
-    Bindable<float> height{-1.0f};
-    Bindable<Color> background_color{Color::transparent()};
-    Bindable<Color> border_color{Color::transparent()};
-    Bindable<float> border_width{0.0f};
-    Bindable<float> corner_radius{0.0f}; // 桌面级克制圆角 (0px 直角或 2~4px 微圆角)
-    Bindable<EdgeInsets> padding{EdgeInsets::zero()};
+// 零开销原生字段 + 链式 .bind(...) 按需绑定任意属性
+struct Box : BindableMixin<Box, RenderDecoratedBox> {
+    float width{-1.0f};
+    float height{-1.0f};
+    Color background_color{Color::transparent()};
+    Color border_color{Color::transparent()};
+    float border_width{0.0f};
+    float corner_radius{0.0f}; // 桌面级克制圆角 (0px 直角或 2~4px 微圆角)
+    EdgeInsets padding{EdgeInsets::zero()};
     bool theme_card{false};              // 自动跟随 ThemeContext::current() 渲染卡片底色与描边 (支持涟漪主题无缝过渡)
     WidgetPtr child{nullptr};
-    Bindable<bool> clip_content{true};   // 是否对子节点施加硬件视口裁剪
+    bool clip_content{true};   // 是否对子节点施加硬件视口裁剪
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 // BoxWidget 多态包装实现
 class BoxWidget : public Widget {
 public:
     explicit BoxWidget(const Box& desc) : m_desc(desc) {}
+    explicit BoxWidget(Box&& desc) noexcept : m_desc(std::move(desc)) {}
     ~BoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderDecoratedBox>();
+        auto node = make_render_node<RenderDecoratedBox>();
         m_child_render_box = m_desc.child ? m_desc.child->create_render_node() : nullptr;
         if (m_desc.child && m_child_render_box) {
             m_desc.child->set_render_node(m_child_render_box);
         }
         node->set_child_box(m_child_render_box);
         apply_props(node);
-        bind_all(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto dec_box = std::dynamic_pointer_cast<RenderDecoratedBox>(node)) {
+        if (auto dec_box = std::static_pointer_cast<RenderDecoratedBox>(node)) {
             if (m_desc.child) {
                 if (!m_child_render_box) {
                     m_child_render_box = m_desc.child->create_render_node();
@@ -182,7 +184,6 @@ public:
             }
 
             apply_props(dec_box);
-            bind_all(dec_box);
         }
     }
 
@@ -191,31 +192,21 @@ public:
 private:
     void apply_props(const std::shared_ptr<RenderDecoratedBox>& dec_box) const {
         dec_box->set_properties(
-            m_desc.width.get(), m_desc.height.get(), m_desc.background_color.get(),
-            m_desc.border_color.get(), m_desc.border_width.get(),
-            m_desc.corner_radius.get(), m_desc.padding.get(), m_desc.clip_content.get());
+            m_desc.width, m_desc.height, m_desc.background_color,
+            m_desc.border_color, m_desc.border_width,
+            m_desc.corner_radius, m_desc.padding, m_desc.clip_content);
         dec_box->set_theme_card(m_desc.theme_card);
-    }
-
-    void bind_all(const std::shared_ptr<RenderDecoratedBox>& dec_box) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.width, dec_box, [](RenderDecoratedBox& n, float v) { n.set_width(v); });
-        m_bindings.attach(m_desc.height, dec_box, [](RenderDecoratedBox& n, float v) { n.set_height(v); });
-        m_bindings.attach(m_desc.background_color, dec_box, [](RenderDecoratedBox& n, Color v) { n.set_background_color(v); });
-        m_bindings.attach(m_desc.border_color, dec_box, [](RenderDecoratedBox& n, Color v) { n.set_border_color(v); });
-        m_bindings.attach(m_desc.border_width, dec_box, [](RenderDecoratedBox& n, float v) { n.set_border_width(v); });
-        m_bindings.attach(m_desc.corner_radius, dec_box, [](RenderDecoratedBox& n, float v) { n.set_corner_radius(v); });
-        m_bindings.attach(m_desc.padding, dec_box, [](RenderDecoratedBox& n, EdgeInsets v) { n.set_padding(v); });
-        m_bindings.attach(m_desc.clip_content, dec_box, [](RenderDecoratedBox& n, bool v) { n.set_clip_content(v); });
     }
 
     Box m_desc;
     std::shared_ptr<RenderBox> m_child_render_box{nullptr};
-    BindingGroup m_bindings;
 };
 
-inline Box::operator WidgetPtr() const {
-    return std::make_shared<BoxWidget>(*this);
+inline Box::operator WidgetPtr() const& {
+    return make_widget<BoxWidget>(*this);
+}
+inline Box::operator WidgetPtr() && {
+    return make_widget<BoxWidget>(std::move(*this));
 }
 
 } // namespace ktui

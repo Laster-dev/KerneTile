@@ -50,7 +50,7 @@ public:
                         float row_height,
                         float width,
                         float height,
-                        std::function<void(size_t)> on_row_selected) {
+                        Fn<void(size_t)> on_row_selected) {
         m_columns = std::move(columns);
         m_rows = std::move(rows);
         m_row_height = std::max(26.0f, row_height);
@@ -411,7 +411,7 @@ private:
     float m_touch_last_y{0.0f};
     SmoothScrollPhysics m_physics;
     WinUIScrollBar m_scrollbar;
-    std::function<void(size_t)> m_on_row_selected;
+    Fn<void(size_t)> m_on_row_selected;
 };
 
 // C++20 指定初始化器声明式 WinUI 3 DataGrid
@@ -421,24 +421,27 @@ struct DataGrid {
     float row_height{34.0f};
     float width{0.0f};
     float height{320.0f};
-    std::function<void(size_t)> on_row_selected{nullptr};
+    Fn<void(size_t)> on_row_selected{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class DataGridWidget : public Widget {
 public:
     explicit DataGridWidget(const DataGrid& desc) : m_desc(desc) {}
+    explicit DataGridWidget(DataGrid&& desc) noexcept : m_desc(std::move(desc)) {}
     ~DataGridWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderDataGrid>();
+        auto node = make_render_node<RenderDataGrid>();
         node->set_properties(m_desc.columns, m_desc.rows, m_desc.row_height, m_desc.width, m_desc.height, m_desc.on_row_selected);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderDataGrid>(node)) {
+        if (auto n = std::static_pointer_cast<RenderDataGrid>(node)) {
             n->set_properties(m_desc.columns, m_desc.rows, m_desc.row_height, m_desc.width, m_desc.height, m_desc.on_row_selected);
         }
     }
@@ -447,8 +450,11 @@ private:
     DataGrid m_desc;
 };
 
-inline DataGrid::operator WidgetPtr() const {
-    return std::make_shared<DataGridWidget>(*this);
+inline DataGrid::operator WidgetPtr() const& {
+    return make_widget<DataGridWidget>(*this);
+}
+inline DataGrid::operator WidgetPtr() && {
+    return make_widget<DataGridWidget>(std::move(*this));
 }
 
 } // namespace ktui

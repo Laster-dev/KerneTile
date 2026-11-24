@@ -128,7 +128,7 @@ private:
 class RenderNumberBox : public RenderBox {
 public:
     RenderNumberBox() noexcept {
-        m_input = std::make_shared<RenderTextBox>();
+        m_input = make_render_node<RenderTextBox>();
         append_child(m_input.get());
         setup_input_bridge();
         sync_input_properties();
@@ -152,7 +152,7 @@ public:
                         const std::string& header,
                         float width,
                         bool disabled,
-                        std::function<void(double)> on_value_changed) {
+                        Fn<void(double)> on_value_changed) {
         m_minimum = minimum;
         m_maximum = std::max(minimum, maximum);
         m_small_change = std::max(1e-6, small_change);
@@ -520,17 +520,26 @@ private:
     std::string m_header;
     float m_width{180.0f};
     bool m_disabled{false};
-    std::function<void(double)> m_on_value_changed;
+    Fn<void(double)> m_on_value_changed;
 
     std::string m_text{"0"};
     bool m_editing{false};
     SpinPart m_hover_spin{SpinPart::None};
     SpinPart m_press_spin{SpinPart::None};
+
+public:
+    void wrap_on_value_changed(Fn<void(double)> extra) {
+        auto prev = std::move(m_on_value_changed);
+        m_on_value_changed = [prev = std::move(prev), extra = std::move(extra)](double v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 NumberBox
-struct NumberBox {
-    Bindable<double> value{0.0};
+struct NumberBox : BindableMixin<NumberBox, RenderNumberBox> {
+    double value{0.0};
     double minimum{-1e9};
     double maximum{1e9};
     double small_change{1.0};
@@ -542,58 +551,66 @@ struct NumberBox {
     std::string header{""};
     float width{180.0f};
     bool disabled{false};
-    std::function<void(double)> on_value_changed{nullptr};
+    Fn<void(double)> on_value_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderNumberBox>& node, Property<double>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_numeric_value(prop.get());
+    std::weak_ptr<RenderNumberBox> weak = node;
+    bg.subscribe(prop, [weak, guard](double v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_numeric_value(v);
+        }
+    });
+    Property<double>* p = &prop;
+    node->wrap_on_value_changed([p, guard](double v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class NumberBoxWidget : public Widget {
 public:
     explicit NumberBoxWidget(const NumberBox& desc) : m_desc(desc) {}
+    explicit NumberBoxWidget(NumberBox&& desc) noexcept : m_desc(std::move(desc)) {}
     ~NumberBoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderNumberBox>();
+        auto node = make_render_node<RenderNumberBox>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto nb = std::dynamic_pointer_cast<RenderNumberBox>(node)) {
+        if (auto nb = std::static_pointer_cast<RenderNumberBox>(node)) {
             apply(nb);
-            bind(nb);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderNumberBox>& nb) const {
-        auto desc_val = m_desc.value;
-        auto user_cb = m_desc.on_value_changed;
         nb->set_properties(
-            m_desc.value.get(), m_desc.minimum, m_desc.maximum,
+            m_desc.value, m_desc.minimum, m_desc.maximum,
             m_desc.small_change, m_desc.large_change, m_desc.precision,
             m_desc.accepts_expression, m_desc.spin_button_placement,
             m_desc.placeholder, m_desc.header, m_desc.width, m_desc.disabled,
-            [desc_val, user_cb](double v) mutable {
-                desc_val.set_bound(v);
-                if (user_cb) user_cb(v);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderNumberBox>& nb) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, nb, [](RenderNumberBox& n, double v) {
-            n.set_numeric_value(v);
-        });
+            m_desc.on_value_changed);
     }
 
     NumberBox m_desc;
-    BindingGroup m_bindings;
 };
 
-inline NumberBox::operator WidgetPtr() const {
-    return std::make_shared<NumberBoxWidget>(*this);
+inline NumberBox::operator WidgetPtr() const& {
+    return make_widget<NumberBoxWidget>(*this);
+}
+inline NumberBox::operator WidgetPtr() && {
+    return make_widget<NumberBoxWidget>(std::move(*this));
 }
 
 } // namespace ktui

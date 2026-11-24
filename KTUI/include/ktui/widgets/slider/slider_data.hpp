@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
 
@@ -17,8 +17,8 @@ struct SliderData {
     float height{32.0f};           // 交互热区高度 (WinUI 3 SliderHorizontalHeight = 32px)
     bool disabled{false};
 
-    std::function<void(float)> on_change{nullptr};
-    std::function<void(float)> on_change_end{nullptr};
+    Fn<void(float)> on_change{nullptr};
+    Fn<void(float)> on_change_end{nullptr};
 };
 
 struct SliderInteractiveState {

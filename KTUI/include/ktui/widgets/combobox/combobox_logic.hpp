@@ -33,7 +33,7 @@ public:
                         float font_size,
                         int max_visible_items,
                         bool open_upward,
-                        std::function<void(int)> on_select)
+                        Fn<void(int)> on_select)
         : m_items(std::move(items)),
           m_selected_index(selected_index),
           m_item_height(item_height > 0.0f ? item_height : 32.0f),
@@ -352,7 +352,7 @@ private:
     WinUIScrollBar m_scrollbar;
     float m_open_progress{0.0f};
     std::chrono::steady_clock::time_point m_open_start;
-    std::function<void(int)> m_on_select;
+    Fn<void(int)> m_on_select;
 };
 
 // 下拉选择框逻辑与渲染盒 (RenderComboBox - Logic Layer)
@@ -446,7 +446,7 @@ public:
         }
     }
 
-    void set_on_change(std::function<void(int, const std::string&)> cb) {
+    void set_on_change(Fn<void(int, const std::string&)> cb) {
         m_data.on_change = std::move(cb);
     }
 
@@ -481,7 +481,7 @@ public:
                 : (anchor.y + size().y + 4.0f);
             float popup_x = std::clamp(anchor.x, 4.0f, std::max(4.0f, win_sz.x - popup_w - 4.0f));
 
-            auto popup = std::make_shared<RenderComboBoxPopup>(
+            auto popup = make_render_node<RenderComboBoxPopup>(
                 m_data.items,
                 m_data.selected_index,
                 m_data.item_height,
@@ -726,79 +726,82 @@ private:
 };
 
 // C++20 指定初始化器声明式下拉选择框控件 (ComboBox DSL Wrapper)
-struct ComboBox {
+struct ComboBox : BindableMixin<ComboBox, RenderComboBox> {
     std::vector<ComboBoxItem> items;
-    Bindable<int> selected_index{-1};
-    Bindable<std::string> placeholder{"请选择..."};
-    Bindable<float> width{180.0f};
-    Bindable<float> height{32.0f};
+    int selected_index{-1};
+    std::string placeholder{"请选择..."};
+    float width{180.0f};
+    float height{32.0f};
     float item_height{32.0f};
     float font_size{13.0f};
     int max_visible_items{8};
     float max_dropdown_height{280.0f};
-    Bindable<bool> disabled{false};
+    bool disabled{false};
 
-    std::function<void(int, const std::string&)> on_change{nullptr};
+    Fn<void(int, const std::string&)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderComboBox>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_index(prop.get(), false);
+    std::weak_ptr<RenderComboBox> weak = node;
+    bg.subscribe(prop, [weak, guard](int idx) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_index(idx, false);
+        }
+    });
+    auto prev = node->data().on_change;
+    Property<int>* p = &prop;
+    node->set_on_change([prev = std::move(prev), p, guard](int idx, const std::string& label) {
+        *guard = true;
+        p->set(idx);
+        if (prev) prev(idx, label);
+        *guard = false;
+    });
+}
 
 class ComboBoxWidget : public Widget {
 public:
     explicit ComboBoxWidget(const ComboBox& desc) : m_desc(desc) {}
+    explicit ComboBoxWidget(ComboBox&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ComboBoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderComboBox>();
+        auto node = make_render_node<RenderComboBox>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto cb = std::dynamic_pointer_cast<RenderComboBox>(node)) {
+        if (auto cb = std::static_pointer_cast<RenderComboBox>(node)) {
             apply_desc_to_node(cb);
-            setup_bindings(cb);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderComboBox>& node) {
         node->set_items(m_desc.items);
-        node->set_selected_index(m_desc.selected_index.get(), false);
-        node->set_placeholder(m_desc.placeholder.get());
-        node->set_dimensions(m_desc.width.get(), m_desc.height.get(),
+        node->set_selected_index(m_desc.selected_index, false);
+        node->set_placeholder(m_desc.placeholder);
+        node->set_dimensions(m_desc.width, m_desc.height,
                              m_desc.item_height, m_desc.font_size,
                              m_desc.max_visible_items, m_desc.max_dropdown_height);
-        node->set_disabled(m_desc.disabled.get());
-        node->set_on_change([this](int idx, const std::string& label) {
-            m_is_internal_update = true;
-            m_desc.selected_index.set_bound(idx);
-            if (m_desc.on_change) m_desc.on_change(idx, label);
-            m_is_internal_update = false;
-        });
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderComboBox>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_index, node, [this](RenderComboBox& n, int idx) {
-            if (!m_is_internal_update) n.set_selected_index(idx, false);
-        });
-        m_bindings.attach(m_desc.placeholder, node, [](RenderComboBox& n, const std::string& s) {
-            n.set_placeholder(s);
-        });
-        m_bindings.attach(m_desc.disabled, node, [](RenderComboBox& n, bool d) {
-            n.set_disabled(d);
-        });
+        node->set_disabled(m_desc.disabled);
+        node->set_on_change(m_desc.on_change);
     }
 
     ComboBox m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline ComboBox::operator WidgetPtr() const {
-    return std::make_shared<ComboBoxWidget>(*this);
+inline ComboBox::operator WidgetPtr() const& {
+    return make_widget<ComboBoxWidget>(*this);
+}
+inline ComboBox::operator WidgetPtr() && {
+    return make_widget<ComboBoxWidget>(std::move(*this));
 }
 
 } // namespace ktui

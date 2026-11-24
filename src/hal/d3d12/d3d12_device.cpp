@@ -6,22 +6,22 @@
 #include "d3d12_command_recorder.hpp"
 #include "embedded_vs_blit.hpp"
 #include "embedded_ps_blit.hpp"
-#include <fstream>
+#include <cstdio>
 #include <vector>
 
 namespace kernetile::hal::d3d12 {
 
 static std::vector<uint8_t> read_binary_file(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        return {};
-    }
-    std::streamsize size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    std::vector<uint8_t> buffer(static_cast<size_t>(size));
-    if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-        return buffer;
-    }
+    std::FILE* fp = std::fopen(path.c_str(), "rb");
+    if (!fp) return {};
+    if (std::fseek(fp, 0, SEEK_END) != 0) { std::fclose(fp); return {}; }
+    long sz = std::ftell(fp);
+    if (sz <= 0) { std::fclose(fp); return {}; }
+    std::rewind(fp);
+    std::vector<uint8_t> buffer(static_cast<size_t>(sz));
+    size_t read = std::fread(buffer.data(), 1, buffer.size(), fp);
+    std::fclose(fp);
+    if (read == buffer.size()) return buffer;
     return {};
 }
 
@@ -35,11 +35,11 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
     }
 #endif
 
-    throw_if_failed(CreateDXGIFactory2(dxgi_flags, IID_PPV_ARGS(&m_factory)), "CreateDXGIFactory2 failed");
+    if (!throw_if_failed(CreateDXGIFactory2(dxgi_flags, IID_PPV_ARGS(&m_factory)), "CreateDXGIFactory2 failed")) return;
 
     // 适配器选择
     if (prefer_warp) {
-        throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter failed");
+        if (!throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter failed")) return;
     } else {
         for (UINT i = 0; m_factory->EnumAdapters1(i, &m_adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
             DXGI_ADAPTER_DESC1 desc;
@@ -54,9 +54,9 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
         }
         // 如果未找到硬件适配器，自动降级至 WARP
         if (!m_adapter) {
-            if (!allow_warp) throw std::runtime_error("No hardware D3D12 adapter");
-            std::cout << "[D3D12] Hardware GPU unavailable, falling back to WARP software adapter." << std::endl;
-            throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter fallback failed");
+            if (!allow_warp) return;
+            std::printf("[D3D12] Hardware GPU unavailable, falling back to WARP software adapter.\n");
+            if (!throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter fallback failed")) return;
         }
     }
 
@@ -66,28 +66,29 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
     WideCharToMultiByte(CP_UTF8, 0, adapter_desc.Description, -1, name_buf, sizeof(name_buf), nullptr, nullptr);
     m_device_name = name_buf;
 
-    throw_if_failed(
+    if (!throw_if_failed(
         D3D12CreateDevice(m_adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)),
         "D3D12CreateDevice failed"
-    );
+    )) return;
 
     // 创建直接命令队列 (Direct Command Queue)
     D3D12_COMMAND_QUEUE_DESC queue_desc{};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    throw_if_failed(m_device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&m_queue)), "CreateCommandQueue failed");
+    if (!throw_if_failed(m_device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&m_queue)), "CreateCommandQueue failed")) return;
 
     // 创建通用命令分配器
-    throw_if_failed(
+    if (!throw_if_failed(
         m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_cmd_allocator)),
         "CreateCommandAllocator failed"
-    );
+    )) return;
 
     // 创建帧同步栅栏与事件
-    throw_if_failed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence failed");
+    if (!throw_if_failed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence failed")) return;
     m_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!m_fence_event) {
-        throw std::runtime_error("CreateEvent for D3D12 fence failed");
+        std::fprintf(stderr, "D3D12 Error: CreateEvent for D3D12 fence failed\n");
+        return;
     }
 
     // 创建描述符堆 (CBV / SRV / UAV)
@@ -95,7 +96,7 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
     heap_desc.NumDescriptors = 256;
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    throw_if_failed(m_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&m_srv_uav_heap)), "CreateDescriptorHeap failed");
+    if (!throw_if_failed(m_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&m_srv_uav_heap)), "CreateDescriptorHeap failed")) return;
     m_srv_uav_descriptor_size = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     init_root_signatures();
@@ -103,10 +104,11 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
         init_blit_pso();
     }
     init_command_signature();
+    m_valid = true;
 }
 
 D3D12Device::~D3D12Device() {
-    try { wait_idle(); } catch (const std::exception&) {}
+    if (m_valid) wait_idle();
     if (m_fence_event) {
         CloseHandle(m_fence_event);
         m_fence_event = nullptr;
@@ -338,7 +340,8 @@ void D3D12Device::wait_idle() {
 namespace kernetile::hal {
 
 std::unique_ptr<GraphicsDevice> create_d3d12_device(bool prefer_warp) {
-    return std::make_unique<d3d12::D3D12Device>(prefer_warp);
+    auto dev = std::make_unique<d3d12::D3D12Device>(prefer_warp);
+    return dev->is_valid() ? std::move(dev) : nullptr;
 }
 
 } // namespace kernetile::hal

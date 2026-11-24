@@ -29,7 +29,7 @@ class RenderAutoSuggestPopup : public RenderBox {
 public:
     RenderAutoSuggestPopup(std::vector<std::string> suggestions,
                            float width,
-                           std::function<void(const std::string&)> on_pick)
+                           Fn<void(const std::string&)> on_pick)
         : m_suggestions(std::move(suggestions)),
           m_width(width),
           m_on_pick(std::move(on_pick)) {
@@ -166,7 +166,7 @@ private:
 
     std::vector<std::string> m_suggestions;
     float m_width{260.0f};
-    std::function<void(const std::string&)> m_on_pick;
+    Fn<void(const std::string&)> m_on_pick;
     int m_hovered{-1};
     int m_highlighted{-1};
     float m_scroll_offset{0.0f};
@@ -178,7 +178,7 @@ private:
 class RenderAutoSuggestBox : public RenderBox {
 public:
     RenderAutoSuggestBox() noexcept {
-        m_input = std::make_shared<RenderTextBox>();
+        m_input = make_render_node<RenderTextBox>();
         append_child(m_input.get());
         setup_input_bridge();
         sync_input_properties();
@@ -197,9 +197,9 @@ public:
                         std::vector<std::string> items,
                         float width,
                         bool disabled,
-                        std::function<void(const std::string&)> on_text_changed,
-                        std::function<void(const std::string&)> on_suggestion_chosen,
-                        std::function<void(const std::string&)> on_query_submitted) {
+                        Fn<void(const std::string&)> on_text_changed,
+                        Fn<void(const std::string&)> on_suggestion_chosen,
+                        Fn<void(const std::string&)> on_query_submitted) {
         bool text_changed = (m_text != text);
         if (text_changed) {
             m_text = text;
@@ -385,7 +385,7 @@ private:
         }
 
         auto token = std::make_shared<bool>(true);
-        auto popup = std::make_shared<RenderAutoSuggestPopup>(
+        auto popup = make_render_node<RenderAutoSuggestPopup>(
             m_filtered, size().x,
             [this, token](const std::string& chosen) {
                 if (*token) apply_chosen_suggestion(chosen);
@@ -540,71 +540,88 @@ private:
     PopupHandle m_popup_handle;
     std::shared_ptr<RenderAutoSuggestPopup> m_popup;
 
-    std::function<void(const std::string&)> m_on_text_changed;
-    std::function<void(const std::string&)> m_on_suggestion_chosen;
-    std::function<void(const std::string&)> m_on_query_submitted;
+    Fn<void(const std::string&)> m_on_text_changed;
+    Fn<void(const std::string&)> m_on_suggestion_chosen;
+    Fn<void(const std::string&)> m_on_query_submitted;
+
+public:
+    void wrap_on_text_changed(Fn<void(const std::string&)> extra) {
+        auto prev = std::move(m_on_text_changed);
+        m_on_text_changed = [prev = std::move(prev), extra = std::move(extra)](const std::string& v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 AutoSuggestBox
-struct AutoSuggestBox {
-    Bindable<std::string> text{std::string{}};
+struct AutoSuggestBox : BindableMixin<AutoSuggestBox, RenderAutoSuggestBox> {
+    std::string text{std::string{}};
     std::string placeholder{"搜索..."};
     std::string header;
-    Bindable<std::vector<std::string>> items{std::vector<std::string>{}};
+    std::vector<std::string> items{std::vector<std::string>{}};
     float width{280.0f};
     bool disabled{false};
-    std::function<void(const std::string&)> on_text_changed{nullptr};
-    std::function<void(const std::string&)> on_suggestion_chosen{nullptr};
-    std::function<void(const std::string&)> on_query_submitted{nullptr};
+    Fn<void(const std::string&)> on_text_changed{nullptr};
+    Fn<void(const std::string&)> on_suggestion_chosen{nullptr};
+    Fn<void(const std::string&)> on_query_submitted{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderAutoSuggestBox>& node, Property<std::string>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_text_value(prop.get());
+    std::weak_ptr<RenderAutoSuggestBox> weak = node;
+    bg.subscribe(prop, [weak, guard](const std::string& v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_text_value(v);
+        }
+    });
+    Property<std::string>* p = &prop;
+    node->wrap_on_text_changed([p, guard](const std::string& v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class AutoSuggestBoxWidget : public Widget {
 public:
     explicit AutoSuggestBoxWidget(const AutoSuggestBox& desc) : m_desc(desc) {}
+    explicit AutoSuggestBoxWidget(AutoSuggestBox&& desc) noexcept : m_desc(std::move(desc)) {}
     ~AutoSuggestBoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderAutoSuggestBox>();
+        auto node = make_render_node<RenderAutoSuggestBox>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderAutoSuggestBox>(node)) {
+        if (auto n = std::static_pointer_cast<RenderAutoSuggestBox>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderAutoSuggestBox>& node) {
-        auto text_bind = m_desc.text;
-        auto user_change = m_desc.on_text_changed;
         node->set_properties(
-            m_desc.text.get(), m_desc.placeholder, m_desc.header, m_desc.items.get(),
+            m_desc.text, m_desc.placeholder, m_desc.header, m_desc.items,
             m_desc.width, m_desc.disabled,
-            [text_bind, user_change](const std::string& v) mutable {
-                text_bind.set_bound(v);
-                if (user_change) user_change(v);
-            },
-            m_desc.on_suggestion_chosen, m_desc.on_query_submitted);
-    }
-
-    void bind(const std::shared_ptr<RenderAutoSuggestBox>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.text, node, [](RenderAutoSuggestBox& n, const std::string& v) { n.set_text_value(v); });
-        m_bindings.attach(m_desc.items, node, [](RenderAutoSuggestBox& n, const std::vector<std::string>& v) { n.set_items_value(v); });
+            m_desc.on_text_changed, m_desc.on_suggestion_chosen, m_desc.on_query_submitted);
     }
 
     AutoSuggestBox m_desc;
-    BindingGroup m_bindings;
 };
 
-inline AutoSuggestBox::operator WidgetPtr() const {
-    return std::make_shared<AutoSuggestBoxWidget>(*this);
+inline AutoSuggestBox::operator WidgetPtr() const& {
+    return make_widget<AutoSuggestBoxWidget>(*this);
+}
+inline AutoSuggestBox::operator WidgetPtr() && {
+    return make_widget<AutoSuggestBoxWidget>(std::move(*this));
 }
 
 } // namespace ktui

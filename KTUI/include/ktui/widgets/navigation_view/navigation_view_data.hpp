@@ -5,7 +5,7 @@
 #include <ktui/widgets/widget.hpp>
 
 #include <cstdint>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <string>
 #include <vector>
 
@@ -56,7 +56,7 @@ struct NavigationViewItem {
     bool disabled{false};
     bool expanded{false};          // 含子项时是否默认展开
     std::vector<NavigationViewItem> children; // 层级子导航项
-    std::function<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
+    Fn<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
 
     static NavigationViewItem header(std::string title) {
         NavigationViewItem it;
@@ -101,9 +101,9 @@ struct NavigationViewData {
     float compact_mode_threshold_width{641.0f}; // WinUI 3 CompactModeThresholdWidth
     float expanded_mode_threshold_width{900.0f};// WinUI 3 ExpandedModeThresholdWidth
 
-    std::function<void(const std::string&)> on_selection_changed{nullptr};
-    std::function<void()> on_back_requested{nullptr};
-    std::function<void(bool)> on_pane_toggled{nullptr};
+    Fn<void(const std::string&)> on_selection_changed{nullptr};
+    Fn<void()> on_back_requested{nullptr};
+    Fn<void(bool)> on_pane_toggled{nullptr};
 };
 
 } // namespace ktui

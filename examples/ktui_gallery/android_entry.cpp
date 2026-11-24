@@ -66,17 +66,15 @@ struct AndroidStudioState {
 
         auto card = [this](WidgetPtr child) {
             return Box {
-                .background_color = Bind(card_bg),
-                .border_color = Bind(card_border),
                 .border_width = 1.0f,
                 .corner_radius = 8.0f,
                 .padding = EdgeInsets(14.0f, 16.0f),
                 .child = std::move(child)
-            };
+            }.bind(&RenderDecoratedBox::set_background_color, card_bg)
+             .bind(&RenderDecoratedBox::set_border_color, card_border);
         };
 
         window->set_content(Box {
-            .background_color = Bind(window_bg),
             .padding = EdgeInsets(24.0f, 16.0f, 16.0f, 16.0f),
             .child = VStack {
                 .align_items = AlignItems::Stretch,
@@ -88,17 +86,16 @@ struct AndroidStudioState {
                         .content = {
                             Text { .text = "KerneTile Studio (Android)", .font_size = 18.0f },
                             Button {
-                                .text = Bind(theme_btn_text),
                                 .on_click = [this]() {
                                     app->set_theme(app->current_theme().is_dark ? Theme::light() : Theme::dark());
                                 }
-                            }
+                            }.bind(&RenderButton::set_text, theme_btn_text)
                         }
                     },
                     card(VStack {
                         .spacing = 12.0f,
                         .content = {
-                            Text { .text = Bind(count_text), .font_size = 15.0f },
+                            Text { .font_size = 15.0f }.bind(&RenderText::set_text, count_text),
                             HStack {
                                 .align_items = AlignItems::Center,
                                 .spacing = 10.0f,
@@ -106,20 +103,17 @@ struct AndroidStudioState {
                                     Button {
                                         .text = "+ 增加",
                                         .variant = ButtonVariant::Accent,
-                                        .on_click = [this]() { count += step_ten.get() ? 10 : 1; refresh_count(); },
-                                        .disabled = Bind(locked)
-                                    },
+                                        .on_click = [this]() { count += step_ten.get() ? 10 : 1; refresh_count(); }
+                                    }.bind(&RenderButton::set_disabled, locked),
                                     Button {
                                         .text = "- 减少",
-                                        .on_click = [this]() { count -= step_ten.get() ? 10 : 1; refresh_count(); },
-                                        .disabled = Bind(locked)
-                                    },
+                                        .on_click = [this]() { count -= step_ten.get() ? 10 : 1; refresh_count(); }
+                                    }.bind(&RenderButton::set_disabled, locked),
                                     Button {
                                         .text = "重置",
                                         .variant = ButtonVariant::Danger,
-                                        .on_click = [this]() { count = 0; refresh_count(); },
-                                        .disabled = Bind(locked)
-                                    }
+                                        .on_click = [this]() { count = 0; refresh_count(); }
+                                    }.bind(&RenderButton::set_disabled, locked)
                                 }
                             }
                         }
@@ -128,28 +122,27 @@ struct AndroidStudioState {
                         .align_items = AlignItems::Center,
                         .spacing = 20.0f,
                         .content = {
-                            Checkbox { .checked = Bind(step_ten), .label = "步长 10 (+10)", .on_change = [this](bool) { refresh_count(); } },
-                            ToggleSwitch { .checked = Bind(locked), .label = "锁定按钮", .on_change = [this](bool) { refresh_count(); } }
+                            Checkbox { .label = "步长 10 (+10)", .on_change = [this](bool) { refresh_count(); } }.bind_two_way(step_ten),
+                            ToggleSwitch { .label = "锁定按钮", .on_change = [this](bool) { refresh_count(); } }.bind_two_way(locked)
                         }
                     }),
                     card(VStack {
                         .align_items = AlignItems::Stretch,
                         .spacing = 10.0f,
                         .content = {
-                            Text { .text = "单行文本输入 (支持软键盘与双向绑定):", .color = Bind(muted_text) },
+                            Text { .text = "单行文本输入 (支持软键盘与双向绑定):" }.bind(&RenderText::set_color, muted_text),
                             TextInput {
-                                .text = Bind(input_text),
                                 .placeholder = "点击此处唤起键盘输入...",
                                 .on_change = [this](const std::string& val) {
                                     input_preview.set(val.empty() ? "输入预览: (空)" : "输入预览: " + val);
                                 }
-                            },
-                            Text { .text = Bind(input_preview), .color = Color{0.38f, 0.78f, 0.98f, 1.0f} }
+                            }.bind_two_way(input_text),
+                            Text { .color = Color{0.38f, 0.78f, 0.98f, 1.0f} }.bind(&RenderText::set_text, input_preview)
                         }
                     })
                 }
             }
-        });
+        }.bind(&RenderDecoratedBox::set_background_color, window_bg));
 
         window->show();
         app->run();

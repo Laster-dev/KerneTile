@@ -27,7 +27,7 @@ public:
         // 收集所有 RenderBox 子节点
         std::vector<RenderBox*> children;
         for (RenderNode* child = container->first_child(); child != nullptr; child = child->next_sibling()) {
-            if (auto* box = dynamic_cast<RenderBox*>(child)) {
+            if (auto* box = (child ? (child)->as_render_box() : nullptr)) {
                 children.push_back(box);
             }
         }

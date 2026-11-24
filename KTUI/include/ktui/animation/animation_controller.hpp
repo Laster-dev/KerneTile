@@ -142,11 +142,11 @@ public:
     [[nodiscard]] float duration() const noexcept { return m_duration; }
     void set_duration(float d) noexcept { m_duration = std::max(0.001f, d); }
 
-    void add_listener(std::function<void(float)> listener) {
+    void add_listener(Fn<void(float)> listener) {
         m_listeners.push_back(std::move(listener));
     }
 
-    void add_status_listener(std::function<void(AnimationStatus)> listener) {
+    void add_status_listener(Fn<void(AnimationStatus)> listener) {
         m_status_listeners.push_back(std::move(listener));
     }
 
@@ -171,8 +171,8 @@ private:
     bool m_is_repeating{false};
     bool m_reverse_cycle{false};
 
-    std::vector<std::function<void(float)>> m_listeners;
-    std::vector<std::function<void(AnimationStatus)>> m_status_listeners;
+    std::vector<Fn<void(float)>> m_listeners;
+    std::vector<Fn<void(AnimationStatus)>> m_status_listeners;
 };
 
 } // namespace ktui

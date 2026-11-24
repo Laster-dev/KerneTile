@@ -1,6 +1,5 @@
 #include "kernetile/renderer.hpp"
 #include <chrono>
-#include <iostream>
 #include <cstring>
 #include <unordered_map>
 #include "compute/ui_compute.hpp"

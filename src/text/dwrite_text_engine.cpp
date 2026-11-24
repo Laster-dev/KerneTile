@@ -62,10 +62,10 @@ struct Glyph {
 class SystemTextEngine final : public ITextEngine {
 public:
     SystemTextEngine() : m_font(system_font()) {
-        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(m_factory.GetAddressOf()))))
-            throw std::runtime_error("Cannot initialize DirectWrite");
-        m_factory->GetGdiInterop(&m_gdi);
+        if (SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(m_factory.GetAddressOf()))) && m_factory) {
+            m_factory->GetGdiInterop(&m_gdi);
+        }
     }
 
     FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {

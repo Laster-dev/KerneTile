@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
 
@@ -10,7 +10,7 @@ public:
     virtual ~IPlatformDispatcher() = default;
 
     // 从任意线程向 UI 主线程安全投递任务
-    virtual void post_task(std::function<void()> task) = 0;
+    virtual void post_task(Fn<void()> task) = 0;
 
     // 由 UI 主循环调用，消费并执行当前所有积压任务
     virtual size_t process_tasks() = 0;

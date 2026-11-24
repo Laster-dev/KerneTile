@@ -3,7 +3,7 @@
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/binding/binding.hpp>
 #include <string>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <vector>
 
 namespace ktui {
@@ -38,13 +38,8 @@ struct TextBoxData {
     bool show_reveal_button{false};   // 密码模式下是否显示右侧显示/隐藏明文眼睛按钮
     float font_size{13.0f};
 
-    // 响应式数据绑定与回调
-    BindRef<std::string> bind_text{nullptr};
-    BindRef<bool> bind_disabled{nullptr};
-    BindRef<bool> bind_read_only{nullptr};
-
-    std::function<void(const std::string&)> on_change{nullptr};
-    std::function<void(const std::string&)> on_submit{nullptr};
+    Fn<void(const std::string&)> on_change{nullptr};
+    Fn<void(const std::string&)> on_submit{nullptr};
 };
 
 } // namespace ktui

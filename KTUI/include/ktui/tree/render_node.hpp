@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <cstddef>
 #include <cassert>
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
+
+class RenderBox;
+class ITextInputClient;
 
 // 保留式场景图核心基类 (RenderNode - 侵入式四指针双向链表树)
 // 彻底杜绝 std::shared_ptr 带来的循环引用与弱指针锁开销，保证 120 FPS 高频遍历的极速内存局部性
@@ -27,6 +30,11 @@ public:
     virtual void on_mounted() {}
     virtual void on_unmounted() {}
     [[nodiscard]] bool is_mounted() const noexcept { return m_parent != nullptr; }
+
+    // 零 RTTI 轻量类型转换钩子 (支持完全关闭 /GR- 与 -fno-rtti)
+    [[nodiscard]] virtual RenderBox* as_render_box() noexcept { return nullptr; }
+    [[nodiscard]] virtual const RenderBox* as_render_box() const noexcept { return nullptr; }
+    [[nodiscard]] virtual ITextInputClient* as_text_input_client() noexcept { return nullptr; }
 
     RenderNode(const RenderNode&) = delete;
     RenderNode& operator=(const RenderNode&) = delete;

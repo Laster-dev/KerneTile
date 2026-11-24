@@ -85,7 +85,7 @@ void test_textbox_password_mask_mode() {
     };
 
     auto widget = static_cast<WidgetPtr>(desc);
-    auto node = std::dynamic_pointer_cast<RenderTextBox>(widget->create_render_node());
+    auto node = std::static_pointer_cast<RenderTextBox>(widget->create_render_node());
     assert(node != nullptr);
 
     // 密码掩码模式下，文本原值保持不变，但显示字符转换为圆点
@@ -109,12 +109,8 @@ void test_textbox_backward_compatibility_aliases() {
     Property<std::string> search_query("InitialQuery");
 
     // 采用历史写法 TextInput 声明
-    TextInput legacy_desc{
-        .text = Bind(search_query)
-    };
-
-    auto w = static_cast<WidgetPtr>(legacy_desc);
-    auto render_node = std::dynamic_pointer_cast<RenderTextInput>(w->create_render_node());
+    WidgetPtr w = TextInput{}.bind_two_way(search_query);
+    auto render_node = std::static_pointer_cast<RenderTextInput>(w->create_render_node());
     assert(render_node != nullptr);
 
     assert(render_node->text() == "InitialQuery");

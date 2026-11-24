@@ -31,7 +31,7 @@ enum class PasswordRevealMode : uint8_t {
 class RenderPasswordBox : public RenderBox {
 public:
     RenderPasswordBox() noexcept {
-        m_input = std::make_shared<RenderTextBox>();
+        m_input = make_render_node<RenderTextBox>();
         m_input->set_is_password(true);
         m_input->set_show_reveal_button(false); // 由 PasswordBox 叠加绘制 Fluent 按住窥视按钮
         append_child(m_input.get());
@@ -52,8 +52,8 @@ public:
                         size_t max_length,
                         float width,
                         bool disabled,
-                        std::function<void(const std::string&)> on_change,
-                        std::function<void(const std::string&)> on_submit) {
+                        Fn<void(const std::string&)> on_change,
+                        Fn<void(const std::string&)> on_submit) {
         m_max_length = max_length;
         std::string clamped = clamp_length(password);
         if (m_password != clamped) m_password = std::move(clamped);
@@ -276,71 +276,87 @@ private:
     bool m_disabled{false};
     bool m_eye_hovered{false};
     bool m_peeking{false};
-    std::function<void(const std::string&)> m_on_change;
-    std::function<void(const std::string&)> m_on_submit;
+    Fn<void(const std::string&)> m_on_change;
+    Fn<void(const std::string&)> m_on_submit;
+
+public:
+    void wrap_on_change(Fn<void(const std::string&)> extra) {
+        auto prev = std::move(m_on_change);
+        m_on_change = [prev = std::move(prev), extra = std::move(extra)](const std::string& v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 PasswordBox
-struct PasswordBox {
-    Bindable<std::string> password{""};
+struct PasswordBox : BindableMixin<PasswordBox, RenderPasswordBox> {
+    std::string password{""};
     std::string placeholder{"输入密码..."};
     std::string header{""};
     PasswordRevealMode reveal_mode{PasswordRevealMode::Peek};
     size_t max_length{0};
     float width{240.0f};
     bool disabled{false};
-    std::function<void(const std::string&)> on_change{nullptr};
-    std::function<void(const std::string&)> on_submit{nullptr};
+    Fn<void(const std::string&)> on_change{nullptr};
+    Fn<void(const std::string&)> on_submit{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderPasswordBox>& node, Property<std::string>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_password_value(prop.get());
+    std::weak_ptr<RenderPasswordBox> weak = node;
+    bg.subscribe(prop, [weak, guard](const std::string& v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_password_value(v);
+        }
+    });
+    Property<std::string>* p = &prop;
+    node->wrap_on_change([p, guard](const std::string& v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class PasswordBoxWidget : public Widget {
 public:
     explicit PasswordBoxWidget(const PasswordBox& desc) : m_desc(desc) {}
+    explicit PasswordBoxWidget(PasswordBox&& desc) noexcept : m_desc(std::move(desc)) {}
     ~PasswordBoxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderPasswordBox>();
+        auto node = make_render_node<RenderPasswordBox>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto pb = std::dynamic_pointer_cast<RenderPasswordBox>(node)) {
+        if (auto pb = std::static_pointer_cast<RenderPasswordBox>(node)) {
             apply(pb);
-            bind(pb);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderPasswordBox>& pb) const {
-        auto desc_pwd = m_desc.password;
-        auto user_change = m_desc.on_change;
         pb->set_properties(
-            m_desc.password.get(), m_desc.placeholder, m_desc.header,
+            m_desc.password, m_desc.placeholder, m_desc.header,
             m_desc.reveal_mode, m_desc.max_length, m_desc.width, m_desc.disabled,
-            [desc_pwd, user_change](const std::string& v) mutable {
-                desc_pwd.set_bound(v);
-                if (user_change) user_change(v);
-            },
-            m_desc.on_submit);
-    }
-
-    void bind(const std::shared_ptr<RenderPasswordBox>& pb) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.password, pb, [](RenderPasswordBox& n, const std::string& v) {
-            n.set_password_value(v);
-        });
+            m_desc.on_change, m_desc.on_submit);
     }
 
     PasswordBox m_desc;
-    BindingGroup m_bindings;
 };
 
-inline PasswordBox::operator WidgetPtr() const {
-    return std::make_shared<PasswordBoxWidget>(*this);
+inline PasswordBox::operator WidgetPtr() const& {
+    return make_widget<PasswordBoxWidget>(*this);
+}
+inline PasswordBox::operator WidgetPtr() && {
+    return make_widget<PasswordBoxWidget>(std::move(*this));
 }
 
 } // namespace ktui

@@ -11,7 +11,7 @@ using WidgetPtr = std::shared_ptr<Widget>;
 
 // KTUI 声明式组件核心抽象基类 (Widget)
 // 彻底解耦“声明式结构体描述”、“交互行为 (Behavior)”与“保留式场景图 (RenderBox)”
-class Widget : public std::enable_shared_from_this<Widget> {
+class Widget {
 public:
     virtual ~Widget() = default;
 
@@ -33,5 +33,18 @@ public:
 protected:
     std::weak_ptr<RenderBox> m_render_node;
 };
+
+// 共享单一 std::_Ref_count<Widget> 控制块，消除 50+ 种 XxxWidget/BoundWidget 重复控制块虚表膨胀
+template <typename W, typename... Args>
+[[nodiscard]] inline WidgetPtr make_widget(Args&&... args) {
+    return WidgetPtr(static_cast<Widget*>(new W(std::forward<Args>(args)...)));
+}
+
+// 共享单一 std::_Ref_count<RenderNode> 控制块，消除 50+ 种 RenderXxx 重复控制块虚表膨胀
+template <typename R, typename... Args>
+[[nodiscard]] inline std::shared_ptr<R> make_render_node(Args&&... args) {
+    std::shared_ptr<RenderNode> base(static_cast<RenderNode*>(new R(std::forward<Args>(args)...)));
+    return std::static_pointer_cast<R>(std::move(base));
+}
 
 } // namespace ktui

@@ -42,7 +42,7 @@ public:
 
     void set_properties(std::vector<BreadcrumbItem> items,
                         float font_size,
-                        std::function<void(size_t, const BreadcrumbItem&)> on_item_clicked) {
+                        Fn<void(size_t, const BreadcrumbItem&)> on_item_clicked) {
         if (m_items != items || std::abs(m_font_size - font_size) > 0.001f) {
             m_items = std::move(items);
             m_font_size = font_size;
@@ -264,7 +264,7 @@ private:
 
     std::vector<BreadcrumbItem> m_items;
     float m_font_size{14.0f};
-    std::function<void(size_t, const BreadcrumbItem&)> m_on_item_clicked;
+    Fn<void(size_t, const BreadcrumbItem&)> m_on_item_clicked;
 
     std::vector<Slot> m_slots;
     size_t m_collapsed_count{0};
@@ -273,47 +273,43 @@ private:
 };
 
 // C++20 指定初始化器声明式 WinUI 3 BreadcrumbBar
-struct BreadcrumbBar {
-    Bindable<std::vector<BreadcrumbItem>> items{};
+struct BreadcrumbBar : BindableMixin<BreadcrumbBar, RenderBreadcrumbBar> {
+    std::vector<BreadcrumbItem> items{};
     float font_size{14.0f};
-    std::function<void(size_t, const BreadcrumbItem&)> on_item_clicked{nullptr};
+    Fn<void(size_t, const BreadcrumbItem&)> on_item_clicked{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class BreadcrumbBarWidget : public Widget {
 public:
     explicit BreadcrumbBarWidget(const BreadcrumbBar& desc) : m_desc(desc) {}
+    explicit BreadcrumbBarWidget(BreadcrumbBar&& desc) noexcept : m_desc(std::move(desc)) {}
     ~BreadcrumbBarWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderBreadcrumbBar>();
-        node->set_properties(m_desc.items.get(), m_desc.font_size, m_desc.on_item_clicked);
-        bind(node);
+        auto node = make_render_node<RenderBreadcrumbBar>();
+        node->set_properties(m_desc.items, m_desc.font_size, m_desc.on_item_clicked);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto bb = std::dynamic_pointer_cast<RenderBreadcrumbBar>(node)) {
-            bb->set_properties(m_desc.items.get(), m_desc.font_size, m_desc.on_item_clicked);
-            bind(bb);
+        if (auto bb = std::static_pointer_cast<RenderBreadcrumbBar>(node)) {
+            bb->set_properties(m_desc.items, m_desc.font_size, m_desc.on_item_clicked);
         }
     }
 
 private:
-    void bind(const std::shared_ptr<RenderBreadcrumbBar>& bb) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.items, bb, [](RenderBreadcrumbBar& n, const std::vector<BreadcrumbItem>& v) {
-            n.set_items_value(v);
-        });
-    }
-
     BreadcrumbBar m_desc;
-    BindingGroup m_bindings;
 };
 
-inline BreadcrumbBar::operator WidgetPtr() const {
-    return std::make_shared<BreadcrumbBarWidget>(*this);
+inline BreadcrumbBar::operator WidgetPtr() const& {
+    return make_widget<BreadcrumbBarWidget>(*this);
+}
+inline BreadcrumbBar::operator WidgetPtr() && {
+    return make_widget<BreadcrumbBarWidget>(std::move(*this));
 }
 
 } // namespace ktui

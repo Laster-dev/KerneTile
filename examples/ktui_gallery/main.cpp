@@ -132,7 +132,9 @@ static std::unique_ptr<gallery::GalleryApp> g_web_gallery;
 #endif
 
 int main() {
+#if !defined(__EMSCRIPTEN__)
     std::setlocale(LC_ALL, "");
+#endif
 
 #if defined(__EMSCRIPTEN__)
     g_web_app = std::make_unique<Application>(create_platform_backend(false));

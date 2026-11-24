@@ -36,13 +36,13 @@ struct ContentDialogDesc {
     std::string secondary_button_text;   // 次操作按钮 (可选)
     std::string close_button_text{"取消"}; // 关闭按钮
     float width{420.0f};
-    std::function<void(ContentDialogResult)> on_result{nullptr};
+    Fn<void(ContentDialogResult)> on_result{nullptr};
 };
 
 // WinUI 3 模态对话框浮层渲染盒 (RenderContentDialog)
 class RenderContentDialog : public RenderBox {
 public:
-    RenderContentDialog(ContentDialogDesc desc, std::function<void(ContentDialogResult)> on_close)
+    RenderContentDialog(ContentDialogDesc desc, Fn<void(ContentDialogResult)> on_close)
         : m_desc(std::move(desc)), m_on_close(std::move(on_close)) {
         m_open_start = std::chrono::steady_clock::now();
         setup_behavior();
@@ -237,7 +237,7 @@ public:
         m_smoke_window_size = window_size;
     }
 
-    void begin_close(std::function<void()> on_done) {
+    void begin_close(Fn<void()> on_done) {
         if (m_closing) return;
         m_closing = true;
         m_close_start = std::chrono::steady_clock::now();
@@ -331,7 +331,7 @@ private:
     }
 
     ContentDialogDesc m_desc;
-    std::function<void(ContentDialogResult)> m_on_close;
+    Fn<void(ContentDialogResult)> m_on_close;
     std::vector<ButtonHit> m_buttons;
     int m_hovered_btn{-1};
     int m_pressed_btn{-1};
@@ -340,7 +340,7 @@ private:
     bool m_closing{false};
     bool m_close_finished{false};
     std::chrono::steady_clock::time_point m_close_start;
-    std::function<void()> m_on_close_anim_done;
+    Fn<void()> m_on_close_anim_done;
     Vec2 m_dialog_global_pos{0.0f, 0.0f};
     Vec2 m_smoke_window_size{0.0f, 0.0f};
 };
@@ -356,7 +356,7 @@ struct ContentDialog {
         auto result_fired = std::make_shared<bool>(false);
         auto dialog_weak = std::make_shared<std::weak_ptr<RenderContentDialog>>();
 
-        auto dialog = std::make_shared<RenderContentDialog>(
+        auto dialog = make_render_node<RenderContentDialog>(
             desc,
             [overlay_id, on_result, result_fired, dialog_weak](ContentDialogResult res) {
                 if (*result_fired) return;

@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <string>
 #include <vector>
 
@@ -16,7 +16,7 @@ namespace ktui {
 struct TitlebarAction {
     std::string glyph;              // 图标文本/符号 (如 "+", "⚙", "?")
     std::string tooltip;            // 提示说明
-    std::function<void()> on_click; // 点击回调
+    Fn<void()> on_click; // 点击回调
     bool enabled{true};
 };
 
@@ -31,11 +31,11 @@ public:
     static constexpr float kResizeBorder = 8.0f;
     static constexpr float kRightResizeBorder = 3.0f;
 
-    std::function<void()> on_minimize;
-    std::function<void()> on_maximize_toggle;
-    std::function<void()> on_close;
-    std::function<void()> on_pin_toggle;
-    std::function<void()> on_theme_toggle;
+    Fn<void()> on_minimize;
+    Fn<void()> on_maximize_toggle;
+    Fn<void()> on_close;
+    Fn<void()> on_pin_toggle;
+    Fn<void()> on_theme_toggle;
 
     [[nodiscard]] float height() const noexcept { return kHeight; }
 
@@ -43,10 +43,10 @@ public:
     void set_icon_text(std::string icon) { m_icon_text = std::move(icon); }
     [[nodiscard]] const std::string& icon_text() const noexcept { return m_icon_text; }
 
-    void add_action(std::string glyph, std::string tooltip, std::function<void()> on_click) {
+    void add_action(std::string glyph, std::string tooltip, Fn<void()> on_click) {
         m_actions.push_back(TitlebarAction{std::move(glyph), std::move(tooltip), std::move(on_click), true});
     }
-    void add_action(std::string glyph, std::function<void()> on_click) {
+    void add_action(std::string glyph, Fn<void()> on_click) {
         add_action(std::move(glyph), "", std::move(on_click));
     }
     void clear_actions() { m_actions.clear(); }

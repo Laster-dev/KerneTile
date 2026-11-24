@@ -5,12 +5,74 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 统一编译器警告与严格标准检查
+# 统一编译器警告、MSVC 静态运行时 (/MT)、零异常/零RTTI、体积优化与严格标准检查
 if (MSVC)
-    add_compile_options(/W4 /permissive- /utf-8)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _HAS_EXCEPTIONS=0 _HAS_STATIC_RTTI=0)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        string(REPLACE "/O2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "/Ob2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        add_compile_options(
+            /W3 /utf-8 /EHs-c- /GR-
+            -Wno-missing-field-initializers
+            $<$<CONFIG:Release>:/GS->
+            $<$<CONFIG:Release>:/clang:-Oz>
+            $<$<CONFIG:Release>:/clang:-ffunction-sections>
+            $<$<CONFIG:Release>:/clang:-fdata-sections>
+            $<$<CONFIG:Release>:/clang:-fno-asynchronous-unwind-tables>
+            $<$<CONFIG:Release>:/clang:-fno-unwind-tables>
+            $<$<CONFIG:Release>:/clang:-flto=thin>
+        )
+        # Hybrid CRT + LLD ICF/GC: 零 VC++ Redist 依赖 + Clang -Oz/ThinLTO 极致代码压缩
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /NODEFAULTLIB:libucrt.lib ucrt.lib")
+        set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /NODEFAULTLIB:libucrt.lib ucrt.lib")
+    else()
+        string(REPLACE "/O2" "/O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "/Ob2" "/Ob1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        add_compile_options(
+            /W4 /permissive- /utf-8 /EHs-c- /GR-
+            $<$<CONFIG:Release>:/Gy>
+            $<$<CONFIG:Release>:/Gw>
+            $<$<CONFIG:Release>:/GL>
+            $<$<CONFIG:Release>:/Zc:inline>
+            $<$<CONFIG:Release>:/GS->
+        )
+        set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
+        # Hybrid CRT: 静态链接 libvcruntime/libcpmt (零 VC++ Redist 依赖)，动态链接 Windows 10/11 系统自带的 ucrtbase.dll
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF=5 /NODEFAULTLIB:libucrt.lib ucrt.lib")
+        set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF=5 /NODEFAULTLIB:libucrt.lib ucrt.lib")
+    endif()
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-missing-field-initializers -fno-exceptions -fno-rtti)
+    if (NOT EMSCRIPTEN)
+        string(REPLACE "-O3" "-Os" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        add_compile_options(
+            $<$<CONFIG:Release>:-Os>
+            $<$<CONFIG:Release>:-ffunction-sections>
+            $<$<CONFIG:Release>:-fdata-sections>
+            $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
+            $<$<CONFIG:Release>:-fno-unwind-tables>
+            $<$<CONFIG:Release>:-flto=auto>
+        )
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -flto=auto -Wl,--gc-sections -s")
+    else()
+        # Emscripten / WebAssembly: -Oz + LTO + 现代 Wasm 指令集 (bulk-memory/nontrapping-fptoint/sign-ext/WASM_BIGINT) + emmalloc + 无 POSIX FS
+        string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        add_compile_options(
+            $<$<CONFIG:Release>:-Oz>
+            $<$<CONFIG:Release>:-flto>
+            $<$<CONFIG:Release>:-ffunction-sections>
+            $<$<CONFIG:Release>:-fdata-sections>
+            $<$<CONFIG:Release>:-mbulk-memory>
+            $<$<CONFIG:Release>:-mnontrapping-fptoint>
+            $<$<CONFIG:Release>:-msign-ext>
+            $<$<CONFIG:Release>:-mmutable-globals>
+        )
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -Oz -flto -mbulk-memory -mnontrapping-fptoint -msign-ext -mmutable-globals -Wl,--gc-sections -Wl,--strip-debug -sASSERTIONS=0 -sDISABLE_EXCEPTION_CATCHING=1 -sSUPPORT_LONGJMP=0 -sMALLOC=emmalloc -sFILESYSTEM=0 -sEVAL_CTORS=1 -sWASM_BIGINT=1 -sMIN_CHROME_VERSION=91 -sMIN_FIREFOX_VERSION=89 -sMIN_SAFARI_VERSION=150000")
+    endif()
 endif()
 
 # 跨发行版便携链接策略
@@ -145,6 +207,18 @@ target_include_directories(kernetile_cpu PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cpu
 )
 target_link_libraries(kernetile_cpu PUBLIC kernetile_core kernetile_tile kernetile_fx)
+# 保持纯 CPU 软件瓦片光栅器的最高运行性能
+if (MSVC)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(kernetile_cpu PRIVATE $<$<CONFIG:Release>:/clang:-O3>)
+    else()
+        target_compile_options(kernetile_cpu PRIVATE $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Ob2>)
+    endif()
+elseif (EMSCRIPTEN)
+    target_compile_options(kernetile_cpu PRIVATE $<$<CONFIG:Release>:-O2>)
+else()
+    target_compile_options(kernetile_cpu PRIVATE $<$<CONFIG:Release>:-O3>)
+endif()
 
 # KerneTile 引擎统一门面库 (Engine)
 set(ENGINE_SOURCES src/renderer.cpp)
@@ -294,6 +368,9 @@ target_link_libraries(ktui_gallery PRIVATE
     kernetile_cpu
     kernetile_core
 )
+if (MSVC AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(ktui_gallery PRIVATE $<$<CONFIG:Release>:/Ob0>)
+endif()
 if (ANDROID)
     target_link_libraries(ktui_gallery PRIVATE android log)
 endif()
@@ -307,7 +384,8 @@ if (EMSCRIPTEN)
         "-sNO_EXIT_RUNTIME=1"
         "-sMODULARIZE=1"
         "-sEXPORT_NAME=createKtuiApp"
-        "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8']"
+        "-sENVIRONMENT=web"
+        "-sEXPORTED_RUNTIME_METHODS=['stringToUTF8']"
     )
     add_custom_command(TARGET ktui_gallery POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

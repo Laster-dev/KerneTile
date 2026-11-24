@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <string>
 #include <vector>
 
@@ -31,7 +31,7 @@ struct ComboBoxData {
     float max_dropdown_height{280.0f}; // WinUI 3 下拉最大高度上限 (并自动受窗口可用空间约束，绝不溢出窗口)
     bool disabled{false};
 
-    std::function<void(int, const std::string&)> on_change{nullptr};
+    Fn<void(int, const std::string&)> on_change{nullptr};
 };
 
 // 下拉框交互状态层

@@ -10,11 +10,10 @@ std::unique_ptr<GraphicsDevice> create_null_device() {
 
 std::unique_ptr<GraphicsDevice> create_default_device(bool prefer_warp) {
 #if defined(_WIN32)
-    try {
-        return create_d3d12_device(prefer_warp);
-    } catch (...) {
-        return null::create_null_device();
+    if (auto dev = create_d3d12_device(prefer_warp)) {
+        return dev;
     }
+    return null::create_null_device();
 #else
     (void)prefer_warp;
     return null::create_null_device();

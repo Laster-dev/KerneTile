@@ -53,16 +53,19 @@ class ZStackWidget;
 struct ZStack {
     std::vector<WidgetPtr> content{};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 // ZStackWidget 包装实现
 class ZStackWidget : public Widget {
 public:
     explicit ZStackWidget(const ZStack& desc) : m_desc(desc) {}
+    explicit ZStackWidget(ZStack&& desc) noexcept : m_desc(std::move(desc)) {}
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderZStack>();
+        auto node = make_render_node<RenderZStack>();
         m_child_render_boxes.clear();
         m_child_render_boxes.reserve(m_desc.content.size());
 
@@ -78,7 +81,7 @@ public:
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto z_box = std::dynamic_pointer_cast<RenderZStack>(node)) {
+        if (auto z_box = std::static_pointer_cast<RenderZStack>(node)) {
             m_child_render_boxes.clear();
             m_child_render_boxes.reserve(m_desc.content.size());
             for (auto& w : m_desc.content) {
@@ -104,8 +107,11 @@ private:
     std::vector<std::shared_ptr<RenderBox>> m_child_render_boxes;
 };
 
-inline ZStack::operator WidgetPtr() const {
-    return std::make_shared<ZStackWidget>(*this);
+inline ZStack::operator WidgetPtr() const& {
+    return make_widget<ZStackWidget>(*this);
+}
+inline ZStack::operator WidgetPtr() && {
+    return make_widget<ZStackWidget>(std::move(*this));
 }
 
 } // namespace ktui

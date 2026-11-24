@@ -35,7 +35,7 @@ public:
                         bool allow_half_stars,
                         float star_size,
                         const std::string& caption,
-                        std::function<void(float)> on_value_changed) {
+                        Fn<void(float)> on_value_changed) {
         m_max_rating = std::clamp(max_rating, 1, 10);
         float clamped = std::clamp(value, 0.0f, static_cast<float>(m_max_rating));
         if (std::abs(m_value - clamped) > 0.001f) { m_value = clamped; mark_needs_paint(); }
@@ -189,72 +189,88 @@ private:
     float m_star_size{22.0f};
     std::string m_caption;
     float m_hover_value{-1.0f};
-    std::function<void(float)> m_on_value_changed;
+    Fn<void(float)> m_on_value_changed;
+
+public:
+    void set_caption(std::string cap) {
+        if (m_caption != cap) { m_caption = std::move(cap); mark_needs_layout(); }
+    }
+    void wrap_on_value_changed(Fn<void(float)> extra) {
+        auto prev = std::move(m_on_value_changed);
+        m_on_value_changed = [prev = std::move(prev), extra = std::move(extra)](float v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 RatingControl
-struct RatingControl {
-    Bindable<float> value{0.0f};
+struct RatingControl : BindableMixin<RatingControl, RenderRatingControl> {
+    float value{0.0f};
     int max_rating{5};
     bool is_read_only{false};
     bool is_clear_enabled{true};
     bool allow_half_stars{false};
     float star_size{22.0f};
-    Bindable<std::string> caption{std::string{}};
-    std::function<void(float)> on_value_changed{nullptr};
+    std::string caption{std::string{}};
+    Fn<void(float)> on_value_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderRatingControl>& node, Property<float>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_value(prop.get());
+    std::weak_ptr<RenderRatingControl> weak = node;
+    bg.subscribe(prop, [weak, guard](float v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_value(v);
+        }
+    });
+    Property<float>* p = &prop;
+    node->wrap_on_value_changed([p, guard](float v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class RatingControlWidget : public Widget {
 public:
     explicit RatingControlWidget(const RatingControl& desc) : m_desc(desc) {}
+    explicit RatingControlWidget(RatingControl&& desc) noexcept : m_desc(std::move(desc)) {}
     ~RatingControlWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderRatingControl>();
+        auto node = make_render_node<RenderRatingControl>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderRatingControl>(node)) {
+        if (auto n = std::static_pointer_cast<RenderRatingControl>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderRatingControl>& node) {
-        auto val_bind = m_desc.value;
-        auto user_cb = m_desc.on_value_changed;
         node->set_properties(
-            m_desc.value.get(), m_desc.max_rating, m_desc.is_read_only,
+            m_desc.value, m_desc.max_rating, m_desc.is_read_only,
             m_desc.is_clear_enabled, m_desc.allow_half_stars, m_desc.star_size,
-            m_desc.caption.get(),
-            [val_bind, user_cb](float v) mutable {
-                val_bind.set_bound(v);
-                if (user_cb) user_cb(v);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderRatingControl>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, node, [](RenderRatingControl& n, float v) { n.set_value(v); });
-        m_bindings.attach(m_desc.caption, node, [this](RenderRatingControl& n, const std::string& cap) {
-            n.set_properties(n.value(), m_desc.max_rating, m_desc.is_read_only,
-                             m_desc.is_clear_enabled, m_desc.allow_half_stars, m_desc.star_size,
-                             cap, m_desc.on_value_changed);
-        });
+            m_desc.caption, m_desc.on_value_changed);
     }
 
     RatingControl m_desc;
-    BindingGroup m_bindings;
 };
 
-inline RatingControl::operator WidgetPtr() const {
-    return std::make_shared<RatingControlWidget>(*this);
+inline RatingControl::operator WidgetPtr() const& {
+    return make_widget<RatingControlWidget>(*this);
+}
+inline RatingControl::operator WidgetPtr() && {
+    return make_widget<RatingControlWidget>(std::move(*this));
 }
 
 } // namespace ktui

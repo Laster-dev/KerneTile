@@ -72,22 +72,19 @@ int main() {
     Property<NavigationPaneDisplayMode> mode{NavigationPaneDisplayMode::Left};
     int built_pages = 0;
 
-    NavigationView dsl{
+    WidgetPtr ptr = NavigationView{
         .menu_items = {
             NavigationViewItem{ .id = "home", .label = "首页", .icon = NavigationIcon::Home },
             NavigationViewItem{ .id = "about", .label = "关于", .icon = NavigationIcon::Info }
         },
-        .selected_id = Bind(current_page),
         .pane_title = "KTUI Gallery",
-        .pane_display_mode = Bind(mode),
         .page_builder = [&](const std::string& id) -> WidgetPtr {
             built_pages++;
             return Text{ .text = "Page: " + id };
         }
-    };
-
-    WidgetPtr ptr = dsl;
-    auto node = std::dynamic_pointer_cast<RenderNavigationView>(ptr->create_render_node());
+    }.bind_two_way(current_page)
+     .bind(&RenderNavigationView::set_pane_display_mode, mode);
+    auto node = std::static_pointer_cast<RenderNavigationView>(ptr->create_render_node());
     assert(node != nullptr);
     assert(node->selected_id() == "home");
     assert(built_pages == 1);

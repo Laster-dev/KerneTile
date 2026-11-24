@@ -53,7 +53,6 @@
 #include <ktui/tree/popup_handle.hpp>
 
 // 事件与焦点管线
-#include <ktui/a11y/accessibility.hpp>
 #include <ktui/event/event_types.hpp>
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/event/hit_test_tree.hpp>

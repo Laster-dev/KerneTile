@@ -8,7 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <thread>
-#include <iostream>
+#include <cstdio>
 #include <clocale>
 #include <unordered_map>
 #include <cstring>
@@ -143,13 +143,13 @@ static inline KeyModifiers x11_state_to_modifiers(unsigned int state) {
 // Linux 平台任务调度器 (POSIX Thread-safe Task Dispatcher)
 class LinuxDispatcher : public IPlatformDispatcher {
 public:
-    void post_task(std::function<void()> task) override {
+    void post_task(Fn<void()> task) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_queue.push_back(std::move(task));
     }
 
     size_t process_tasks() override {
-        std::vector<std::function<void()>> to_run;
+        std::vector<Fn<void()>> to_run;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             to_run.swap(m_queue);
@@ -167,13 +167,13 @@ public:
 
 private:
     mutable std::mutex m_mutex;
-    std::vector<std::function<void()>> m_queue;
+    std::vector<Fn<void()>> m_queue;
 };
 
 // Linux 高精定时器 VSync 时钟源 (POSIX Monotonic Clock)
 class LinuxVSyncSource : public IVSyncSource {
 public:
-    uint64_t request_frame(std::function<void(double timestamp_seconds)> callback) override {
+    uint64_t request_frame(Fn<void(double timestamp_seconds)> callback) override {
         uint64_t id = m_next_id++;
         m_requests.push_back({id, std::move(callback)});
         return id;
@@ -203,7 +203,7 @@ public:
 private:
     struct Request {
         uint64_t id{0};
-        std::function<void(double)> callback;
+        Fn<void(double)> callback;
     };
     std::vector<Request> m_requests;
     uint64_t m_next_id{1};
@@ -650,7 +650,7 @@ public:
 #endif
     }
     bool is_decorated() const override { return m_decorated; }
-    void set_titlebar_hit_test_callback(std::function<TitlebarHitTest(PointF)> cb) override {
+    void set_titlebar_hit_test_callback(Fn<TitlebarHitTest(PointF)> cb) override {
         m_hit_test_cb = std::move(cb);
     }
 
@@ -681,7 +681,7 @@ public:
     XIC get_xic() const noexcept { return m_xic; }
 #endif
 
-    void set_destroy_handler(std::function<void()> handler) {
+    void set_destroy_handler(Fn<void()> handler) {
         m_destroy_handler = std::move(handler);
     }
 
@@ -808,15 +808,15 @@ public:
     void invalidate() override {
         if (m_paint_requested) m_paint_requested();
     }
-    void on_paint_requested(std::function<void()> handler) override {
+    void on_paint_requested(Fn<void()> handler) override {
         m_paint_requested = std::move(handler);
     }
 
-    void on_close_requested(std::function<bool()> handler) override { m_close_handler = std::move(handler); }
-    void on_resized(std::function<void(Vec2)> handler) override { m_resize_handler = std::move(handler); }
-    void on_moved(std::function<void(Vec2)> handler) override { m_move_handler = std::move(handler); }
-    void on_dpi_changed(std::function<void(float)> handler) override { m_dpi_handler = std::move(handler); }
-    void on_focus_changed(std::function<void(bool)> handler) override { m_focus_handler = std::move(handler); }
+    void on_close_requested(Fn<bool()> handler) override { m_close_handler = std::move(handler); }
+    void on_resized(Fn<void(Vec2)> handler) override { m_resize_handler = std::move(handler); }
+    void on_moved(Fn<void(Vec2)> handler) override { m_move_handler = std::move(handler); }
+    void on_dpi_changed(Fn<void(float)> handler) override { m_dpi_handler = std::move(handler); }
+    void on_focus_changed(Fn<void(bool)> handler) override { m_focus_handler = std::move(handler); }
 
     // X11 ConfigureNotify 事件通知 (物理像素 -> 逻辑 DIP)
     void notify_configure(Vec2 phys_sz, Vec2 new_pos) {
@@ -999,14 +999,14 @@ private:
     std::unordered_map<unsigned int, Cursor> m_cached_cursors;
 #endif
 
-    std::function<void()> m_destroy_handler{nullptr};
-    std::function<TitlebarHitTest(PointF)> m_hit_test_cb{nullptr};
-    std::function<void()> m_paint_requested{nullptr};
-    std::function<bool()> m_close_handler{nullptr};
-    std::function<void(Vec2)> m_resize_handler{nullptr};
-    std::function<void(Vec2)> m_move_handler{nullptr};
-    std::function<void(float)> m_dpi_handler{nullptr};
-    std::function<void(bool)> m_focus_handler{nullptr};
+    Fn<void()> m_destroy_handler{nullptr};
+    Fn<TitlebarHitTest(PointF)> m_hit_test_cb{nullptr};
+    Fn<void()> m_paint_requested{nullptr};
+    Fn<bool()> m_close_handler{nullptr};
+    Fn<void(Vec2)> m_resize_handler{nullptr};
+    Fn<void(Vec2)> m_move_handler{nullptr};
+    Fn<void(float)> m_dpi_handler{nullptr};
+    Fn<void(bool)> m_focus_handler{nullptr};
 };
 
 // Linux 统一后端实现
@@ -1023,13 +1023,13 @@ public:
         XSetErrorHandler([](Display* dpy, XErrorEvent* ev) -> int {
             char buf[256];
             XGetErrorText(dpy, ev->error_code, buf, sizeof(buf));
-            std::cerr << "[LinuxBackend X11 Protocol Warning] Code " << static_cast<int>(ev->error_code)
-                      << " (" << buf << "), Request: " << static_cast<int>(ev->request_code)
-                      << ", Minor: " << static_cast<int>(ev->minor_code) << std::endl;
+            std::fprintf(stderr, "[LinuxBackend X11 Protocol Warning] Code %d (%s), Request: %d, Minor: %d\n",
+                         static_cast<int>(ev->error_code), buf,
+                         static_cast<int>(ev->request_code), static_cast<int>(ev->minor_code));
             return 0;
         });
         XSetIOErrorHandler([](Display*) -> int {
-            std::cerr << "[LinuxBackend X11 IO Warning] Display server disconnected." << std::endl;
+            std::fprintf(stderr, "[LinuxBackend X11 IO Warning] Display server disconnected.\n");
             return 0;
         });
         std::setlocale(LC_ALL, "");
@@ -1038,10 +1038,10 @@ public:
         if (disp_env && disp_env[0] != '\0') {
             m_display = XOpenDisplay(disp_env);
             if (m_display) {
-                std::cout << "[LinuxBackend] Successfully connected to X11 Display Server: " << disp_env << std::endl;
+                std::printf("[LinuxBackend] Successfully connected to X11 Display Server: %s\n", disp_env);
                 m_xim = XOpenIM(m_display, nullptr, nullptr, nullptr);
                 if (m_xim) {
-                    std::cout << "[LinuxBackend] Successfully initialized XIM Input Method." << std::endl;
+                    std::printf("[LinuxBackend] Successfully initialized XIM Input Method.\n");
                 }
 
                 // 创建专用隐藏辅助窗口以稳定管理 X11 系统剪贴板
@@ -1542,7 +1542,7 @@ public:
 #endif
     }
 
-    void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
+    void set_event_callback(Fn<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);
     }
 
@@ -1582,7 +1582,7 @@ private:
 
     mutable std::mutex m_clip_mutex;
     std::string m_clipboard;
-    std::function<void(const PlatformEvent&)> m_event_callback{nullptr};
+    Fn<void(const PlatformEvent&)> m_event_callback{nullptr};
 };
 
 } // namespace ktui

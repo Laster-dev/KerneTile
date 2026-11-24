@@ -41,15 +41,6 @@ public:
 
     [[nodiscard]] bool checked() const noexcept { return m_data.checked; }
     [[nodiscard]] const std::string& label() const noexcept { return m_data.label; }
-
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::Switch;
-        if (p.name.empty()) p.name = m_data.label;
-        p.checked = m_data.checked;
-        p.disabled = m_state.is_disabled;
-        return p;
-    }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
     [[nodiscard]] const ToggleSwitchData& data() const noexcept { return m_data; }
     [[nodiscard]] const ToggleSwitchInteractiveState& state() const noexcept { return m_state; }
@@ -126,7 +117,7 @@ public:
         }
     }
 
-    void set_on_change(std::function<void(bool)> cb) {
+    void set_on_change(Fn<void(bool)> cb) {
         m_data.on_change = std::move(cb);
     }
 
@@ -306,73 +297,78 @@ private:
 };
 
 // C++20 指定初始化器声明式开关控件 (ToggleSwitch DSL Wrapper)
-struct ToggleSwitch {
-    Bindable<bool> checked{false};
-    Bindable<std::string> label{""};
-    Bindable<bool> disabled{false};
-    Bindable<float> track_width{40.0f};
-    Bindable<float> track_height{20.0f};
-    Bindable<float> font_size{13.0f};
-    Bindable<float> gap{8.0f};
+struct ToggleSwitch : BindableMixin<ToggleSwitch, RenderToggleSwitch> {
+    bool checked{false};
+    std::string label{""};
+    bool disabled{false};
+    float track_width{40.0f};
+    float track_height{20.0f};
+    float font_size{13.0f};
+    float gap{8.0f};
 
-    std::function<void(bool)> on_change{nullptr};
+    Fn<void(bool)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderToggleSwitch>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_checked(prop.get(), false);
+    std::weak_ptr<RenderToggleSwitch> weak = node;
+    bg.subscribe(prop, [weak, guard](bool v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_checked(v, true);
+        }
+    });
+    auto prev = node->data().on_change;
+    Property<bool>* p = &prop;
+    node->set_on_change([prev = std::move(prev), p, guard](bool val) {
+        *guard = true;
+        p->set(val);
+        if (prev) prev(val);
+        *guard = false;
+    });
+}
 
 class ToggleSwitchWidget : public Widget {
 public:
     explicit ToggleSwitchWidget(const ToggleSwitch& desc) : m_desc(desc) {}
+    explicit ToggleSwitchWidget(ToggleSwitch&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ToggleSwitchWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderToggleSwitch>();
+        auto node = make_render_node<RenderToggleSwitch>();
         apply_desc_to_node(node, false);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto sw = std::dynamic_pointer_cast<RenderToggleSwitch>(node)) {
+        if (auto sw = std::static_pointer_cast<RenderToggleSwitch>(node)) {
             apply_desc_to_node(sw, true);
-            setup_bindings(sw);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderToggleSwitch>& node, bool animate) {
-        node->set_checked(m_desc.checked.get(), animate);
-        node->set_label(m_desc.label.get());
-        node->set_disabled(m_desc.disabled.get());
-        node->set_track_size(m_desc.track_width.get(), m_desc.track_height.get());
-        node->set_font_size(m_desc.font_size.get());
-        node->set_gap(m_desc.gap.get());
-        node->set_on_change([this](bool val) {
-            m_is_internal_update = true;
-            m_desc.checked.set_bound(val);
-            if (m_desc.on_change) {
-                m_desc.on_change(val);
-            }
-            m_is_internal_update = false;
-        });
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderToggleSwitch>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.checked, node, [this](RenderToggleSwitch& n, bool v) {
-            if (!m_is_internal_update) n.set_checked(v, true);
-        });
-        m_bindings.attach(m_desc.label, node, [](RenderToggleSwitch& n, const std::string& v) { n.set_label(v); });
-        m_bindings.attach(m_desc.disabled, node, [](RenderToggleSwitch& n, bool v) { n.set_disabled(v); });
+        node->set_checked(m_desc.checked, animate);
+        node->set_label(m_desc.label);
+        node->set_disabled(m_desc.disabled);
+        node->set_track_size(m_desc.track_width, m_desc.track_height);
+        node->set_font_size(m_desc.font_size);
+        node->set_gap(m_desc.gap);
+        node->set_on_change(m_desc.on_change);
     }
 
     ToggleSwitch m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline ToggleSwitch::operator WidgetPtr() const {
-    return std::make_shared<ToggleSwitchWidget>(*this);
+inline ToggleSwitch::operator WidgetPtr() const& {
+    return make_widget<ToggleSwitchWidget>(*this);
+}
+inline ToggleSwitch::operator WidgetPtr() && {
+    return make_widget<ToggleSwitchWidget>(std::move(*this));
 }
 
 } // namespace ktui

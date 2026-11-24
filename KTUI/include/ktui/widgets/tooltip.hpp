@@ -111,13 +111,6 @@ public:
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     [[nodiscard]] bool is_tooltip_open() const noexcept { return m_popup_handle.is_open(); }
 
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::Group;
-        if (p.help_text.empty()) p.help_text = m_text;
-        return p;
-    }
-
     void on_unmounted() override {
         dismiss();
     }
@@ -158,7 +151,7 @@ private:
         Window* win = Window::active_window();
         if (!win) return;
 
-        auto popup = std::make_shared<RenderTooltipPopup>(m_text);
+        auto popup = make_render_node<RenderTooltipPopup>(m_text);
         Vec2 sz = popup->compute_ideal_size();
         Vec2 g = global_offset();
         float th = win->titlebar_height();
@@ -216,49 +209,44 @@ private:
 };
 
 // C++20 指定初始化器声明式 WinUI 3 Tooltip 包装器
-struct Tooltip {
-    Bindable<std::string> text{""};
+struct Tooltip : BindableMixin<Tooltip, RenderTooltipArea> {
+    std::string text{""};
     float delay_sec{0.40f};
     WidgetPtr child{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class TooltipWidget : public Widget {
 public:
     explicit TooltipWidget(const Tooltip& desc) : m_desc(desc) {}
+    explicit TooltipWidget(Tooltip&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TooltipWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderTooltipArea>();
-        node->set_properties(m_desc.text.get(), m_desc.delay_sec);
+        auto node = make_render_node<RenderTooltipArea>();
+        node->set_properties(m_desc.text, m_desc.delay_sec);
         if (m_desc.child) node->set_child_box(m_desc.child->create_render_node());
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderTooltipArea>(node)) {
-            n->set_properties(m_desc.text.get(), m_desc.delay_sec);
-            bind(n);
+        if (auto n = std::static_pointer_cast<RenderTooltipArea>(node)) {
+            n->set_properties(m_desc.text, m_desc.delay_sec);
         }
     }
 
 private:
-    void bind(const std::shared_ptr<RenderTooltipArea>& node) {
-        m_bindings.clear();
-        float d = m_desc.delay_sec;
-        m_bindings.attach(m_desc.text, node, [d](RenderTooltipArea& n, const std::string& v) {
-            n.set_properties(v, d);
-        });
-    }
-
     Tooltip m_desc;
-    BindingGroup m_bindings;
 };
 
-inline Tooltip::operator WidgetPtr() const {
-    return std::make_shared<TooltipWidget>(*this);
+inline Tooltip::operator WidgetPtr() const& {
+    return make_widget<TooltipWidget>(*this);
+}
+inline Tooltip::operator WidgetPtr() && {
+    return make_widget<TooltipWidget>(std::move(*this));
 }
 
 } // namespace ktui

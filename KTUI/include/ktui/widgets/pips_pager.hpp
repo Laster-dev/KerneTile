@@ -34,7 +34,7 @@ public:
                         int selected_index,
                         int max_visible_pips,
                         bool show_nav_buttons,
-                        std::function<void(int)> on_selected_changed) {
+                        Fn<void(int)> on_selected_changed) {
         m_pages = std::max(1, number_of_pages);
         m_max_visible = std::clamp(max_visible_pips, 3, 15);
         m_show_nav = show_nav_buttons;
@@ -350,64 +350,81 @@ private:
     std::vector<float> m_pip_slots;
     std::vector<float> m_pip_active_blend;
 
-    std::function<void(int)> m_on_selected;
+    Fn<void(int)> m_on_selected;
+
+public:
+    void wrap_on_selected(Fn<void(int)> extra) {
+        auto prev = std::move(m_on_selected);
+        m_on_selected = [prev = std::move(prev), extra = std::move(extra)](int idx) {
+            if (extra) extra(idx);
+            if (prev) prev(idx);
+        };
+    }
 };
 
-struct PipsPager {
+struct PipsPager : BindableMixin<PipsPager, RenderPipsPager> {
     int number_of_pages{5};
-    Bindable<int> selected_index{0};
+    int selected_index{0};
     int max_visible_pips{7};
     bool show_nav_buttons{true};
-    std::function<void(int)> on_selected_index_changed{nullptr};
+    Fn<void(int)> on_selected_index_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderPipsPager>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_index(prop.get());
+    std::weak_ptr<RenderPipsPager> weak = node;
+    bg.subscribe(prop, [weak, guard](int idx) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_index(idx);
+        }
+    });
+    Property<int>* p = &prop;
+    node->wrap_on_selected([p, guard](int idx) {
+        *guard = true;
+        p->set(idx);
+        *guard = false;
+    });
+}
 
 class PipsPagerWidget : public Widget {
 public:
     explicit PipsPagerWidget(const PipsPager& desc) : m_desc(desc) {}
+    explicit PipsPagerWidget(PipsPager&& desc) noexcept : m_desc(std::move(desc)) {}
     ~PipsPagerWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderPipsPager>();
+        auto node = make_render_node<RenderPipsPager>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderPipsPager>(node)) {
+        if (auto n = std::static_pointer_cast<RenderPipsPager>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderPipsPager>& node) {
-        auto sel_bind = m_desc.selected_index;
-        auto user_cb = m_desc.on_selected_index_changed;
         node->set_properties(
-            m_desc.number_of_pages, m_desc.selected_index.get(),
+            m_desc.number_of_pages, m_desc.selected_index,
             m_desc.max_visible_pips, m_desc.show_nav_buttons,
-            [sel_bind, user_cb](int idx) mutable {
-                sel_bind.set_bound(idx);
-                if (user_cb) user_cb(idx);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderPipsPager>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_index, node, [](RenderPipsPager& n, int idx) {
-            n.set_selected_index(idx);
-        });
+            m_desc.on_selected_index_changed);
     }
 
     PipsPager m_desc;
-    BindingGroup m_bindings;
 };
 
-inline PipsPager::operator WidgetPtr() const {
-    return std::make_shared<PipsPagerWidget>(*this);
+inline PipsPager::operator WidgetPtr() const& {
+    return make_widget<PipsPagerWidget>(*this);
+}
+inline PipsPager::operator WidgetPtr() && {
+    return make_widget<PipsPagerWidget>(std::move(*this));
 }
 
 } // namespace ktui

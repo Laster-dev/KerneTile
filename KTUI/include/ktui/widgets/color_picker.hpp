@@ -99,7 +99,7 @@ class RenderColorPickerPopup : public RenderBox {
 public:
     RenderColorPickerPopup(Color initial_color,
                            bool alpha_enabled,
-                           std::function<void(const Color&)> on_color_changed)
+                           Fn<void(const Color&)> on_color_changed)
         : m_alpha_enabled(alpha_enabled),
           m_on_color_changed(std::move(on_color_changed)) {
         cursor_shape = CursorShape::Arrow;
@@ -339,7 +339,7 @@ private:
     bool m_alpha_enabled{true};
     DragTarget m_drag{DragTarget::None};
     FluentPopupSurface m_surface;
-    std::function<void(const Color&)> m_on_color_changed;
+    Fn<void(const Color&)> m_on_color_changed;
 };
 
 // WinUI 3 ColorPicker 紧凑触发器渲染盒 (点击弹出固定尺寸 324px 真高斯阴影选色浮层)
@@ -369,7 +369,7 @@ public:
                         bool is_alpha_enabled,
                         float width,
                         bool disabled,
-                        std::function<void(const Color&)> on_color_changed) {
+                        Fn<void(const Color&)> on_color_changed) {
         if (m_color != color) { m_color = color; mark_needs_paint(); }
         if (m_header != header) { m_header = header; mark_needs_layout(); }
         m_alpha_enabled = is_alpha_enabled;
@@ -457,7 +457,7 @@ private:
         if (!win || m_disabled) return;
 
         auto token = std::make_shared<bool>(true);
-        auto popup = std::make_shared<RenderColorPickerPopup>(
+        auto popup = make_render_node<RenderColorPickerPopup>(
             m_color, m_alpha_enabled,
             [this, token](const Color& c) {
                 if (!*token) return;
@@ -514,65 +514,82 @@ private:
     bool m_hovered{false};
     bool m_pressed{false};
     PopupHandle m_popup_handle;
-    std::function<void(const Color&)> m_on_color_changed;
+    Fn<void(const Color&)> m_on_color_changed;
+
+public:
+    void wrap_on_color_changed(Fn<void(const Color&)> extra) {
+        auto prev = std::move(m_on_color_changed);
+        m_on_color_changed = [prev = std::move(prev), extra = std::move(extra)](const Color& c) {
+            if (extra) extra(c);
+            if (prev) prev(c);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 ColorPicker (点击弹出固定尺寸色盘浮层)
-struct ColorPicker {
-    Bindable<Color> color{Color{0.0f, 0.47f, 0.84f, 1.0f}};
+struct ColorPicker : BindableMixin<ColorPicker, RenderColorPicker> {
+    Color color{Color{0.0f, 0.47f, 0.84f, 1.0f}};
     std::string header;
     bool is_alpha_enabled{true};
     float width{190.0f};
     bool disabled{false};
-    std::function<void(const Color&)> on_color_changed{nullptr};
+    Fn<void(const Color&)> on_color_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderColorPicker>& node, Property<Color>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_color_value(prop.get());
+    std::weak_ptr<RenderColorPicker> weak = node;
+    bg.subscribe(prop, [weak, guard](const Color& c) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_color_value(c);
+        }
+    });
+    Property<Color>* p = &prop;
+    node->wrap_on_color_changed([p, guard](const Color& c) {
+        *guard = true;
+        p->set(c);
+        *guard = false;
+    });
+}
 
 class ColorPickerWidget : public Widget {
 public:
     explicit ColorPickerWidget(const ColorPicker& desc) : m_desc(desc) {}
+    explicit ColorPickerWidget(ColorPicker&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ColorPickerWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderColorPicker>();
+        auto node = make_render_node<RenderColorPicker>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderColorPicker>(node)) {
+        if (auto n = std::static_pointer_cast<RenderColorPicker>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderColorPicker>& node) {
-        auto col_bind = m_desc.color;
-        auto user_cb = m_desc.on_color_changed;
         node->set_properties(
-            m_desc.color.get(), m_desc.header, m_desc.is_alpha_enabled, m_desc.width, m_desc.disabled,
-            [col_bind, user_cb](const Color& c) mutable {
-                col_bind.set_bound(c);
-                if (user_cb) user_cb(c);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderColorPicker>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.color, node, [](RenderColorPicker& n, const Color& c) {
-            n.set_color_value(c);
-        });
+            m_desc.color, m_desc.header, m_desc.is_alpha_enabled, m_desc.width, m_desc.disabled,
+            m_desc.on_color_changed);
     }
 
     ColorPicker m_desc;
-    BindingGroup m_bindings;
 };
 
-inline ColorPicker::operator WidgetPtr() const {
-    return std::make_shared<ColorPickerWidget>(*this);
+inline ColorPicker::operator WidgetPtr() const& {
+    return make_widget<ColorPickerWidget>(*this);
+}
+inline ColorPicker::operator WidgetPtr() && {
+    return make_widget<ColorPickerWidget>(std::move(*this));
 }
 
 } // namespace ktui

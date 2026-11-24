@@ -43,6 +43,7 @@ public:
     [[nodiscard]] int value() const noexcept { return m_data.value; }
     [[nodiscard]] const std::string& label() const noexcept { return m_data.label; }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
+    [[nodiscard]] const RadioButtonData& data() const noexcept { return m_data; }
 
     void set_checked(bool checked, bool animate = true) {
         if (m_data.checked == checked && m_initialized) return;
@@ -82,7 +83,7 @@ public:
         }
     }
 
-    void set_on_select(std::function<void(int)> cb) { m_data.on_select = std::move(cb); }
+    void set_on_select(Fn<void(int)> cb) { m_data.on_select = std::move(cb); }
 
     void select() {
         if (m_state.is_disabled) return;
@@ -224,77 +225,111 @@ private:
 };
 
 // 声明式经典 WinUI 3 单选按钮 (RadioButton)
-struct RadioButton {
-    Bindable<int> selected_value{0};
+struct RadioButton : BindableMixin<RadioButton, RenderRadioButton> {
+    int selected_value{0};
     int value{0};
-    Bindable<std::string> label{""};
-    Bindable<bool> disabled{false};
+    std::string label{""};
+    bool disabled{false};
     float font_size{13.0f};
-    std::function<void(int)> on_change{nullptr};
+    Fn<void(int)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderRadioButton>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_checked(prop.get() == node->value(), false);
+    std::weak_ptr<RenderRadioButton> weak = node;
+    bg.subscribe(prop, [weak, guard](int cur) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_checked(cur == n->value(), true);
+        }
+    });
+    auto prev = node->data().on_select;
+    Property<int>* p = &prop;
+    node->set_on_select([prev = std::move(prev), p, guard](int val) {
+        *guard = true;
+        p->set(val);
+        if (prev) prev(val);
+        *guard = false;
+    });
+}
 
 class RadioButtonWidget : public Widget {
 public:
     explicit RadioButtonWidget(const RadioButton& desc) : m_desc(desc) {}
+    explicit RadioButtonWidget(RadioButton&& desc) noexcept : m_desc(std::move(desc)) {}
     ~RadioButtonWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderRadioButton>();
+        auto node = make_render_node<RenderRadioButton>();
         apply_desc_to_node(node, false);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto rb = std::dynamic_pointer_cast<RenderRadioButton>(node)) {
+        if (auto rb = std::static_pointer_cast<RenderRadioButton>(node)) {
             apply_desc_to_node(rb, true);
-            setup_bindings(rb);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderRadioButton>& node, bool animate) {
         node->set_value(m_desc.value);
-        node->set_checked(m_desc.selected_value.get() == m_desc.value, animate);
-        node->set_label(m_desc.label.get());
-        node->set_disabled(m_desc.disabled.get());
+        node->set_checked(m_desc.selected_value == m_desc.value, animate);
+        node->set_label(m_desc.label);
+        node->set_disabled(m_desc.disabled);
         node->set_font_size(m_desc.font_size);
-        node->set_on_select([this](int val) {
-            m_is_internal_update = true;
-            m_desc.selected_value.set_bound(val);
-            if (m_desc.on_change) m_desc.on_change(val);
-            m_is_internal_update = false;
-        });
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderRadioButton>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_value, node, [this](RenderRadioButton& n, int cur) {
-            if (!m_is_internal_update) n.set_checked(cur == m_desc.value, true);
-        });
-        m_bindings.attach(m_desc.label, node, [](RenderRadioButton& n, const std::string& v) { n.set_label(v); });
-        m_bindings.attach(m_desc.disabled, node, [](RenderRadioButton& n, bool v) { n.set_disabled(v); });
+        node->set_on_select(m_desc.on_change);
     }
 
     RadioButton m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline RadioButton::operator WidgetPtr() const {
-    return std::make_shared<RadioButtonWidget>(*this);
+inline RadioButton::operator WidgetPtr() const& {
+    return make_widget<RadioButtonWidget>(*this);
+}
+inline RadioButton::operator WidgetPtr() && {
+    return make_widget<RadioButtonWidget>(std::move(*this));
 }
 
 // 声明式经典 WinUI 3 单选按钮组 (RadioGroup)
 struct RadioGroup {
-    Bindable<int> selected_value{0};
+    int selected_value{0};
     std::vector<RadioOption> options{};
     bool horizontal{false};
     float spacing{6.0f};
     float font_size{13.0f};
-    std::function<void(int)> on_change{nullptr};
+    Fn<void(int)> on_change{nullptr};
+
+    WidgetPtr bind_two_way(Property<int>& prop) const {
+        std::vector<WidgetPtr> items;
+        items.reserve(options.size());
+        for (const auto& opt : options) {
+            items.push_back(RadioButton {
+                .selected_value = prop.get(),
+                .value = opt.value,
+                .label = opt.label,
+                .disabled = opt.disabled,
+                .font_size = font_size,
+                .on_change = on_change
+            }.bind_two_way(prop));
+        }
+        if (horizontal) {
+            return HStack {
+                .align_items = AlignItems::Center,
+                .spacing = spacing > 0.0f ? spacing : 16.0f,
+                .content = std::move(items)
+            };
+        }
+        return VStack {
+            .align_items = AlignItems::FlexStart,
+            .spacing = spacing,
+            .content = std::move(items)
+        };
+    }
 
     operator WidgetPtr() const {
         std::vector<WidgetPtr> items;
@@ -341,6 +376,7 @@ public:
     [[nodiscard]] int value() const noexcept { return m_data.value; }
     [[nodiscard]] const std::string& label() const noexcept { return m_data.label; }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
+    [[nodiscard]] const RadioCardData& data() const noexcept { return m_data; }
 
     void set_checked(bool checked, bool animate = true) {
         if (m_data.checked == checked && m_initialized) return;
@@ -370,7 +406,7 @@ public:
         }
     }
 
-    void set_icon_painter(std::function<void(PaintContext&, Rect, Color)> painter) {
+    void set_icon_painter(Fn<void(PaintContext&, Rect, Color)> painter) {
         m_data.icon_painter = std::move(painter);
         mark_needs_paint();
     }
@@ -407,7 +443,7 @@ public:
         }
     }
 
-    void set_on_select(std::function<void(int)> cb) { m_data.on_select = std::move(cb); }
+    void set_on_select(Fn<void(int)> cb) { m_data.on_select = std::move(cb); }
 
     void select() {
         if (m_state.is_disabled) return;
@@ -593,88 +629,120 @@ private:
 };
 
 // 声明式单个单选卡片 (RadioCard)
-struct RadioCard {
-    Bindable<int> selected_value{0};
+struct RadioCard : BindableMixin<RadioCard, RenderRadioCard> {
+    int selected_value{0};
     int value{0};
-    Bindable<std::string> label{""};
+    std::string label{""};
     std::string icon_text{""};
-    std::function<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
-    Bindable<bool> disabled{false};
+    Fn<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
+    bool disabled{false};
     float tile_width{84.0f};
     float tile_height{68.0f};
     float corner_radius{8.0f};
     float font_size{13.0f};
-    std::function<void(int)> on_change{nullptr};
+    Fn<void(int)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderRadioCard>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_checked(prop.get() == node->value(), false);
+    std::weak_ptr<RenderRadioCard> weak = node;
+    bg.subscribe(prop, [weak, guard](int cur) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_checked(cur == n->value(), true);
+        }
+    });
+    auto prev = node->data().on_select;
+    Property<int>* p = &prop;
+    node->set_on_select([prev = std::move(prev), p, guard](int val) {
+        *guard = true;
+        p->set(val);
+        if (prev) prev(val);
+        *guard = false;
+    });
+}
 
 class RadioCardWidget : public Widget {
 public:
     explicit RadioCardWidget(const RadioCard& desc) : m_desc(desc) {}
+    explicit RadioCardWidget(RadioCard&& desc) noexcept : m_desc(std::move(desc)) {}
     ~RadioCardWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderRadioCard>();
+        auto node = make_render_node<RenderRadioCard>();
         apply_desc_to_node(node, false);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto rc = std::dynamic_pointer_cast<RenderRadioCard>(node)) {
+        if (auto rc = std::static_pointer_cast<RenderRadioCard>(node)) {
             apply_desc_to_node(rc, true);
-            setup_bindings(rc);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderRadioCard>& node, bool animate) {
         node->set_value(m_desc.value);
-        node->set_checked(m_desc.selected_value.get() == m_desc.value, animate);
-        node->set_label(m_desc.label.get());
+        node->set_checked(m_desc.selected_value == m_desc.value, animate);
+        node->set_label(m_desc.label);
         node->set_icon_text(m_desc.icon_text);
         node->set_icon_painter(m_desc.icon_painter);
-        node->set_disabled(m_desc.disabled.get());
+        node->set_disabled(m_desc.disabled);
         node->set_tile_size(m_desc.tile_width, m_desc.tile_height);
         node->set_corner_radius(m_desc.corner_radius);
         node->set_font_size(m_desc.font_size);
-        node->set_on_select([this](int val) {
-            m_is_internal_update = true;
-            m_desc.selected_value.set_bound(val);
-            if (m_desc.on_change) m_desc.on_change(val);
-            m_is_internal_update = false;
-        });
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderRadioCard>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_value, node, [this](RenderRadioCard& n, int cur) {
-            if (!m_is_internal_update) n.set_checked(cur == m_desc.value, true);
-        });
-        m_bindings.attach(m_desc.label, node, [](RenderRadioCard& n, const std::string& v) { n.set_label(v); });
-        m_bindings.attach(m_desc.disabled, node, [](RenderRadioCard& n, bool v) { n.set_disabled(v); });
+        node->set_on_select(m_desc.on_change);
     }
 
     RadioCard m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline RadioCard::operator WidgetPtr() const {
-    return std::make_shared<RadioCardWidget>(*this);
+inline RadioCard::operator WidgetPtr() const& {
+    return make_widget<RadioCardWidget>(*this);
+}
+inline RadioCard::operator WidgetPtr() && {
+    return make_widget<RadioCardWidget>(std::move(*this));
 }
 
 // 声明式单选卡片组 (RadioCardGroup)
 struct RadioCardGroup {
-    Bindable<int> selected_value{0};
+    int selected_value{0};
     std::vector<RadioCardOption> options{};
     float spacing{12.0f};
     float tile_width{84.0f};
     float tile_height{68.0f};
     float corner_radius{8.0f};
     float font_size{13.0f};
-    std::function<void(int)> on_change{nullptr};
+    Fn<void(int)> on_change{nullptr};
+
+    WidgetPtr bind_two_way(Property<int>& prop) const {
+        std::vector<WidgetPtr> items;
+        items.reserve(options.size());
+        for (const auto& opt : options) {
+            items.push_back(RadioCard {
+                .selected_value = prop.get(),
+                .value = opt.value,
+                .label = opt.label,
+                .icon_text = opt.icon_text,
+                .icon_painter = opt.icon_painter,
+                .disabled = opt.disabled,
+                .tile_width = tile_width,
+                .tile_height = tile_height,
+                .corner_radius = corner_radius,
+                .font_size = font_size,
+                .on_change = on_change
+            }.bind_two_way(prop));
+        }
+        return HStack {
+            .align_items = AlignItems::Center,
+            .spacing = spacing,
+            .content = std::move(items)
+        };
+    }
 
     operator WidgetPtr() const {
         std::vector<WidgetPtr> items;

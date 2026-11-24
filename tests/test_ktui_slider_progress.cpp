@@ -78,14 +78,12 @@ void test_slider() {
 
     // 响应式数据绑定测试
     Property<float> prop{30.0f};
-    Slider slider_widget{
-        .value = Bind(prop),
+    WidgetPtr ptr = Slider{
         .min_value = 0.0f,
         .max_value = 100.0f,
         .step = 1.0f
-    };
-    WidgetPtr ptr = slider_widget;
-    auto node = std::dynamic_pointer_cast<RenderSlider>(ptr->create_render_node());
+    }.bind_two_way(prop);
+    auto node = std::static_pointer_cast<RenderSlider>(ptr->create_render_node());
     assert(node != nullptr);
     assert(std::abs(node->value() - 30.0f) < 0.001f);
 

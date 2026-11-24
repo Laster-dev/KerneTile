@@ -47,7 +47,6 @@ void GalleryApp::spawn_child_window() {
     auto raw_child = child_win.get();
 
     child_win->set_content(Box {
-        .background_color = Bind(window_bg),
         .padding = EdgeInsets(14.0f, 16.0f),
         .child = VStack {
             .align_items = AlignItems::Stretch,
@@ -56,8 +55,8 @@ void GalleryApp::spawn_child_window() {
                 make_card(VStack {
                     .spacing = 8.0f,
                     .content = {
-                        Text { .text = Bind(*note), .font_size = 13.5f },
-                        Text { .text = "主窗口与子窗口独立合成、共享主题与响应式状态。", .font_size = 12.0f, .color = Bind(muted_text) },
+                        Text { .font_size = 13.5f }.bind(&RenderText::set_text, *note),
+                        Text { .text = "主窗口与子窗口独立合成、共享主题与响应式状态。", .font_size = 12.0f }.bind(&RenderText::set_color, muted_text),
                         HStack {
                             .align_items = AlignItems::Center,
                             .spacing = 8.0f,
@@ -85,7 +84,7 @@ void GalleryApp::spawn_child_window() {
                 })
             }
         }
-    });
+    }.bind(&RenderDecoratedBox::set_background_color, window_bg));
     child_win->show();
 }
 
@@ -206,9 +205,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .footer_items = {
             NavigationViewItem{ .id = "about", .label = "关于 KerneTile", .icon = NavigationIcon::Info }
         },
-        .selected_id = Bind(nav_selected),
         .pane_title = "KTUI Gallery",
-        .pane_display_mode = Bind(nav_mode),
         .is_pane_open = true,
         .is_pane_toggle_button_visible = true,
         .is_back_button_visible = true,
@@ -262,7 +259,8 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "about")           return pages::build_about_page(*this);
             return pages::build_home_page(*this);
         }
-    });
+    }.bind_two_way(nav_selected)
+     .bind(&RenderNavigationView::set_pane_display_mode, nav_mode));
 }
 
 } // namespace gallery

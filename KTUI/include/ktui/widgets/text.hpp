@@ -159,60 +159,53 @@ private:
 class TextWidget;
 
 // C++20 指定初始化器文本控件 (Text)
-// 桌面专业标准：默认 13px 紧凑字阶，颜色默认跟随当前主题，支持 Clip / Ellipsis / Wrap 防溢出与全属性 Bind(...)
-struct Text {
-    Bindable<std::string> text{""};
-    Bindable<float> font_size{13.0f}; // 桌面 IDE 基准字阶 (13px)
-    Bindable<Color> color{Color{0.0f, 0.0f, 0.0f, -1.0f}};
-    Bindable<FontWeight> font_weight{FontWeight::Regular};
-    Bindable<TextOverflow> overflow{TextOverflow::Ellipsis};
+// 零开销原生字段 + 链式 .bind(...) 按需绑定任意属性
+struct Text : BindableMixin<Text, RenderText> {
+    std::string text{""};
+    float font_size{13.0f}; // 桌面 IDE 基准字阶 (13px)
+    Color color{Color{0.0f, 0.0f, 0.0f, -1.0f}};
+    FontWeight font_weight{FontWeight::Regular};
+    TextOverflow overflow{TextOverflow::Ellipsis};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 // TextWidget 包装实现
 class TextWidget : public Widget {
 public:
     explicit TextWidget(const Text& desc) : m_desc(desc) {}
+    explicit TextWidget(Text&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TextWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderText>(
-            m_desc.text.get(), m_desc.font_size.get(), m_desc.color.get(),
-            m_desc.font_weight.get(), m_desc.overflow.get());
-        bind_all(node);
-        return node;
+        return make_render_node<RenderText>(
+            m_desc.text, m_desc.font_size, m_desc.color,
+            m_desc.font_weight, m_desc.overflow);
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto text_box = std::dynamic_pointer_cast<RenderText>(node)) {
-            text_box->set_text(m_desc.text.get());
-            text_box->set_font_size(m_desc.font_size.get());
-            text_box->set_color(m_desc.color.get());
-            text_box->set_font_weight(m_desc.font_weight.get());
-            text_box->set_overflow(m_desc.overflow.get());
-            bind_all(text_box);
+        if (auto text_box = std::static_pointer_cast<RenderText>(node)) {
+            text_box->set_text(m_desc.text);
+            text_box->set_font_size(m_desc.font_size);
+            text_box->set_color(m_desc.color);
+            text_box->set_font_weight(m_desc.font_weight);
+            text_box->set_overflow(m_desc.overflow);
         }
     }
 
     [[nodiscard]] const Text& desc() const noexcept { return m_desc; }
 
 private:
-    void bind_all(const std::shared_ptr<RenderText>& text_box) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.text, text_box, [](RenderText& n, const std::string& v) { n.set_text(v); });
-        m_bindings.attach(m_desc.font_size, text_box, [](RenderText& n, float v) { n.set_font_size(v); });
-        m_bindings.attach(m_desc.color, text_box, [](RenderText& n, Color v) { n.set_color(v); });
-        m_bindings.attach(m_desc.font_weight, text_box, [](RenderText& n, FontWeight v) { n.set_font_weight(v); });
-        m_bindings.attach(m_desc.overflow, text_box, [](RenderText& n, TextOverflow v) { n.set_overflow(v); });
-    }
-
     Text m_desc;
-    BindingGroup m_bindings;
 };
 
-inline Text::operator WidgetPtr() const {
-    return std::make_shared<TextWidget>(*this);
+inline Text::operator WidgetPtr() const& {
+    return make_widget<TextWidget>(*this);
+}
+inline Text::operator WidgetPtr() && {
+    return make_widget<TextWidget>(std::move(*this));
 }
 
 } // namespace ktui

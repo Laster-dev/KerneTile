@@ -85,7 +85,7 @@ private:
 };
 
 // C++20 指定初始化器声明式 SVG 组件 (支持 .src 文件 / .xml 内存字符串 / .path 路径数据)
-struct Svg {
+struct Svg : BindableMixin<Svg, RenderSvg> {
     std::string src{""};
     std::string xml{""};
     std::string path{""};
@@ -94,28 +94,29 @@ struct Svg {
     bool fill{true};
     float width{20.0f};
     float height{20.0f};
-    Bindable<Color> tint{Color{0.0f, 0.0f, 0.0f, -1.0f}};
-    Bindable<float> rotation{0.0f};
+    Color tint{Color{0.0f, 0.0f, 0.0f, -1.0f}};
+    float rotation{0.0f};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class SvgWidget : public Widget {
 public:
     explicit SvgWidget(const Svg& desc) : m_desc(desc) {}
+    explicit SvgWidget(Svg&& desc) noexcept : m_desc(std::move(desc)) {}
     ~SvgWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderSvg>();
+        auto node = make_render_node<RenderSvg>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto s = std::dynamic_pointer_cast<RenderSvg>(node)) {
+        if (auto s = std::static_pointer_cast<RenderSvg>(node)) {
             apply(s);
-            bind(s);
         }
     }
 
@@ -123,22 +124,18 @@ private:
     void apply(const std::shared_ptr<RenderSvg>& node) {
         node->set_source(m_desc.src, m_desc.xml, m_desc.path, m_desc.viewbox_size, m_desc.stroke_width, m_desc.fill);
         node->set_dimensions(m_desc.width, m_desc.height);
-        node->set_tint(m_desc.tint.get());
-        node->set_rotation(m_desc.rotation.get());
-    }
-
-    void bind(const std::shared_ptr<RenderSvg>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.tint, node, [](RenderSvg& n, Color c) { n.set_tint(c); });
-        m_bindings.attach(m_desc.rotation, node, [](RenderSvg& n, float r) { n.set_rotation(r); });
+        node->set_tint(m_desc.tint);
+        node->set_rotation(m_desc.rotation);
     }
 
     Svg m_desc;
-    BindingGroup m_bindings;
 };
 
-inline Svg::operator WidgetPtr() const {
-    return std::make_shared<SvgWidget>(*this);
+inline Svg::operator WidgetPtr() const& {
+    return make_widget<SvgWidget>(*this);
+}
+inline Svg::operator WidgetPtr() && {
+    return make_widget<SvgWidget>(std::move(*this));
 }
 
 } // namespace ktui

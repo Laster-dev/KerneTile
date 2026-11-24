@@ -33,8 +33,8 @@ struct InfoBarData {
     bool is_open{true};
     bool is_closable{true};
     std::string action_text;
-    std::function<void()> on_action{nullptr};
-    std::function<void()> on_close{nullptr};
+    Fn<void()> on_action{nullptr};
+    Fn<void()> on_close{nullptr};
 };
 
 // WinUI 3 内联状态提示条渲染盒 (RenderInfoBar)
@@ -259,77 +259,90 @@ private:
     Rect m_action_rect;
     bool m_close_hovered{false};
     bool m_action_hovered{false};
+
+public:
+    void wrap_on_close(Fn<void()> extra) {
+        auto prev = std::move(m_data.on_close);
+        m_data.on_close = [prev = std::move(prev), extra = std::move(extra)]() {
+            if (extra) extra();
+            if (prev) prev();
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 InfoBar 控件
-struct InfoBar {
-    Bindable<std::string> title{""};
-    Bindable<std::string> message{""};
-    Bindable<InfoBarSeverity> severity{InfoBarSeverity::Informational};
-    Bindable<bool> is_open{true};
+struct InfoBar : BindableMixin<InfoBar, RenderInfoBar> {
+    std::string title{""};
+    std::string message{""};
+    InfoBarSeverity severity{InfoBarSeverity::Informational};
+    bool is_open{true};
     bool is_closable{true};
     std::string action_text{""};
-    std::function<void()> on_action{nullptr};
-    std::function<void()> on_close{nullptr};
+    Fn<void()> on_action{nullptr};
+    Fn<void()> on_close{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderInfoBar>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_open(prop.get());
+    std::weak_ptr<RenderInfoBar> weak = node;
+    bg.subscribe(prop, [weak, guard](bool open) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_open(open);
+        }
+    });
+    Property<bool>* p = &prop;
+    node->wrap_on_close([p, guard]() {
+        *guard = true;
+        p->set(false);
+        *guard = false;
+    });
+}
 
 class InfoBarWidget : public Widget {
 public:
     explicit InfoBarWidget(const InfoBar& desc) : m_desc(desc) {}
+    explicit InfoBarWidget(InfoBar&& desc) noexcept : m_desc(std::move(desc)) {}
     ~InfoBarWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderInfoBar>();
+        auto node = make_render_node<RenderInfoBar>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto ib = std::dynamic_pointer_cast<RenderInfoBar>(node)) {
+        if (auto ib = std::static_pointer_cast<RenderInfoBar>(node)) {
             apply(ib);
-            bind(ib);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderInfoBar>& node) {
         InfoBarData d;
-        d.title = m_desc.title.get();
-        d.message = m_desc.message.get();
-        d.severity = m_desc.severity.get();
-        d.is_open = m_desc.is_open.get();
+        d.title = m_desc.title;
+        d.message = m_desc.message;
+        d.severity = m_desc.severity;
+        d.is_open = m_desc.is_open;
         d.is_closable = m_desc.is_closable;
         d.action_text = m_desc.action_text;
         d.on_action = m_desc.on_action;
-        d.on_close = [this]() {
-            m_is_internal_update = true;
-            m_desc.is_open.set_bound(false);
-            if (m_desc.on_close) m_desc.on_close();
-            m_is_internal_update = false;
-        };
+        d.on_close = m_desc.on_close;
         node->set_data(d);
     }
 
-    void bind(const std::shared_ptr<RenderInfoBar>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.is_open, node, [this](RenderInfoBar& n, bool open) {
-            if (!m_is_internal_update) n.set_open(open);
-        });
-        m_bindings.attach(m_desc.severity, node, [](RenderInfoBar& n, InfoBarSeverity s) {
-            n.set_severity(s);
-        });
-    }
-
     InfoBar m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline InfoBar::operator WidgetPtr() const {
-    return std::make_shared<InfoBarWidget>(*this);
+inline InfoBar::operator WidgetPtr() const& {
+    return make_widget<InfoBarWidget>(*this);
+}
+inline InfoBar::operator WidgetPtr() && {
+    return make_widget<InfoBarWidget>(std::move(*this));
 }
 
 } // namespace ktui

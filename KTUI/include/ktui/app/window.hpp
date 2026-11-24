@@ -14,7 +14,7 @@
 #include <string>
 #include <memory>
 #include <vector>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <atomic>
 #include <algorithm>
 #include <chrono>
@@ -289,14 +289,14 @@ public:
     }
 
     [[nodiscard]] bool has_blinking_cursor() const noexcept {
-        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+        if (auto* client = (m_focus_manager.focused_node() ? m_focus_manager.focused_node()->as_text_input_client() : nullptr)) {
             return client->accepts_text_input();
         }
         return false;
     }
 
     bool tick_blinking_cursor() {
-        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+        if (auto* client = (m_focus_manager.focused_node() ? m_focus_manager.focused_node()->as_text_input_client() : nullptr)) {
             if (client->accepts_text_input()) {
                 return client->tick_cursor_blink();
             }
@@ -305,7 +305,7 @@ public:
     }
 
     [[nodiscard]] uint32_t time_until_next_blink_ms() const noexcept {
-        if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+        if (auto* client = (m_focus_manager.focused_node() ? m_focus_manager.focused_node()->as_text_input_client() : nullptr)) {
             if (client->accepts_text_input()) {
                 return client->time_until_next_blink_ms();
             }
@@ -749,7 +749,7 @@ public:
                 break;
             }
             case PlatformEventType::ImeComposition: {
-                if (auto* client = dynamic_cast<ITextInputClient*>(m_focus_manager.focused_node())) {
+                if (auto* client = (m_focus_manager.focused_node() ? m_focus_manager.focused_node()->as_text_input_client() : nullptr)) {
                     if (client->accepts_text_input()) {
                         client->on_ime_preedit(pe.text, std::min(pe.ime_cursor_byte, pe.text.size()));
                         if (m_platform_window) m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
@@ -761,7 +761,7 @@ public:
             }
             case PlatformEventType::ImeCommit: {
                 RenderBox* focused = m_focus_manager.focused_node();
-                if (auto* client = dynamic_cast<ITextInputClient*>(focused)) {
+                if (auto* client = (focused ? (focused)->as_text_input_client() : nullptr)) {
                     if (client->accepts_text_input()) {
                         client->on_ime_commit(pe.text);
                         if (m_platform_window) m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
@@ -825,19 +825,19 @@ public:
     }
 
     // ==================== 回调监听挂接 ====================
-    void on_resize(std::function<void(Vec2)> handler) {
+    void on_resize(Fn<void(Vec2)> handler) {
         m_resize_callbacks.push_back(std::move(handler));
     }
 
-    void on_close(std::function<bool()> handler) {
+    void on_close(Fn<bool()> handler) {
         m_close_callbacks.push_back(std::move(handler));
     }
 
-    void on_dpi_changed(std::function<void(float)> handler) {
+    void on_dpi_changed(Fn<void(float)> handler) {
         m_dpi_callbacks.push_back(std::move(handler));
     }
 
-    void on_focus_changed(std::function<void(bool)> handler) {
+    void on_focus_changed(Fn<void(bool)> handler) {
         m_focus_callbacks.push_back(std::move(handler));
     }
 
@@ -869,7 +869,7 @@ private:
     void sync_ime_state() {
         if (!m_platform_window) return;
         RenderBox* focused = m_focus_manager.focused_node();
-        if (auto* client = dynamic_cast<ITextInputClient*>(focused)) {
+        if (auto* client = (focused ? (focused)->as_text_input_client() : nullptr)) {
             if (client->accepts_text_input()) {
                 m_platform_window->set_ime_enabled(true);
                 m_platform_window->set_ime_cursor_rect(offset_ime_rect(client->get_ime_cursor_rect()));
@@ -996,10 +996,10 @@ private:
     inline static Window* s_active_window = nullptr;
     inline static std::vector<Window*> s_live_windows;
 
-    std::vector<std::function<void(Vec2)>> m_resize_callbacks;
-    std::vector<std::function<bool()>> m_close_callbacks;
-    std::vector<std::function<void(float)>> m_dpi_callbacks;
-    std::vector<std::function<void(bool)>> m_focus_callbacks;
+    std::vector<Fn<void(Vec2)>> m_resize_callbacks;
+    std::vector<Fn<bool()>> m_close_callbacks;
+    std::vector<Fn<void(float)>> m_dpi_callbacks;
+    std::vector<Fn<void(bool)>> m_focus_callbacks;
 };
 
 } // namespace ktui

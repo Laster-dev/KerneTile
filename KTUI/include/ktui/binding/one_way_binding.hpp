@@ -50,14 +50,14 @@ public:
 
     const T& get() const { return m_property->get(); }
 
-    void on_view_update(std::function<void(const T&)> updater) {
+    void on_view_update(Fn<void(const T&)> updater) {
         m_view_updater = std::move(updater);
     }
 
 private:
     Property<T>* m_property = nullptr;
     uint64_t m_sub_id = 0;
-    std::function<void(const T&)> m_view_updater;
+    Fn<void(const T&)> m_view_updater;
 };
 
 } // namespace ktui

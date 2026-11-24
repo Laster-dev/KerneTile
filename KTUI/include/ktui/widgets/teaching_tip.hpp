@@ -36,8 +36,8 @@ struct TeachingTipDesc {
     bool is_light_dismiss_enabled{true};
     TeachingTipPlacement preferred_placement{TeachingTipPlacement::Bottom};
     float width{320.0f};
-    std::function<void()> on_action{nullptr};
-    std::function<void()> on_close{nullptr};
+    Fn<void()> on_action{nullptr};
+    Fn<void()> on_close{nullptr};
 };
 
 // WinUI 3 TeachingTip 引导气泡渲染盒
@@ -48,7 +48,7 @@ public:
                       bool show_tail,
                       bool tail_on_top,
                       float tail_center_x,
-                      std::function<void()> on_dismiss_self)
+                      Fn<void()> on_dismiss_self)
         : m_desc(std::move(desc)),
           m_show_tail(show_tail),
           m_tail_on_top(tail_on_top),
@@ -296,7 +296,7 @@ private:
     bool m_show_tail{true};
     bool m_tail_on_top{true};
     float m_tail_center_x{160.0f};
-    std::function<void()> m_on_dismiss_self;
+    Fn<void()> m_on_dismiss_self;
     std::vector<std::string> m_lines;
     FluentPopupSurface m_surface;
     bool m_hover_x{false};
@@ -345,7 +345,7 @@ struct TeachingTip {
         }
 
         auto overlay_id = std::make_shared<uint64_t>(0);
-        auto tip = std::make_shared<RenderTeachingTip>(
+        auto tip = make_render_node<RenderTeachingTip>(
             std::move(desc),
             has_anchor,
             tail_on_top,

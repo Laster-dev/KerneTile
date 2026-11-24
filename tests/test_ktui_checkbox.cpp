@@ -101,14 +101,11 @@ void test_checkbox_reactive_binding() {
     Property<bool> check_prop{false};
     Property<bool> dis_prop{false};
 
-    Checkbox desc{
-        .checked = Bind(check_prop),
-        .label = "Synchronize",
-        .disabled = Bind(dis_prop)
-    };
-
-    auto widget = static_cast<WidgetPtr>(desc);
-    auto node = std::dynamic_pointer_cast<RenderCheckbox>(widget->create_render_node());
+    WidgetPtr widget = Checkbox{
+        .label = "Synchronize"
+    }.bind_two_way(check_prop)
+     .bind(&RenderCheckbox::set_disabled, dis_prop);
+    auto node = std::static_pointer_cast<RenderCheckbox>(widget->create_render_node());
     assert(node != nullptr);
     assert(!node->checked());
     assert(!node->is_disabled());

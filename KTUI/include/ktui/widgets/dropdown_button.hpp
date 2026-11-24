@@ -26,7 +26,7 @@ namespace ktui {
 class RenderDropDownButton : public RenderBox {
 public:
     RenderDropDownButton() noexcept {
-        m_btn = std::make_shared<RenderButton>();
+        m_btn = make_render_node<RenderButton>();
         m_btn->set_variant(ButtonVariant::Standard);
         m_btn->set_custom_padding(EdgeInsets{5.0f, 28.0f, 5.0f, 12.0f});
         m_btn->set_click_handler([this]() { open_menu(); });
@@ -109,40 +109,46 @@ private:
     std::chrono::steady_clock::time_point m_last_dismiss;
 };
 
-struct DropDownButton {
-    Bindable<std::string> text{"操作"};
+struct DropDownButton : BindableMixin<DropDownButton, RenderDropDownButton> {
+    std::string text{"操作"};
     std::string svg_path{""};
     std::vector<MenuFlyoutItem> items;
-    Bindable<bool> disabled{false};
+    bool disabled{false};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class DropDownButtonWidget : public Widget {
 public:
     explicit DropDownButtonWidget(const DropDownButton& desc) : m_desc(desc) {}
+    explicit DropDownButtonWidget(DropDownButton&& desc) noexcept : m_desc(std::move(desc)) {}
     ~DropDownButtonWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderDropDownButton>();
+        auto node = make_render_node<RenderDropDownButton>();
         apply(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto b = std::dynamic_pointer_cast<RenderDropDownButton>(node)) apply(b);
+        if (auto b = std::static_pointer_cast<RenderDropDownButton>(node)) apply(b);
     }
 
 private:
     void apply(const std::shared_ptr<RenderDropDownButton>& node) {
-        node->set_props(m_desc.text.get(), m_desc.svg_path, m_desc.items, m_desc.disabled.get());
+        node->set_props(m_desc.text, m_desc.svg_path, m_desc.items, m_desc.disabled);
     }
 
     DropDownButton m_desc;
 };
 
-inline DropDownButton::operator WidgetPtr() const {
-    return std::make_shared<DropDownButtonWidget>(*this);
+inline DropDownButton::operator WidgetPtr() const& {
+    return make_widget<DropDownButtonWidget>(*this);
+}
+inline DropDownButton::operator WidgetPtr() && {
+    return make_widget<DropDownButtonWidget>(std::move(*this));
 }
 
 // =============================================================================
@@ -151,13 +157,13 @@ inline DropDownButton::operator WidgetPtr() const {
 class RenderSplitButton : public RenderBox {
 public:
     RenderSplitButton() noexcept {
-        m_main_btn = std::make_shared<RenderButton>();
+        m_main_btn = make_render_node<RenderButton>();
         m_main_btn->set_corner_radii(4.0f, 0.0f, 0.0f, 4.0f);
         m_main_btn->set_click_handler([this]() {
             if (!m_disabled && m_on_click) m_on_click();
         });
 
-        m_drop_btn = std::make_shared<RenderButton>();
+        m_drop_btn = make_render_node<RenderButton>();
         m_drop_btn->set_corner_radii(0.0f, 4.0f, 4.0f, 0.0f);
         m_drop_btn->set_custom_padding(EdgeInsets{0.0f, 0.0f, 0.0f, 0.0f});
         m_drop_btn->set_click_handler([this]() { open_menu(); });
@@ -192,7 +198,7 @@ public:
     }
 
     void set_props(std::string text, std::string svg_path, bool accent,
-                   std::vector<MenuFlyoutItem> items, bool disabled, std::function<void()> on_click) {
+                   std::vector<MenuFlyoutItem> items, bool disabled, Fn<void()> on_click) {
         m_accent = accent;
         m_items = std::move(items);
         m_disabled = disabled;
@@ -294,48 +300,54 @@ private:
     bool m_accent{false};
     std::vector<MenuFlyoutItem> m_items;
     bool m_disabled{false};
-    std::function<void()> m_on_click;
+    Fn<void()> m_on_click;
     bool m_menu_open{false};
     std::chrono::steady_clock::time_point m_last_dismiss;
 };
 
-struct SplitButton {
-    Bindable<std::string> text{"保存"};
+struct SplitButton : BindableMixin<SplitButton, RenderSplitButton> {
+    std::string text{"保存"};
     std::string svg_path{""};
     bool accent{false};
     std::vector<MenuFlyoutItem> items;
-    Bindable<bool> disabled{false};
-    std::function<void()> on_click{nullptr};
+    bool disabled{false};
+    Fn<void()> on_click{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class SplitButtonWidget : public Widget {
 public:
     explicit SplitButtonWidget(const SplitButton& desc) : m_desc(desc) {}
+    explicit SplitButtonWidget(SplitButton&& desc) noexcept : m_desc(std::move(desc)) {}
     ~SplitButtonWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderSplitButton>();
+        auto node = make_render_node<RenderSplitButton>();
         apply(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto b = std::dynamic_pointer_cast<RenderSplitButton>(node)) apply(b);
+        if (auto b = std::static_pointer_cast<RenderSplitButton>(node)) apply(b);
     }
 
 private:
     void apply(const std::shared_ptr<RenderSplitButton>& node) {
-        node->set_props(m_desc.text.get(), m_desc.svg_path, m_desc.accent,
-                        m_desc.items, m_desc.disabled.get(), m_desc.on_click);
+        node->set_props(m_desc.text, m_desc.svg_path, m_desc.accent,
+                        m_desc.items, m_desc.disabled, m_desc.on_click);
     }
 
     SplitButton m_desc;
 };
 
-inline SplitButton::operator WidgetPtr() const {
-    return std::make_shared<SplitButtonWidget>(*this);
+inline SplitButton::operator WidgetPtr() const& {
+    return make_widget<SplitButtonWidget>(*this);
+}
+inline SplitButton::operator WidgetPtr() && {
+    return make_widget<SplitButtonWidget>(std::move(*this));
 }
 
 } // namespace ktui

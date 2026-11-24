@@ -3,7 +3,7 @@
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/binding/binding.hpp>
 #include <string>
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
 
@@ -43,9 +43,7 @@ struct ButtonData {
     bool focusable{true};
     bool enable_ripple{true};           // 是否启用 Fluent 水波纹点击微动效
 
-    BindRef<std::string> bind_text{nullptr};
-    BindRef<bool> bind_disabled{nullptr};
-    std::function<void()> on_click{nullptr};
+    Fn<void()> on_click{nullptr};
 };
 
 } // namespace ktui

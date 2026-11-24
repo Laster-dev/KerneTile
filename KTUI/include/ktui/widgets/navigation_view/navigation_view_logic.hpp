@@ -32,7 +32,7 @@ class RenderNavigationSubmenuFlyout : public RenderBox {
 public:
     RenderNavigationSubmenuFlyout(std::vector<NavigationViewItem> children,
                                   std::string selected_id,
-                                  std::function<void(const std::string&)> on_select)
+                                  Fn<void(const std::string&)> on_select)
         : m_children(std::move(children)),
           m_selected_id(std::move(selected_id)),
           m_on_select(std::move(on_select)) {
@@ -183,7 +183,7 @@ private:
 
     std::vector<NavigationViewItem> m_children;
     std::string m_selected_id;
-    std::function<void(const std::string&)> m_on_select;
+    Fn<void(const std::string&)> m_on_select;
     int m_hovered_index{-1};
     int m_pressed_index{-1};
     float m_open_progress{0.0f};
@@ -207,11 +207,13 @@ public:
         }
     }
 
+    [[nodiscard]] const NavigationViewData& data() const noexcept { return m_data; }
+
     void set_search_options(bool visible, std::string placeholder) {
         m_data.is_search_box_visible = visible;
         m_data.search_placeholder = std::move(placeholder);
         if (visible && !m_search_box) {
-            m_search_box = std::make_shared<RenderAutoSuggestBox>();
+            m_search_box = make_render_node<RenderAutoSuggestBox>();
             append_child(m_search_box.get());
         } else if (!visible && m_search_box) {
             if (m_search_box->parent() == this) remove_child(m_search_box.get());
@@ -352,15 +354,15 @@ public:
         mark_needs_layout();
     }
 
-    void set_callbacks(std::function<void(const std::string&)> on_sel,
-                       std::function<void()> on_back,
-                       std::function<void(bool)> on_toggle) {
+    void set_callbacks(Fn<void(const std::string&)> on_sel,
+                       Fn<void()> on_back,
+                       Fn<void(bool)> on_toggle) {
         m_data.on_selection_changed = std::move(on_sel);
         m_data.on_back_requested = std::move(on_back);
         m_data.on_pane_toggled = std::move(on_toggle);
     }
 
-    void set_page_builder(std::function<WidgetPtr(const std::string&)> builder) {
+    void set_page_builder(Fn<WidgetPtr(const std::string&)> builder) {
         m_page_builder = std::move(builder);
         if (m_page_builder && !m_data.selected_id.empty()) {
             auto w = m_page_builder(m_data.selected_id);
@@ -709,7 +711,7 @@ private:
         Window* win = Window::active_window();
         if (!win) return;
 
-        auto flyout = std::make_shared<RenderNavigationSubmenuFlyout>(
+        auto flyout = make_render_node<RenderNavigationSubmenuFlyout>(
             parent.children,
             m_data.selected_id,
             [this](const std::string& chosen_id) {
@@ -1745,7 +1747,7 @@ private:
 
     WidgetPtr m_content_widget;
     std::shared_ptr<RenderBox> m_content_box;
-    std::function<WidgetPtr(const std::string&)> m_page_builder;
+    Fn<WidgetPtr(const std::string&)> m_page_builder;
 
     NavigationPaneDisplayMode m_last_auto_mode{NavigationPaneDisplayMode::Auto};
     ChromeButton m_hovered_chrome{ChromeButton::None};
@@ -1792,15 +1794,15 @@ private:
 };
 
 // C++20 指定初始化器声明式 WinUI 3 NavigationView 控件
-struct NavigationView {
+struct NavigationView : BindableMixin<NavigationView, RenderNavigationView> {
     std::vector<NavigationViewItem> menu_items;
     std::vector<NavigationViewItem> footer_items;
 
-    Bindable<std::string> selected_id{""};
-    Bindable<std::string> pane_title{""};
-    Bindable<std::string> header{""};
-    Bindable<NavigationPaneDisplayMode> pane_display_mode{NavigationPaneDisplayMode::Auto};
-    Bindable<bool> is_pane_open{true};
+    std::string selected_id{""};
+    std::string pane_title{""};
+    std::string header{""};
+    NavigationPaneDisplayMode pane_display_mode{NavigationPaneDisplayMode::Auto};
+    bool is_pane_open{true};
 
     bool is_pane_toggle_button_visible{true};
     bool is_back_button_visible{true};
@@ -1816,30 +1818,77 @@ struct NavigationView {
     float expanded_mode_threshold_width{900.0f};
 
     WidgetPtr content{nullptr};
-    std::function<WidgetPtr(const std::string&)> page_builder{nullptr};
-    std::function<void(const std::string&)> on_selection_changed{nullptr};
-    std::function<void()> on_back_requested{nullptr};
-    std::function<void(bool)> on_pane_toggled{nullptr};
+    Fn<WidgetPtr(const std::string&)> page_builder{nullptr};
+    Fn<void(const std::string&)> on_selection_changed{nullptr};
+    Fn<void()> on_back_requested{nullptr};
+    Fn<void(bool)> on_pane_toggled{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderNavigationView>& node, Property<std::string>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    if (!prop.get().empty()) {
+        node->set_selected_id(prop.get(), false, true);
+    }
+    std::weak_ptr<RenderNavigationView> weak = node;
+    bg.subscribe(prop, [weak, guard](const std::string& id) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_id(id, false, true);
+        }
+    });
+    auto prev = node->data().on_selection_changed;
+    Property<std::string>* p = &prop;
+    node->set_callbacks(
+        [prev = std::move(prev), p, guard](const std::string& id) {
+            *guard = true;
+            p->set(id);
+            if (prev) prev(id);
+            *guard = false;
+        },
+        node->data().on_back_requested,
+        node->data().on_pane_toggled);
+}
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderNavigationView>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_pane_open(prop.get(), false);
+    std::weak_ptr<RenderNavigationView> weak = node;
+    bg.subscribe(prop, [weak, guard](bool open) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_pane_open(open, false);
+        }
+    });
+    auto prev = node->data().on_pane_toggled;
+    Property<bool>* p = &prop;
+    node->set_callbacks(
+        node->data().on_selection_changed,
+        node->data().on_back_requested,
+        [prev = std::move(prev), p, guard](bool open) {
+            *guard = true;
+            p->set(open);
+            if (prev) prev(open);
+            *guard = false;
+        });
+}
 
 class NavigationViewWidget : public Widget {
 public:
     explicit NavigationViewWidget(const NavigationView& desc) : m_desc(desc) {}
+    explicit NavigationViewWidget(NavigationView&& desc) noexcept : m_desc(std::move(desc)) {}
     ~NavigationViewWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderNavigationView>();
+        auto node = make_render_node<RenderNavigationView>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto nav = std::dynamic_pointer_cast<RenderNavigationView>(node)) {
+        if (auto nav = std::static_pointer_cast<RenderNavigationView>(node)) {
             apply_desc_to_node(nav);
-            setup_bindings(nav);
         }
     }
 
@@ -1848,32 +1897,19 @@ private:
         node->set_chrome_options(
             m_desc.is_back_button_visible, m_desc.is_back_enabled,
             m_desc.is_pane_toggle_button_visible, m_desc.is_settings_visible,
-            m_desc.settings_label, m_desc.pane_title.get(), m_desc.header.get(),
+            m_desc.settings_label, m_desc.pane_title, m_desc.header,
             m_desc.open_pane_length, m_desc.compact_pane_length,
             m_desc.compact_mode_threshold_width, m_desc.expanded_mode_threshold_width);
-        node->set_pane_display_mode(m_desc.pane_display_mode.get());
-        node->set_pane_open(m_desc.is_pane_open.get(), false);
+        node->set_pane_display_mode(m_desc.pane_display_mode);
+        node->set_pane_open(m_desc.is_pane_open, false);
         node->set_menu_items(m_desc.menu_items);
         node->set_footer_items(m_desc.footer_items);
         node->set_search_options(m_desc.is_search_box_visible, m_desc.search_placeholder);
 
-        node->set_callbacks(
-            [this](const std::string& id) {
-                m_is_internal_update = true;
-                m_desc.selected_id.set_bound(id);
-                if (m_desc.on_selection_changed) m_desc.on_selection_changed(id);
-                m_is_internal_update = false;
-            },
-            m_desc.on_back_requested,
-            [this](bool open) {
-                m_is_internal_update = true;
-                m_desc.is_pane_open.set_bound(open);
-                if (m_desc.on_pane_toggled) m_desc.on_pane_toggled(open);
-                m_is_internal_update = false;
-            });
+        node->set_callbacks(m_desc.on_selection_changed, m_desc.on_back_requested, m_desc.on_pane_toggled);
 
-        if (!m_desc.selected_id.get().empty()) {
-            node->set_selected_id(m_desc.selected_id.get(), false, true);
+        if (!m_desc.selected_id.empty()) {
+            node->set_selected_id(m_desc.selected_id, false, true);
         }
         if (m_desc.page_builder) {
             node->set_page_builder(m_desc.page_builder);
@@ -1882,26 +1918,14 @@ private:
         }
     }
 
-    void setup_bindings(const std::shared_ptr<RenderNavigationView>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_id, node, [this](RenderNavigationView& n, const std::string& id) {
-            if (!m_is_internal_update) n.set_selected_id(id, false, true);
-        });
-        m_bindings.attach(m_desc.pane_display_mode, node, [](RenderNavigationView& n, NavigationPaneDisplayMode m) {
-            n.set_pane_display_mode(m);
-        });
-        m_bindings.attach(m_desc.is_pane_open, node, [this](RenderNavigationView& n, bool open) {
-            if (!m_is_internal_update) n.set_pane_open(open, false);
-        });
-    }
-
     NavigationView m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline NavigationView::operator WidgetPtr() const {
-    return std::make_shared<NavigationViewWidget>(*this);
+inline NavigationView::operator WidgetPtr() const& {
+    return make_widget<NavigationViewWidget>(*this);
+}
+inline NavigationView::operator WidgetPtr() && {
+    return make_widget<NavigationViewWidget>(std::move(*this));
 }
 
 } // namespace ktui

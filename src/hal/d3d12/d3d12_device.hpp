@@ -28,6 +28,7 @@ public:
 
     [[nodiscard]] ID3D12Device* get_native_device() const noexcept { return m_device.Get(); }
     [[nodiscard]] ID3D12CommandQueue* get_native_queue() const noexcept { return m_queue.Get(); }
+    [[nodiscard]] bool is_valid() const noexcept { return m_valid; }
 
 private:
     void init_root_signatures();
@@ -53,6 +54,7 @@ private:
     // 共享描述符堆 (CBV / SRV / UAV)
     ComPtr<ID3D12DescriptorHeap> m_srv_uav_heap;
     uint32_t m_srv_uav_descriptor_size{0};
+    bool m_valid{false};
 };
 
 } // namespace kernetile::hal::d3d12

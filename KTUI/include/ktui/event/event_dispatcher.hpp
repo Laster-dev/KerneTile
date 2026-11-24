@@ -191,7 +191,7 @@ public:
                 break;
             }
 
-            current = dynamic_cast<RenderBox*>(current->parent());
+            current = (current->parent() ? current->parent()->as_render_box() : nullptr);
         }
     }
 

@@ -33,7 +33,7 @@ public:
                         int selected_index,
                         float width,
                         float height,
-                        std::function<void(int)> on_selected_changed) {
+                        Fn<void(int)> on_selected_changed) {
         clear_items();
         for (const auto& w : items) {
             if (!w) continue;
@@ -204,63 +204,78 @@ private:
     bool m_hover_next{false};
     bool m_touch_active{false};
     float m_touch_start_x{0.0f};
-    std::function<void(int)> m_on_selected;
+    Fn<void(int)> m_on_selected;
+
+public:
+    void wrap_on_selected(Fn<void(int)> extra) {
+        auto prev = std::move(m_on_selected);
+        m_on_selected = [prev = std::move(prev), extra = std::move(extra)](int idx) {
+            if (extra) extra(idx);
+            if (prev) prev(idx);
+        };
+    }
 };
 
-struct FlipView {
+struct FlipView : BindableMixin<FlipView, RenderFlipView> {
     std::vector<WidgetPtr> items;
-    Bindable<int> selected_index{0};
+    int selected_index{0};
     float width{0.0f};
     float height{200.0f};
-    std::function<void(int)> on_selected_index_changed{nullptr};
+    Fn<void(int)> on_selected_index_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderFlipView>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_index(prop.get());
+    std::weak_ptr<RenderFlipView> weak = node;
+    bg.subscribe(prop, [weak, guard](int idx) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_index(idx);
+        }
+    });
+    Property<int>* p = &prop;
+    node->wrap_on_selected([p, guard](int idx) {
+        *guard = true;
+        p->set(idx);
+        *guard = false;
+    });
+}
 
 class FlipViewWidget : public Widget {
 public:
     explicit FlipViewWidget(const FlipView& desc) : m_desc(desc) {}
+    explicit FlipViewWidget(FlipView&& desc) noexcept : m_desc(std::move(desc)) {}
     ~FlipViewWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderFlipView>();
+        auto node = make_render_node<RenderFlipView>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderFlipView>(node)) {
+        if (auto n = std::static_pointer_cast<RenderFlipView>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderFlipView>& node) {
-        auto sel_bind = m_desc.selected_index;
-        auto user_cb = m_desc.on_selected_index_changed;
-        node->set_properties(
-            m_desc.items, m_desc.selected_index.get(), m_desc.width, m_desc.height,
-            [sel_bind, user_cb](int idx) mutable {
-                sel_bind.set_bound(idx);
-                if (user_cb) user_cb(idx);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderFlipView>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_index, node, [](RenderFlipView& n, int idx) {
-            n.set_selected_index(idx);
-        });
+        node->set_properties(m_desc.items, m_desc.selected_index, m_desc.width, m_desc.height, m_desc.on_selected_index_changed);
     }
 
     FlipView m_desc;
-    BindingGroup m_bindings;
 };
 
-inline FlipView::operator WidgetPtr() const {
-    return std::make_shared<FlipViewWidget>(*this);
+inline FlipView::operator WidgetPtr() const& {
+    return make_widget<FlipViewWidget>(*this);
+}
+inline FlipView::operator WidgetPtr() && {
+    return make_widget<FlipViewWidget>(std::move(*this));
 }
 
 } // namespace ktui

@@ -37,8 +37,8 @@ struct CommandBarItem {
     bool is_toggle{false};
     bool checked{false};
     bool disabled{false};
-    std::function<void()> on_click{nullptr};
-    std::function<void(bool)> on_toggle{nullptr};
+    Fn<void()> on_click{nullptr};
+    Fn<void(bool)> on_toggle{nullptr};
 
     static CommandBarItem separator() {
         CommandBarItem it;
@@ -429,23 +429,26 @@ struct CommandBar {
     CommandBarDefaultLabelPosition default_label_position{CommandBarDefaultLabelPosition::Right};
     float width{0.0f};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class CommandBarWidget : public Widget {
 public:
     explicit CommandBarWidget(const CommandBar& desc) : m_desc(desc) {}
+    explicit CommandBarWidget(CommandBar&& desc) noexcept : m_desc(std::move(desc)) {}
     ~CommandBarWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderCommandBar>();
+        auto node = make_render_node<RenderCommandBar>();
         node->set_properties(m_desc.content, m_desc.primary_commands, m_desc.secondary_commands,
                              m_desc.default_label_position, m_desc.width);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto cb = std::dynamic_pointer_cast<RenderCommandBar>(node)) {
+        if (auto cb = std::static_pointer_cast<RenderCommandBar>(node)) {
             cb->set_properties(m_desc.content, m_desc.primary_commands, m_desc.secondary_commands,
                                m_desc.default_label_position, m_desc.width);
         }
@@ -455,8 +458,11 @@ private:
     CommandBar m_desc;
 };
 
-inline CommandBar::operator WidgetPtr() const {
-    return std::make_shared<CommandBarWidget>(*this);
+inline CommandBar::operator WidgetPtr() const& {
+    return make_widget<CommandBarWidget>(*this);
+}
+inline CommandBar::operator WidgetPtr() && {
+    return make_widget<CommandBarWidget>(std::move(*this));
 }
 
 } // namespace ktui

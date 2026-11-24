@@ -68,7 +68,7 @@ public:
                                         : (std::isfinite(m_constraints.max_width) ? m_constraints.max_width : 240.0f);
 
         float child_h = 0.0f;
-        if (auto* child = dynamic_cast<RenderBox*>(first_child())) {
+        if (auto* child = (first_child() ? first_child()->as_render_box() : nullptr)) {
             BoxConstraints child_c;
             child_c.min_width = target_w;
             child_c.max_width = target_w;
@@ -264,16 +264,19 @@ struct ScrollView {
     float max_height{0.0f};
     WidgetPtr child{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class ScrollViewWidget : public Widget {
 public:
     explicit ScrollViewWidget(const ScrollView& desc) : m_desc(desc) {}
+    explicit ScrollViewWidget(ScrollView&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ScrollViewWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderScrollView>();
+        auto node = make_render_node<RenderScrollView>();
         node->set_dimensions(m_desc.width, m_desc.height, m_desc.max_height);
         if (m_desc.child) {
             node->set_child_box(m_desc.child->create_render_node());
@@ -282,7 +285,7 @@ public:
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto sv = std::dynamic_pointer_cast<RenderScrollView>(node)) {
+        if (auto sv = std::static_pointer_cast<RenderScrollView>(node)) {
             sv->set_dimensions(m_desc.width, m_desc.height, m_desc.max_height);
             if (m_desc.child) {
                 if (sv->child_box()) {
@@ -298,8 +301,11 @@ private:
     ScrollView m_desc;
 };
 
-inline ScrollView::operator WidgetPtr() const {
-    return std::make_shared<ScrollViewWidget>(*this);
+inline ScrollView::operator WidgetPtr() const& {
+    return make_widget<ScrollViewWidget>(*this);
+}
+inline ScrollView::operator WidgetPtr() && {
+    return make_widget<ScrollViewWidget>(std::move(*this));
 }
 
 } // namespace ktui

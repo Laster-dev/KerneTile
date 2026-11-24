@@ -20,13 +20,13 @@ struct TextContextMenuActions {
     bool can_delete{false};
     bool can_select_all{false};
 
-    std::function<void()> on_undo{nullptr};
-    std::function<void()> on_redo{nullptr};
-    std::function<void()> on_cut{nullptr};
-    std::function<void()> on_copy{nullptr};
-    std::function<void()> on_paste{nullptr};
-    std::function<void()> on_delete{nullptr};
-    std::function<void()> on_select_all{nullptr};
+    Fn<void()> on_undo{nullptr};
+    Fn<void()> on_redo{nullptr};
+    Fn<void()> on_cut{nullptr};
+    Fn<void()> on_copy{nullptr};
+    Fn<void()> on_paste{nullptr};
+    Fn<void()> on_delete{nullptr};
+    Fn<void()> on_select_all{nullptr};
 };
 
 // 弹出对标 WinUI 3 TextCommandBarFlyout / 文本右键菜单的 MenuFlyout

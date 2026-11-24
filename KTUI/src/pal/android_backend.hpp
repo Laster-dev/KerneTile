@@ -64,7 +64,7 @@ public:
 
     void set_decorated(bool decorated) override { m_decorated = decorated; }
     bool is_decorated() const override { return m_decorated; }
-    void set_titlebar_hit_test_callback(std::function<TitlebarHitTest(PointF)> cb) override {
+    void set_titlebar_hit_test_callback(Fn<TitlebarHitTest(PointF)> cb) override {
         m_titlebar_hit_test = std::move(cb);
     }
 
@@ -80,17 +80,17 @@ public:
                               uint32_t dirty_x, uint32_t dirty_y,
                               uint32_t dirty_w, uint32_t dirty_h) override;
     void invalidate() override {}
-    void on_paint_requested(std::function<void()> handler) override { m_on_paint = std::move(handler); }
+    void on_paint_requested(Fn<void()> handler) override { m_on_paint = std::move(handler); }
 
     void set_ime_enabled(bool enabled) override;
     void set_ime_cursor_rect(Rect cursor_rect) override { m_ime_cursor_rect = cursor_rect; }
     void set_cursor(CursorShape) override {}
 
-    void on_close_requested(std::function<bool()> handler) override { m_on_close = std::move(handler); }
-    void on_resized(std::function<void(Vec2)> handler) override { m_on_resized = std::move(handler); }
-    void on_moved(std::function<void(Vec2)> handler) override { m_on_moved = std::move(handler); }
-    void on_dpi_changed(std::function<void(float)> handler) override { m_on_dpi_changed = std::move(handler); }
-    void on_focus_changed(std::function<void(bool)> handler) override { m_on_focus_changed = std::move(handler); }
+    void on_close_requested(Fn<bool()> handler) override { m_on_close = std::move(handler); }
+    void on_resized(Fn<void(Vec2)> handler) override { m_on_resized = std::move(handler); }
+    void on_moved(Fn<void(Vec2)> handler) override { m_on_moved = std::move(handler); }
+    void on_dpi_changed(Fn<void(float)> handler) override { m_on_dpi_changed = std::move(handler); }
+    void on_focus_changed(Fn<void(bool)> handler) override { m_on_focus_changed = std::move(handler); }
     void close() override;
 
     // 内部 Surface 生命周期同步
@@ -119,13 +119,13 @@ private:
     uint32_t m_refresh_rate{60};
     Rect m_ime_cursor_rect{};
 
-    std::function<TitlebarHitTest(PointF)> m_titlebar_hit_test;
-    std::function<void()> m_on_paint;
-    std::function<bool()> m_on_close;
-    std::function<void(Vec2)> m_on_resized;
-    std::function<void(Vec2)> m_on_moved;
-    std::function<void(float)> m_on_dpi_changed;
-    std::function<void(bool)> m_on_focus_changed;
+    Fn<TitlebarHitTest(PointF)> m_titlebar_hit_test;
+    Fn<void()> m_on_paint;
+    Fn<bool()> m_on_close;
+    Fn<void(Vec2)> m_on_resized;
+    Fn<void(Vec2)> m_on_moved;
+    Fn<void(float)> m_on_dpi_changed;
+    Fn<void(bool)> m_on_focus_changed;
 };
 
 class AndroidBackend : public IPlatformBackend {
@@ -146,7 +146,7 @@ public:
     std::string get_clipboard_text() const override;
     void set_clipboard_text(const std::string& utf8_text) override;
 
-    void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
+    void set_event_callback(Fn<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);
     }
 
@@ -178,7 +178,7 @@ private:
     HeadlessDispatcher m_dispatcher;
     HeadlessVSyncSource m_vsync;
     DefaultFontResolver m_font_resolver;
-    std::function<void(const PlatformEvent&)> m_event_callback;
+    Fn<void(const PlatformEvent&)> m_event_callback;
     std::vector<AndroidWindow*> m_windows;
 
     ANativeWindow* m_surface{nullptr};

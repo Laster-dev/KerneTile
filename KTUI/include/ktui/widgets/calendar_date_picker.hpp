@@ -89,7 +89,7 @@ public:
     RenderCalendarPopup(CalendarDate selected,
                         CalendarDate min_date,
                         CalendarDate max_date,
-                        std::function<void(const CalendarDate&)> on_select)
+                        Fn<void(const CalendarDate&)> on_select)
         : m_selected(selected),
           m_min_date(min_date),
           m_max_date(max_date),
@@ -324,7 +324,7 @@ private:
     bool m_hover_next{false};
     int m_hover_cell{-1};
     FluentPopupSurface m_surface;
-    std::function<void(const CalendarDate&)> m_on_select;
+    Fn<void(const CalendarDate&)> m_on_select;
 };
 
 // WinUI 3 CalendarDatePicker 日历日期选择器渲染盒
@@ -346,7 +346,7 @@ public:
                         CalendarDate max_date,
                         float width,
                         bool disabled,
-                        std::function<void(const CalendarDate&)> on_date_changed) {
+                        Fn<void(const CalendarDate&)> on_date_changed) {
         if (m_date != date) { m_date = date; mark_needs_paint(); }
         if (m_placeholder != placeholder) { m_placeholder = placeholder; mark_needs_paint(); }
         if (m_header != header) { m_header = header; mark_needs_layout(); }
@@ -445,7 +445,7 @@ private:
         if (!win || m_disabled) return;
 
         auto token = std::make_shared<bool>(true);
-        auto popup = std::make_shared<RenderCalendarPopup>(
+        auto popup = make_render_node<RenderCalendarPopup>(
             m_date, m_min_date, m_max_date,
             [this, token](const CalendarDate& picked) {
                 if (!*token) return;
@@ -509,73 +509,90 @@ private:
     bool m_hovered{false};
     bool m_pressed{false};
     PopupHandle m_popup_handle;
-    std::function<void(const CalendarDate&)> m_on_date_changed;
+    Fn<void(const CalendarDate&)> m_on_date_changed;
+
+public:
+    void wrap_on_date_changed(Fn<void(const CalendarDate&)> extra) {
+        auto prev = std::move(m_on_date_changed);
+        m_on_date_changed = [prev = std::move(prev), extra = std::move(extra)](const CalendarDate& d) {
+            if (extra) extra(d);
+            if (prev) prev(d);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 CalendarDatePicker
-struct CalendarDatePicker {
-    Bindable<CalendarDate> date{CalendarDate{}};
+struct CalendarDatePicker : BindableMixin<CalendarDatePicker, RenderCalendarDatePicker> {
+    CalendarDate date{CalendarDate{}};
     std::string placeholder{"选择日期"};
     std::string header;
     CalendarDate min_date;
     CalendarDate max_date;
     float width{220.0f};
     bool disabled{false};
-    std::function<void(const CalendarDate&)> on_date_changed{nullptr};
+    Fn<void(const CalendarDate&)> on_date_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderCalendarDatePicker>& node, Property<CalendarDate>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_date_value(prop.get());
+    std::weak_ptr<RenderCalendarDatePicker> weak = node;
+    bg.subscribe(prop, [weak, guard](const CalendarDate& d) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_date_value(d);
+        }
+    });
+    Property<CalendarDate>* p = &prop;
+    node->wrap_on_date_changed([p, guard](const CalendarDate& d) {
+        *guard = true;
+        p->set(d);
+        *guard = false;
+    });
+}
 
 class CalendarDatePickerWidget : public Widget {
 public:
     explicit CalendarDatePickerWidget(const CalendarDatePicker& desc) : m_desc(desc) {}
+    explicit CalendarDatePickerWidget(CalendarDatePicker&& desc) noexcept : m_desc(std::move(desc)) {}
     ~CalendarDatePickerWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderCalendarDatePicker>();
+        auto node = make_render_node<RenderCalendarDatePicker>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderCalendarDatePicker>(node)) {
+        if (auto n = std::static_pointer_cast<RenderCalendarDatePicker>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderCalendarDatePicker>& node) {
-        auto date_bind = m_desc.date;
-        auto user_cb = m_desc.on_date_changed;
         node->set_properties(
-            m_desc.date.get(),
+            m_desc.date,
             m_desc.placeholder,
             m_desc.header,
             m_desc.min_date,
             m_desc.max_date,
             m_desc.width,
             m_desc.disabled,
-            [date_bind, user_cb](const CalendarDate& d) mutable {
-                date_bind.set_bound(d);
-                if (user_cb) user_cb(d);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderCalendarDatePicker>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.date, node, [](RenderCalendarDatePicker& n, const CalendarDate& d) {
-            n.set_date_value(d);
-        });
+            m_desc.on_date_changed);
     }
 
     CalendarDatePicker m_desc;
-    BindingGroup m_bindings;
 };
 
-inline CalendarDatePicker::operator WidgetPtr() const {
-    return std::make_shared<CalendarDatePickerWidget>(*this);
+inline CalendarDatePicker::operator WidgetPtr() const& {
+    return make_widget<CalendarDatePickerWidget>(*this);
+}
+inline CalendarDatePicker::operator WidgetPtr() && {
+    return make_widget<CalendarDatePickerWidget>(std::move(*this));
 }
 
 } // namespace ktui

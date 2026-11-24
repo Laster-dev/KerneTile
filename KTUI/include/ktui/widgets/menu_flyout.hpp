@@ -30,7 +30,7 @@ struct MenuFlyoutItem {
     bool is_checkable{false};
     bool checked{false};
     bool disabled{false};
-    std::function<void()> on_click{nullptr};
+    Fn<void()> on_click{nullptr};
 
     static MenuFlyoutItem separator() {
         MenuFlyoutItem it;
@@ -42,7 +42,7 @@ struct MenuFlyoutItem {
 // WinUI 3 MenuFlyout 弹出菜单渲染盒 (RenderMenuFlyout)
 class RenderMenuFlyout : public RenderBox {
 public:
-    RenderMenuFlyout(std::vector<MenuFlyoutItem> items, std::function<void()> on_close)
+    RenderMenuFlyout(std::vector<MenuFlyoutItem> items, Fn<void()> on_close)
         : m_items(std::move(items)), m_on_close(std::move(on_close)) {
         cursor_shape = CursorShape::Arrow;
         for (const auto& it : m_items) {
@@ -214,7 +214,7 @@ private:
     }
 
     std::vector<MenuFlyoutItem> m_items;
-    std::function<void()> m_on_close;
+    Fn<void()> m_on_close;
     bool m_has_leading_col{false};
     int m_hovered_index{-1};
     int m_pressed_index{-1};
@@ -225,12 +225,12 @@ private:
 struct MenuFlyout {
     static uint64_t show_at(std::vector<MenuFlyoutItem> items,
                             Vec2 window_pos,
-                            std::function<void()> on_dismiss = nullptr) {
+                            Fn<void()> on_dismiss = nullptr) {
         Window* win = Window::active_window();
         if (!win || items.empty()) return 0;
 
         auto overlay_id = std::make_shared<uint64_t>(0);
-        auto menu = std::make_shared<RenderMenuFlyout>(
+        auto menu = make_render_node<RenderMenuFlyout>(
             std::move(items),
             [overlay_id]() {
                 if (Window* w = Window::active_window(); w && *overlay_id != 0) {
@@ -349,23 +349,26 @@ struct ContextMenuArea {
     std::vector<MenuFlyoutItem> items;
     WidgetPtr child{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class ContextMenuAreaWidget : public Widget {
 public:
     explicit ContextMenuAreaWidget(const ContextMenuArea& desc) : m_desc(desc) {}
+    explicit ContextMenuAreaWidget(ContextMenuArea&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ContextMenuAreaWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderContextMenuArea>();
+        auto node = make_render_node<RenderContextMenuArea>();
         node->set_items(m_desc.items);
         if (m_desc.child) node->set_child_box(m_desc.child->create_render_node());
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto area = std::dynamic_pointer_cast<RenderContextMenuArea>(node)) {
+        if (auto area = std::static_pointer_cast<RenderContextMenuArea>(node)) {
             area->set_items(m_desc.items);
             if (m_desc.child) {
                 if (area->child_box()) m_desc.child->update_render_node(area->child_box());
@@ -378,8 +381,11 @@ private:
     ContextMenuArea m_desc;
 };
 
-inline ContextMenuArea::operator WidgetPtr() const {
-    return std::make_shared<ContextMenuAreaWidget>(*this);
+inline ContextMenuArea::operator WidgetPtr() const& {
+    return make_widget<ContextMenuAreaWidget>(*this);
+}
+inline ContextMenuArea::operator WidgetPtr() && {
+    return make_widget<ContextMenuAreaWidget>(std::move(*this));
 }
 
 } // namespace ktui

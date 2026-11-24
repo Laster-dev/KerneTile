@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <cstdint>
 
 namespace ktui {
@@ -24,8 +24,8 @@ struct CheckboxData {
     float gap{8.0f};                 // 方框与标签间距 8px (对齐 CUI)
     bool disabled{false};
 
-    std::function<void(bool)> on_change{nullptr};                 // 经典两态回调
-    std::function<void(CheckState)> on_state_change{nullptr};     // 三态回调
+    Fn<void(bool)> on_change{nullptr};                 // 经典两态回调
+    Fn<void(CheckState)> on_state_change{nullptr};     // 三态回调
 };
 
 // 复选框当前交互状态

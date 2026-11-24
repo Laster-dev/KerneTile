@@ -46,7 +46,7 @@ public:
         // 为所有子节点叠加 padding 偏移
         if (m_padding.left != 0.0f || m_padding.top != 0.0f) {
             for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
-                if (auto* box = dynamic_cast<RenderBox*>(child)) {
+                if (auto* box = (child ? (child)->as_render_box() : nullptr)) {
                     box->set_offset(box->offset() + Vec2{m_padding.left, m_padding.top});
                 }
             }
@@ -79,30 +79,33 @@ private:
 class VStackWidget;
 
 // C++20 指定初始化器垂直弹性容器 (VStack)
-// 桌面专业标准：默认间距 spacing = 6.0f (紧凑高信息密度)，全属性支持 Bind(...)
-struct VStack {
-    Bindable<JustifyContent> justify{JustifyContent::FlexStart};
-    Bindable<AlignItems> align_items{AlignItems::FlexStart};
-    Bindable<float> spacing{6.0f}; // 桌面紧凑标准间距 6px，绝不 16px/24px
-    Bindable<EdgeInsets> padding{EdgeInsets::zero()};
+// 零开销原生字段 + 链式 .bind(...) 按需绑定任意属性
+struct VStack : BindableMixin<VStack, RenderFlexBox> {
+    JustifyContent justify{JustifyContent::FlexStart};
+    AlignItems align_items{AlignItems::FlexStart};
+    float spacing{6.0f}; // 桌面紧凑标准间距 6px，绝不 16px/24px
+    EdgeInsets padding{EdgeInsets::zero()};
     std::vector<WidgetPtr> content{};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 // VStackWidget 包装实现
 class VStackWidget : public Widget {
 public:
     explicit VStackWidget(const VStack& desc) : m_desc(desc) {}
+    explicit VStackWidget(VStack&& desc) noexcept : m_desc(std::move(desc)) {}
     ~VStackWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderFlexBox>(
+        auto node = make_render_node<RenderFlexBox>(
             FlexDirection::Column,
-            m_desc.justify.get(),
-            m_desc.align_items.get(),
-            m_desc.spacing.get(),
-            m_desc.padding.get()
+            m_desc.justify,
+            m_desc.align_items,
+            m_desc.spacing,
+            m_desc.padding
         );
 
         m_child_render_boxes.clear();
@@ -116,17 +119,16 @@ public:
             }
         }
         node->set_child_boxes(m_child_render_boxes);
-        bind_all(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto flex_box = std::dynamic_pointer_cast<RenderFlexBox>(node)) {
+        if (auto flex_box = std::static_pointer_cast<RenderFlexBox>(node)) {
             flex_box->set_direction(FlexDirection::Column);
-            flex_box->set_justify(m_desc.justify.get());
-            flex_box->set_align_items(m_desc.align_items.get());
-            flex_box->set_gap(m_desc.spacing.get());
-            flex_box->set_padding(m_desc.padding.get());
+            flex_box->set_justify(m_desc.justify);
+            flex_box->set_align_items(m_desc.align_items);
+            flex_box->set_gap(m_desc.spacing);
+            flex_box->set_padding(m_desc.padding);
 
             // 增量同步子节点
             m_child_render_boxes.clear();
@@ -144,28 +146,21 @@ public:
                 }
             }
             flex_box->set_child_boxes(m_child_render_boxes);
-            bind_all(flex_box);
         }
     }
 
     [[nodiscard]] const VStack& desc() const noexcept { return m_desc; }
 
 private:
-    void bind_all(const std::shared_ptr<RenderFlexBox>& flex_box) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.justify, flex_box, [](RenderFlexBox& n, JustifyContent v) { n.set_justify(v); });
-        m_bindings.attach(m_desc.align_items, flex_box, [](RenderFlexBox& n, AlignItems v) { n.set_align_items(v); });
-        m_bindings.attach(m_desc.spacing, flex_box, [](RenderFlexBox& n, float v) { n.set_gap(v); });
-        m_bindings.attach(m_desc.padding, flex_box, [](RenderFlexBox& n, EdgeInsets v) { n.set_padding(v); });
-    }
-
     VStack m_desc;
     std::vector<std::shared_ptr<RenderBox>> m_child_render_boxes;
-    BindingGroup m_bindings;
 };
 
-inline VStack::operator WidgetPtr() const {
-    return std::make_shared<VStackWidget>(*this);
+inline VStack::operator WidgetPtr() const& {
+    return make_widget<VStackWidget>(*this);
+}
+inline VStack::operator WidgetPtr() && {
+    return make_widget<VStackWidget>(std::move(*this));
 }
 
 } // namespace ktui

@@ -146,22 +146,25 @@ struct PersonPicture {
     PersonPresence presence{PersonPresence::None};
     Color background_color{Color::transparent()};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class PersonPictureWidget : public Widget {
 public:
     explicit PersonPictureWidget(const PersonPicture& desc) : m_desc(desc) {}
+    explicit PersonPictureWidget(PersonPicture&& desc) noexcept : m_desc(std::move(desc)) {}
     ~PersonPictureWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderPersonPicture>();
+        auto node = make_render_node<RenderPersonPicture>();
         node->set_properties(m_desc.display_name, m_desc.initials, m_desc.diameter, m_desc.presence, m_desc.background_color);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderPersonPicture>(node)) {
+        if (auto n = std::static_pointer_cast<RenderPersonPicture>(node)) {
             n->set_properties(m_desc.display_name, m_desc.initials, m_desc.diameter, m_desc.presence, m_desc.background_color);
         }
     }
@@ -170,8 +173,11 @@ private:
     PersonPicture m_desc;
 };
 
-inline PersonPicture::operator WidgetPtr() const {
-    return std::make_shared<PersonPictureWidget>(*this);
+inline PersonPicture::operator WidgetPtr() const& {
+    return make_widget<PersonPictureWidget>(*this);
+}
+inline PersonPicture::operator WidgetPtr() && {
+    return make_widget<PersonPictureWidget>(std::move(*this));
 }
 
 } // namespace ktui

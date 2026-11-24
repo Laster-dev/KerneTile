@@ -220,74 +220,55 @@ private:
 };
 
 // C++20 指定初始化器声明式环形加载圈控件 (ProgressRing DSL Wrapper)
-struct ProgressRing {
-    Bindable<float> value{0.0f};
-    Bindable<bool> indeterminate{true};
-    Bindable<float> size{32.0f};
-    Bindable<float> stroke_width{-1.0f};
-    Bindable<bool> show_track{false};
-    Bindable<bool> disabled{false};
+struct ProgressRing : BindableMixin<ProgressRing, RenderProgressRing> {
+    float value{0.0f};
+    bool indeterminate{true};
+    float size{32.0f};
+    float stroke_width{-1.0f};
+    bool show_track{false};
+    bool disabled{false};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class ProgressRingWidget : public Widget {
 public:
     explicit ProgressRingWidget(const ProgressRing& desc) : m_desc(desc) {}
+    explicit ProgressRingWidget(ProgressRing&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ProgressRingWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderProgressRing>();
+        auto node = make_render_node<RenderProgressRing>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto pr = std::dynamic_pointer_cast<RenderProgressRing>(node)) {
+        if (auto pr = std::static_pointer_cast<RenderProgressRing>(node)) {
             apply_desc_to_node(pr);
-            setup_bindings(pr);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderProgressRing>& node) {
-        node->set_value(m_desc.value.get(), false);
-        node->set_indeterminate(m_desc.indeterminate.get());
-        node->set_ring_size(m_desc.size.get());
-        node->set_stroke_width(m_desc.stroke_width.get());
-        node->set_show_track(m_desc.show_track.get());
-        node->set_disabled(m_desc.disabled.get());
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderProgressRing>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, node, [](RenderProgressRing& n, float v) {
-            n.set_value(v, true);
-        });
-        m_bindings.attach(m_desc.indeterminate, node, [](RenderProgressRing& n, bool v) {
-            n.set_indeterminate(v);
-        });
-        m_bindings.attach(m_desc.size, node, [](RenderProgressRing& n, float v) {
-            n.set_ring_size(v);
-        });
-        m_bindings.attach(m_desc.stroke_width, node, [](RenderProgressRing& n, float v) {
-            n.set_stroke_width(v);
-        });
-        m_bindings.attach(m_desc.show_track, node, [](RenderProgressRing& n, bool v) {
-            n.set_show_track(v);
-        });
-        m_bindings.attach(m_desc.disabled, node, [](RenderProgressRing& n, bool v) {
-            n.set_disabled(v);
-        });
+        node->set_value(m_desc.value, false);
+        node->set_indeterminate(m_desc.indeterminate);
+        node->set_ring_size(m_desc.size);
+        node->set_stroke_width(m_desc.stroke_width);
+        node->set_show_track(m_desc.show_track);
+        node->set_disabled(m_desc.disabled);
     }
 
     ProgressRing m_desc;
-    BindingGroup m_bindings;
 };
 
-inline ProgressRing::operator WidgetPtr() const {
-    return std::make_shared<ProgressRingWidget>(*this);
+inline ProgressRing::operator WidgetPtr() const& {
+    return make_widget<ProgressRingWidget>(*this);
+}
+inline ProgressRing::operator WidgetPtr() && {
+    return make_widget<ProgressRingWidget>(std::move(*this));
 }
 
 } // namespace ktui

@@ -54,8 +54,8 @@ public:
                         std::string selected_id,
                         float width,
                         float height,
-                        std::function<void(const std::string&, const std::string&)> on_selection_changed,
-                        std::function<void(const std::vector<std::string>&)> on_checked_changed) {
+                        Fn<void(const std::string&, const std::string&)> on_selection_changed,
+                        Fn<void(const std::vector<std::string>&)> on_checked_changed) {
         m_nodes = std::move(nodes);
         m_selection_mode = selection_mode;
         m_selected_id = std::move(selected_id);
@@ -253,7 +253,7 @@ private:
     void sync_checkbox_node(const std::string& id, CheckState cs, bool animate) {
         auto it = m_checkboxes.find(id);
         if (it == m_checkboxes.end() || !it->second) {
-            auto cb = std::make_shared<RenderCheckbox>();
+            auto cb = make_render_node<RenderCheckbox>();
             cb->set_three_state(true);
             cb->layout(BoxConstraints::tight(Vec2{18.0f, 18.0f}));
             cb->set_state(cs);
@@ -413,72 +413,89 @@ private:
     float m_touch_start_y{0.0f};
     float m_touch_last_y{0.0f};
 
-    std::function<void(const std::string&, const std::string&)> m_on_selection_changed;
-    std::function<void(const std::vector<std::string>&)> m_on_checked_changed;
+    Fn<void(const std::string&, const std::string&)> m_on_selection_changed;
+    Fn<void(const std::vector<std::string>&)> m_on_checked_changed;
+
+public:
+    void wrap_on_selection_changed(Fn<void(const std::string&, const std::string&)> extra) {
+        auto prev = std::move(m_on_selection_changed);
+        m_on_selection_changed = [prev = std::move(prev), extra = std::move(extra)](const std::string& id, const std::string& label) {
+            if (extra) extra(id, label);
+            if (prev) prev(id, label);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 TreeView
-struct TreeView {
+struct TreeView : BindableMixin<TreeView, RenderTreeView> {
     std::vector<TreeViewNode> nodes;
     TreeViewSelectionMode selection_mode{TreeViewSelectionMode::Single};
-    Bindable<std::string> selected_id{std::string{}};
+    std::string selected_id{std::string{}};
     float width{0.0f};
     float height{0.0f};
-    std::function<void(const std::string&, const std::string&)> on_selection_changed{nullptr};
-    std::function<void(const std::vector<std::string>&)> on_checked_changed{nullptr};
+    Fn<void(const std::string&, const std::string&)> on_selection_changed{nullptr};
+    Fn<void(const std::vector<std::string>&)> on_checked_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderTreeView>& node, Property<std::string>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_id_value(prop.get());
+    std::weak_ptr<RenderTreeView> weak = node;
+    bg.subscribe(prop, [weak, guard](const std::string& id) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_id_value(id);
+        }
+    });
+    Property<std::string>* p = &prop;
+    node->wrap_on_selection_changed([p, guard](const std::string& id, const std::string&) {
+        *guard = true;
+        p->set(id);
+        *guard = false;
+    });
+}
 
 class TreeViewWidget : public Widget {
 public:
     explicit TreeViewWidget(const TreeView& desc) : m_desc(desc) {}
+    explicit TreeViewWidget(TreeView&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TreeViewWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderTreeView>();
+        auto node = make_render_node<RenderTreeView>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderTreeView>(node)) {
+        if (auto n = std::static_pointer_cast<RenderTreeView>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderTreeView>& node) {
-        auto sel_bind = m_desc.selected_id;
-        auto user_sel = m_desc.on_selection_changed;
         node->set_properties(
             m_desc.nodes,
             m_desc.selection_mode,
-            m_desc.selected_id.get(),
+            m_desc.selected_id,
             m_desc.width,
             m_desc.height,
-            [sel_bind, user_sel](const std::string& id, const std::string& label) mutable {
-                sel_bind.set_bound(id);
-                if (user_sel) user_sel(id, label);
-            },
+            m_desc.on_selection_changed,
             m_desc.on_checked_changed);
     }
 
-    void bind(const std::shared_ptr<RenderTreeView>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_id, node, [](RenderTreeView& n, const std::string& id) {
-            n.set_selected_id_value(id);
-        });
-    }
-
     TreeView m_desc;
-    BindingGroup m_bindings;
 };
 
-inline TreeView::operator WidgetPtr() const {
-    return std::make_shared<TreeViewWidget>(*this);
+inline TreeView::operator WidgetPtr() const& {
+    return make_widget<TreeViewWidget>(*this);
+}
+inline TreeView::operator WidgetPtr() && {
+    return make_widget<TreeViewWidget>(std::move(*this));
 }
 
 } // namespace ktui

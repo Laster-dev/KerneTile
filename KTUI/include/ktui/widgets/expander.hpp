@@ -37,7 +37,7 @@ public:
                         bool expanded,
                         bool disabled,
                         EdgeInsets content_padding,
-                        std::function<void(bool)> on_expanded_changed) {
+                        Fn<void(bool)> on_expanded_changed) {
         bool relayout = (m_header != header || m_subtitle != subtitle || !(m_content_padding == content_padding));
         m_header = header;
         m_subtitle = subtitle;
@@ -280,7 +280,7 @@ private:
     bool m_expanded{false};
     bool m_disabled{false};
     EdgeInsets m_content_padding{14.0f, 16.0f};
-    std::function<void(bool)> m_on_expanded_changed;
+    Fn<void(bool)> m_on_expanded_changed;
 
     std::shared_ptr<RenderBox> m_content_box;
     float m_header_h{48.0f};
@@ -289,40 +289,68 @@ private:
     bool m_header_hovered{false};
     bool m_pressed{false};
     std::chrono::steady_clock::time_point m_anim_time{};
+
+public:
+    void wrap_on_expanded_changed(Fn<void(bool)> extra) {
+        auto prev = std::move(m_on_expanded_changed);
+        m_on_expanded_changed = [prev = std::move(prev), extra = std::move(extra)](bool v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 Expander
-struct Expander {
+struct Expander : BindableMixin<Expander, RenderExpander> {
     std::string header{""};
     std::string subtitle{""};
     std::string svg_path{""};
-    Bindable<bool> is_expanded{false};
+    bool is_expanded{false};
     bool disabled{false};
     EdgeInsets content_padding{14.0f, 16.0f};
     WidgetPtr content{nullptr};
-    std::function<void(bool)> on_expanded_changed{nullptr};
+    Fn<void(bool)> on_expanded_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderExpander>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_expanded_value(prop.get());
+    std::weak_ptr<RenderExpander> weak = node;
+    bg.subscribe(prop, [weak, guard](bool v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_expanded_value(v);
+        }
+    });
+    Property<bool>* p = &prop;
+    node->wrap_on_expanded_changed([p, guard](bool v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class ExpanderWidget : public Widget {
 public:
     explicit ExpanderWidget(const Expander& desc) : m_desc(desc) {}
+    explicit ExpanderWidget(Expander&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ExpanderWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderExpander>();
+        auto node = make_render_node<RenderExpander>();
         if (m_desc.content) {
             m_content_box = m_desc.content->create_render_node();
             node->set_content_box(m_content_box);
         }
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto ex = std::dynamic_pointer_cast<RenderExpander>(node)) {
+        if (auto ex = std::static_pointer_cast<RenderExpander>(node)) {
             if (m_desc.content) {
                 if (m_content_box) m_desc.content->update_render_node(m_content_box);
                 else {
@@ -331,37 +359,26 @@ public:
                 }
             }
             apply(ex);
-            bind(ex);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderExpander>& ex) const {
-        auto desc_exp = m_desc.is_expanded;
-        auto user_cb = m_desc.on_expanded_changed;
         ex->set_properties(
             m_desc.header, m_desc.subtitle, m_desc.svg_path,
-            m_desc.is_expanded.get(), m_desc.disabled, m_desc.content_padding,
-            [desc_exp, user_cb](bool v) mutable {
-                desc_exp.set_bound(v);
-                if (user_cb) user_cb(v);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderExpander>& ex) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.is_expanded, ex, [](RenderExpander& n, bool v) {
-            n.set_expanded_value(v);
-        });
+            m_desc.is_expanded, m_desc.disabled, m_desc.content_padding,
+            m_desc.on_expanded_changed);
     }
 
     Expander m_desc;
     std::shared_ptr<RenderBox> m_content_box;
-    BindingGroup m_bindings;
 };
 
-inline Expander::operator WidgetPtr() const {
-    return std::make_shared<ExpanderWidget>(*this);
+inline Expander::operator WidgetPtr() const& {
+    return make_widget<ExpanderWidget>(*this);
+}
+inline Expander::operator WidgetPtr() && {
+    return make_widget<ExpanderWidget>(std::move(*this));
 }
 
 } // namespace ktui

@@ -10,7 +10,7 @@ namespace ktui {
 template <typename T>
 class Computed {
 public:
-    explicit Computed(std::function<T()> compute_fn)
+    explicit Computed(Fn<T()> compute_fn)
         : m_compute_fn(std::move(compute_fn)) {}
 
     T get() const {
@@ -22,7 +22,7 @@ public:
     }
 
 private:
-    std::function<T()> m_compute_fn;
+    Fn<T()> m_compute_fn;
 };
 
 template <typename Func>

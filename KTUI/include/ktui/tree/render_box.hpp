@@ -1,7 +1,6 @@
 #pragma once
 
 #include "render_node.hpp"
-#include <ktui/a11y/accessibility.hpp>
 #include <ktui/layout/box_constraints.hpp>
 #include <ktui/layout/flex_types.hpp>
 #include <ktui/event/event_types.hpp>
@@ -26,6 +25,9 @@ public:
         }
     }
 
+    [[nodiscard]] RenderBox* as_render_box() noexcept override { return this; }
+    [[nodiscard]] const RenderBox* as_render_box() const noexcept override { return this; }
+
     // 核心入口：执行排版布局
     // parent_uses_size 表示父节点是否依赖当前节点的最终计算尺寸
     void layout(const BoxConstraints& constraints, bool parent_uses_size = true) {
@@ -40,7 +42,7 @@ public:
         if (!m_needs_layout && constraints == m_constraints) {
             if (m_child_needs_layout) {
                 for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
-                    if (auto* child_box = dynamic_cast<RenderBox*>(child)) {
+                    if (auto* child_box = (child ? (child)->as_render_box() : nullptr)) {
                         if (child_box->needs_layout() || child_box->child_needs_layout()) {
                             child_box->layout(child_box->constraints(), !child_box->is_relayout_boundary());
                         }
@@ -75,7 +77,7 @@ public:
 
         // 后序逆向遍历子节点 (后添加的、处于视觉顶层的子节点优先测试)
         for (RenderNode* child = last_child(); child != nullptr; child = child->prev_sibling()) {
-            if (auto* child_box = dynamic_cast<RenderBox*>(child)) {
+            if (auto* child_box = (child ? (child)->as_render_box() : nullptr)) {
                 PointF child_pos = PointF{position.x - child_box->offset().x, position.y - child_box->offset().y};
                 if (child_box->hit_test(result, child_pos)) {
                     result.add(this, position);
@@ -115,7 +117,7 @@ public:
         Vec2 pt = m_offset;
         RenderNode* p = m_parent;
         while (p) {
-            if (auto* box = dynamic_cast<RenderBox*>(p)) {
+            if (auto* box = (p ? (p)->as_render_box() : nullptr)) {
                 pt = pt + box->offset();
             }
             p = p->parent();
@@ -129,25 +131,14 @@ public:
     bool is_focusable{false};
     CursorShape cursor_shape{CursorShape::Arrow};
 
-    std::function<void(PointerEvent&)> on_pointer_preview; // 隧道/捕获阶段预览回调 (供触控滚动与边缘滑动手势识别)
-    std::function<void(PointerEvent&)> on_pointer_down;
-    std::function<void(PointerEvent&)> on_pointer_up;
-    std::function<void(PointerEvent&)> on_pointer_move;
-    std::function<void(PointerEvent&)> on_pointer_enter;
-    std::function<void(PointerEvent&)> on_pointer_exit;
-    std::function<void(KeyEvent&)> on_key;
-    std::function<void(FocusEvent&)> on_focus;
-
-    // ==================== 无障碍语义 (WinUI 3 AutomationPeer) ====================
-    AccessibilityProperties a11y;
-
-    [[nodiscard]] virtual AccessibilityProperties compute_accessibility() const {
-        AccessibilityProperties p = a11y;
-        p.focusable = is_focusable;
-        Vec2 g = global_offset();
-        p.screen_bounds = Rect::from_xywh(g.x, g.y, m_size.x, m_size.y);
-        return p;
-    }
+    Fn<void(PointerEvent&)> on_pointer_preview; // 隧道/捕获阶段预览回调 (供触控滚动与边缘滑动手势识别)
+    Fn<void(PointerEvent&)> on_pointer_down;
+    Fn<void(PointerEvent&)> on_pointer_up;
+    Fn<void(PointerEvent&)> on_pointer_move;
+    Fn<void(PointerEvent&)> on_pointer_enter;
+    Fn<void(PointerEvent&)> on_pointer_exit;
+    Fn<void(KeyEvent&)> on_key;
+    Fn<void(FocusEvent&)> on_focus;
 
     // ==================== Flex Item 附加属性 ====================
     [[nodiscard]] const FlexItemData& flex_data() const noexcept { return m_flex_data; }
@@ -170,25 +161,11 @@ namespace ktui {
 inline void RenderBox::paint(PaintContext& context) {
     // 默认遍历所有子节点，平移到子节点的局部 offset 并递归绘制
     for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
-        if (auto* child_box = dynamic_cast<RenderBox*>(child)) {
+        if (auto* child_box = (child ? (child)->as_render_box() : nullptr)) {
             PaintContext::OffsetScope scope(context, child_box->offset());
             child_box->paint(context);
         }
     }
-}
-
-inline AccessibilityNode AccessibilityService::build_tree(const RenderBox* root, const RenderBox* focused_node) {
-    AccessibilityNode node{};
-    if (!root) return node;
-    node.source = root;
-    node.props = root->compute_accessibility();
-    node.props.focused = (root == focused_node);
-    for (const RenderNode* child = root->first_child(); child != nullptr; child = child->next_sibling()) {
-        if (const auto* box = dynamic_cast<const RenderBox*>(child)) {
-            node.children.push_back(build_tree(box, focused_node));
-        }
-    }
-    return node;
 }
 
 } // namespace ktui

@@ -6,6 +6,7 @@
 #include "converter_binding.hpp"
 #include "computed.hpp"
 #include "observable_list.hpp"
+#include <ktui/widgets/widget.hpp>
 #include <functional>
 #include <memory>
 #include <string>
@@ -16,103 +17,9 @@
 
 namespace ktui {
 
-// 类型擦除单向/转换数据源接口 (支持 Bind(prop, converter) 等派生绑定)
-template <typename T>
-struct IBindingSource {
-    virtual ~IBindingSource() = default;
-    [[nodiscard]] virtual T get_value() const = 0;
-    [[nodiscard]] virtual std::function<void()> subscribe_managed(std::function<void(const T&)> cb) const = 0;
-};
-
-// 轻量级声明式绑定引用 (BindRef)
-// 专为 C++20 指定初始化器设计：零开销、可拷贝、支持双向 Property<T> 与只读/转换器派生绑定
-template <typename T>
-struct BindRef {
-    Property<T>* prop{nullptr};
-    bool read_only{false};
-    std::shared_ptr<IBindingSource<T>> source{nullptr};
-
-    constexpr BindRef() noexcept = default;
-    constexpr BindRef(Property<T>& p, bool ro = false) noexcept : prop(&p), read_only(ro) {}
-    constexpr BindRef(Property<T>* p, bool ro = false) noexcept : prop(p), read_only(ro) {}
-    constexpr BindRef(std::nullptr_t) noexcept {}
-    BindRef(std::shared_ptr<IBindingSource<T>> src) noexcept : read_only(true), source(std::move(src)) {}
-    BindRef(const TwoWayBinding<T>& b) noexcept : prop(b.property()), read_only(false) {}
-
-    [[nodiscard]] bool has_value() const noexcept { return prop != nullptr || source != nullptr; }
-    [[nodiscard]] bool is_two_way() const noexcept { return prop != nullptr && !read_only; }
-    [[nodiscard]] constexpr Property<T>* get() const noexcept { return prop; }
-    Property<T>* operator->() const noexcept { return prop; }
-    Property<T>& operator*() const noexcept { return *prop; }
-    explicit operator bool() const noexcept { return has_value(); }
-
-    [[nodiscard]] T get_value() const {
-        if (prop) return prop->get();
-        if (source) return source->get_value();
-        return T{};
-    }
-
-    [[nodiscard]] std::function<void()> subscribe_managed(std::function<void(const T&)> cb) const {
-        if (prop) {
-            Property<T>* p = prop;
-            uint64_t token = p->subscribe([cb = std::move(cb)](const T& v, uint64_t) { cb(v); });
-            return [p, token]() { p->unsubscribe(token); };
-        }
-        if (source) {
-            return source->subscribe_managed(std::move(cb));
-        }
-        return nullptr;
-    }
-
-    bool operator==(const BindRef& other) const noexcept {
-        return prop == other.prop && read_only == other.read_only && source == other.source;
-    }
-};
-
-// 通用可绑定属性包装器 (Bindable<T>)
-// 支持同一字段既可直接传入字面量/值 (.text = "abc")，也可传入绑定表达式 (.text = Bind(prop))
-template <typename T>
-struct Bindable {
-    T value{};
-    BindRef<T> ref{nullptr};
-
-    constexpr Bindable() = default;
-    constexpr Bindable(const T& v) : value(v) {}
-    constexpr Bindable(T&& v) noexcept(std::is_nothrow_move_constructible_v<T>) : value(std::move(v)) {}
-
-    template <typename U = T, std::enable_if_t<std::is_same_v<U, std::string>, int> = 0>
-    Bindable(const char* s) : value(s ? s : "") {}
-
-    template <typename U = T, std::enable_if_t<std::is_same_v<U, std::string>, int> = 0>
-    Bindable(std::string_view sv) : value(sv) {}
-
-    Bindable(BindRef<T> b) : ref(std::move(b)) {
-        if (ref) value = ref.get_value();
-    }
-
-    Bindable(const TwoWayBinding<T>& b) : ref(b) {
-        if (ref) value = ref.get_value();
-    }
-
-    [[nodiscard]] bool is_bound() const noexcept { return static_cast<bool>(ref); }
-    [[nodiscard]] bool is_two_way() const noexcept { return ref.is_two_way(); }
-
-    [[nodiscard]] T get() const {
-        return ref ? ref.get_value() : value;
-    }
-
-    void set_bound(const T& v) const {
-        if (ref.is_two_way() && ref.prop) {
-            ref.prop->set(v);
-        }
-    }
-
-    operator T() const { return get(); }
-};
-
 // 自动管理所有属性绑定的生命周期组 (Widget 析构或更新时自动退订)
 struct BindingGroup {
-    std::vector<std::function<void()>> unbinders;
+    std::vector<Fn<void()>> unbinders;
 
     BindingGroup() = default;
     ~BindingGroup() { clear(); }
@@ -128,56 +35,228 @@ struct BindingGroup {
         unbinders.clear();
     }
 
-    template <typename T, typename NodePtr, typename Setter>
-    void attach(const Bindable<T>& b, const NodePtr& node, Setter&& setter) {
-        if (!b.is_bound()) return;
-        std::weak_ptr<typename NodePtr::element_type> weak = node;
-        auto unsub = b.ref.subscribe_managed([weak, setter = std::forward<Setter>(setter)](const T& v) {
-            if (auto n = weak.lock()) {
-                setter(*n, v);
-            }
-        });
-        if (unsub) {
-            unbinders.push_back(std::move(unsub));
+    void add_unbinder(Fn<void()> unbinder) {
+        if (unbinder) {
+            unbinders.push_back(std::move(unbinder));
         }
+    }
+
+    template <typename T, typename Func>
+    void subscribe(const Property<T>& prop, Func&& fn) {
+        Property<T>* p = &const_cast<Property<T>&>(prop);
+        uint64_t token = p->subscribe([f = std::forward<Func>(fn)](const T& v, uint64_t) {
+            f(v);
+        });
+        unbinders.push_back([p, token]() { p->unsubscribe(token); });
     }
 };
 
-// ==================== 声明式 Bind(...) 工厂函数 ====================
+// ==================== 零开销按需链式绑定系统 (Zero-Cost Fluent Binding) ====================
+// 1. 控件结构体只存原生 C++ 字段，零 Bindable<T> 包装、零非平凡析构膨胀
+// 2. 未调用 .bind(...) / .bind_two_way(...) 的属性和控件完全不实例化绑定模板（二进制 0 字节开销）
+// 3. 任意控件的任意 RenderNode 属性（成员 setter / lambda / 转换器 / 双向绑定）均可按需链式绑定
 
-// 1. 非常量左值属性 -> 双向数据绑定 (BindRef<T>)
-template <typename T>
-[[nodiscard]] inline BindRef<T> Bind(Property<T>& prop) {
-    return BindRef<T>(prop, false);
-}
+template <typename RenderT>
+class BoundWidget final : public Widget {
+public:
+    using HookFn = Fn<void(const std::shared_ptr<RenderT>&, BindingGroup&)>;
 
-// 2. 常量属性 -> 单向只读数据绑定 (BindRef<T>)
-template <typename T>
-[[nodiscard]] inline BindRef<T> Bind(const Property<T>& prop) {
-    return BindRef<T>(const_cast<Property<T>&>(prop), true);
-}
+    explicit BoundWidget(WidgetPtr inner) : m_inner(std::move(inner)) {}
+    ~BoundWidget() override = default;
 
-// 3. 属性 + 转换器函数 -> 类型转换只读绑定 (BindRef<R>)
-template <typename T, typename Func>
-[[nodiscard]] inline auto Bind(const Property<T>& prop, Func&& converter) {
-    using R = std::decay_t<std::invoke_result_t<Func, const T&>>;
-    struct ConverterSource : IBindingSource<R> {
-        Property<T>* src;
-        std::decay_t<Func> fn;
-        ConverterSource(Property<T>* p, Func&& f) : src(p), fn(std::forward<Func>(f)) {}
-        R get_value() const override { return fn(src->get()); }
-        std::function<void()> subscribe_managed(std::function<void(const R&)> cb) const override {
-            Property<T>* p = src;
-            auto f = fn;
-            uint64_t token = p->subscribe([cb = std::move(cb), f = std::move(f)](const T& v, uint64_t) {
-                cb(f(v));
-            });
-            return [p, token]() { p->unsubscribe(token); };
+    void add_hook(HookFn hook) {
+        if (hook) m_hooks.push_back(std::move(hook));
+    }
+
+    std::shared_ptr<RenderBox> create_render_node() override {
+        auto node = m_inner ? m_inner->create_render_node() : nullptr;
+        apply_hooks(node);
+        return node;
+    }
+
+    void update_render_node(std::shared_ptr<RenderBox> node) override {
+        if (m_inner) m_inner->update_render_node(node);
+        apply_hooks(node);
+    }
+
+private:
+    void apply_hooks(const std::shared_ptr<RenderBox>& node) {
+        m_bindings.clear();
+        if (auto typed = std::static_pointer_cast<RenderT>(node)) {
+            for (const auto& hook : m_hooks) {
+                hook(typed, m_bindings);
+            }
         }
-    };
-    auto s = std::make_shared<ConverterSource>(&const_cast<Property<T>&>(prop), std::forward<Func>(converter));
-    return BindRef<R>(std::move(s));
-}
+    }
+
+    WidgetPtr m_inner;
+    std::vector<HookFn> m_hooks;
+    BindingGroup m_bindings;
+};
+
+template <typename RenderT>
+class BoundWidgetBuilder {
+public:
+    explicit BoundWidgetBuilder(WidgetPtr inner)
+        : m_widget(std::static_pointer_cast<BoundWidget<RenderT>>(make_widget<BoundWidget<RenderT>>(std::move(inner)))) {}
+
+    // 1. 成员 setter + Property<T> 单向绑定: .bind(&RenderText::set_text, app.title)
+    template <typename Setter, typename T,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder& bind(Setter setter, const Property<T>& prop) {
+        Property<T>* p = &const_cast<Property<T>&>(prop);
+        m_widget->add_hook([setter, p](const std::shared_ptr<RenderT>& node, BindingGroup& bg) {
+            ((*node).*setter)(p->get());
+            std::weak_ptr<RenderT> weak = node;
+            bg.subscribe(*p, [weak, setter](const T& v) {
+                if (auto n = weak.lock()) ((*n).*setter)(v);
+            });
+        });
+        return *this;
+    }
+
+    // 2. 成员 setter + Property<T> + 转换器: .bind(&RenderText::set_text, app.count, [](int v){ ... })
+    template <typename Setter, typename T, typename Converter,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder& bind(Setter setter, const Property<T>& prop, Converter&& converter) {
+        Property<T>* p = &const_cast<Property<T>&>(prop);
+        m_widget->add_hook(
+            [setter, p, conv = std::forward<Converter>(converter)](const std::shared_ptr<RenderT>& node, BindingGroup& bg) {
+                ((*node).*setter)(conv(p->get()));
+                std::weak_ptr<RenderT> weak = node;
+                bg.subscribe(*p, [weak, setter, conv](const T& v) {
+                    if (auto n = weak.lock()) ((*n).*setter)(conv(v));
+                });
+            });
+        return *this;
+    }
+
+    // 3. 通用 Lambda 绑定任意属性/多属性: .bind(app.prop, [](RenderT& n, const T& v){ ... })
+    template <typename T, typename Applier>
+    BoundWidgetBuilder& bind(const Property<T>& prop, Applier&& applier) {
+        Property<T>* p = &const_cast<Property<T>&>(prop);
+        m_widget->add_hook(
+            [p, fn = std::forward<Applier>(applier)](const std::shared_ptr<RenderT>& node, BindingGroup& bg) {
+                fn(*node, p->get());
+                std::weak_ptr<RenderT> weak = node;
+                bg.subscribe(*p, [weak, fn](const T& v) {
+                    if (auto n = weak.lock()) fn(*n, v);
+                });
+            });
+        return *this;
+    }
+
+    // 4. 输入控件默认主值双向绑定: .bind_two_way(app.checked)
+    // 通过 ADL 调用各控件按需定义的 ktui_bind_two_way(node, prop, bg)，未调用则零实例化
+    template <typename T>
+    BoundWidgetBuilder& bind_two_way(Property<T>& prop) {
+        Property<T>* p = &prop;
+        m_widget->add_hook([p](const std::shared_ptr<RenderT>& node, BindingGroup& bg) {
+            ktui_bind_two_way(node, *p, bg);
+        });
+        return *this;
+    }
+
+    // 5. 通用显式双向绑定: .bind_two_way(setter, attach_change, prop)
+    template <typename Setter, typename ChangeAttacher, typename T>
+    BoundWidgetBuilder& bind_two_way(Setter&& setter, ChangeAttacher&& attach_change, Property<T>& prop) {
+        Property<T>* p = &prop;
+        m_widget->add_hook(
+            [p, s = std::forward<Setter>(setter), a = std::forward<ChangeAttacher>(attach_change)](
+                const std::shared_ptr<RenderT>& node, BindingGroup& bg) {
+                s(*node, p->get());
+                std::weak_ptr<RenderT> weak = node;
+                bg.subscribe(*p, [weak, s](const T& v) {
+                    if (auto n = weak.lock()) s(*n, v);
+                });
+                a(*node, [p](const T& v) { p->set(v); });
+            });
+        return *this;
+    }
+
+    operator WidgetPtr() const { return m_widget; }
+
+private:
+    std::shared_ptr<BoundWidget<RenderT>> m_widget;
+};
+
+// 空基类 CRTP 混入 (0 字节开销，保持 C++20 聚合指定初始化器完全兼容)
+template <typename Derived, typename RenderT>
+struct BindableMixin {
+    template <typename Setter, typename T,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder<RenderT> bind(Setter setter, const Property<T>& prop) && {
+        BoundWidgetBuilder<RenderT> builder(static_cast<Derived&&>(*this));
+        builder.bind(setter, prop);
+        return builder;
+    }
+
+    template <typename Setter, typename T,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder<RenderT> bind(Setter setter, const Property<T>& prop) const& {
+        BoundWidgetBuilder<RenderT> builder(static_cast<const Derived&>(*this));
+        builder.bind(setter, prop);
+        return builder;
+    }
+
+    template <typename Setter, typename T, typename Converter,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder<RenderT> bind(Setter setter, const Property<T>& prop, Converter&& converter) && {
+        BoundWidgetBuilder<RenderT> builder(static_cast<Derived&&>(*this));
+        builder.bind(setter, prop, std::forward<Converter>(converter));
+        return builder;
+    }
+
+    template <typename Setter, typename T, typename Converter,
+              std::enable_if_t<std::is_member_function_pointer_v<Setter>, int> = 0>
+    BoundWidgetBuilder<RenderT> bind(Setter setter, const Property<T>& prop, Converter&& converter) const& {
+        BoundWidgetBuilder<RenderT> builder(static_cast<const Derived&>(*this));
+        builder.bind(setter, prop, std::forward<Converter>(converter));
+        return builder;
+    }
+
+    template <typename T, typename Applier>
+    BoundWidgetBuilder<RenderT> bind(const Property<T>& prop, Applier&& applier) && {
+        BoundWidgetBuilder<RenderT> builder(static_cast<Derived&&>(*this));
+        builder.bind(prop, std::forward<Applier>(applier));
+        return builder;
+    }
+
+    template <typename T, typename Applier>
+    BoundWidgetBuilder<RenderT> bind(const Property<T>& prop, Applier&& applier) const& {
+        BoundWidgetBuilder<RenderT> builder(static_cast<const Derived&>(*this));
+        builder.bind(prop, std::forward<Applier>(applier));
+        return builder;
+    }
+
+    template <typename T>
+    BoundWidgetBuilder<RenderT> bind_two_way(Property<T>& prop) && {
+        BoundWidgetBuilder<RenderT> builder(static_cast<Derived&&>(*this));
+        builder.bind_two_way(prop);
+        return builder;
+    }
+
+    template <typename T>
+    BoundWidgetBuilder<RenderT> bind_two_way(Property<T>& prop) const& {
+        BoundWidgetBuilder<RenderT> builder(static_cast<const Derived&>(*this));
+        builder.bind_two_way(prop);
+        return builder;
+    }
+
+    template <typename Setter, typename ChangeAttacher, typename T>
+    BoundWidgetBuilder<RenderT> bind_two_way(Setter&& setter, ChangeAttacher&& attach_change, Property<T>& prop) && {
+        BoundWidgetBuilder<RenderT> builder(static_cast<Derived&&>(*this));
+        builder.bind_two_way(std::forward<Setter>(setter), std::forward<ChangeAttacher>(attach_change), prop);
+        return builder;
+    }
+
+    template <typename Setter, typename ChangeAttacher, typename T>
+    BoundWidgetBuilder<RenderT> bind_two_way(Setter&& setter, ChangeAttacher&& attach_change, Property<T>& prop) const& {
+        BoundWidgetBuilder<RenderT> builder(static_cast<const Derived&>(*this));
+        builder.bind_two_way(std::forward<Setter>(setter), std::forward<ChangeAttacher>(attach_change), prop);
+        return builder;
+    }
+};
 
 // 保留传统独立绑定辅助函数 (供 TwoWayBinding / OneWayBinding / ConverterBinding 单元测试使用)
 template <typename T>

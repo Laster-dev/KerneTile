@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 
 namespace kernetile::compute {
@@ -31,7 +32,7 @@ public:
         const auto status = D3DCompile(shader_source, sizeof(shader_source) - 1, "ui_compute_d3d12.hlsl",
             nullptr, nullptr, "compose", "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors);
         if (FAILED(status) && errors) {
-            std::cerr << static_cast<const char*>(errors->GetBufferPointer()) << '\n';
+            std::fprintf(stderr, "%s\n", static_cast<const char*>(errors->GetBufferPointer()));
         }
         throw_if_failed(status, "Compile UI tile shader");
         m_pipeline = m_device.create_compute_pipeline(
@@ -40,32 +41,32 @@ public:
     }
 
     ~D3D12Backend() override {
-        try { m_device.wait_idle(); } catch (const std::exception&) {}
+        if (m_device.is_valid()) m_device.wait_idle();
     }
 
-    bool ready() const noexcept override { return !m_failed; }
+    bool ready() const noexcept override { return !m_failed && m_device.is_valid() && m_pipeline != nullptr; }
 
     bool submit(const Frame& frame) override {
-        try {
-            m_device.wait_idle();
-            m_atlas_upload.reset();
-            resize(frame);
-            auto recorder = m_device.create_command_recorder();
-            auto& commands = static_cast<D3D12CommandRecorder&>(*recorder);
-            if (!frame.tiles.empty()) compose(commands, frame);
-            auto& back = *static_cast<D3D12Swapchain&>(*m_swapchain).get_current_back_buffer();
-            commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
-            commands.resource_barrier(back, ResourceState::Present, ResourceState::CopyDst);
-            commands.get_native_list()->CopyResource(back.get_native_resource(), m_output->get_native_resource());
-            commands.resource_barrier(back, ResourceState::CopyDst, ResourceState::Present);
-            commands.close();
-            m_device.submit(std::move(recorder));
-            m_swapchain->present(false);
-            return true;
-        } catch (const std::exception&) {
+        if (!ready()) return false;
+        m_device.wait_idle();
+        m_atlas_upload.reset();
+        resize(frame);
+        if (!m_swapchain || !m_output) {
             m_failed = true;
             return false;
         }
+        auto recorder = m_device.create_command_recorder();
+        auto& commands = static_cast<D3D12CommandRecorder&>(*recorder);
+        if (!frame.tiles.empty()) compose(commands, frame);
+        auto& back = *static_cast<D3D12Swapchain&>(*m_swapchain).get_current_back_buffer();
+        commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
+        commands.resource_barrier(back, ResourceState::Present, ResourceState::CopyDst);
+        commands.get_native_list()->CopyResource(back.get_native_resource(), m_output->get_native_resource());
+        commands.resource_barrier(back, ResourceState::CopyDst, ResourceState::Present);
+        commands.close();
+        m_device.submit(std::move(recorder));
+        m_swapchain->present(false);
+        return true;
     }
 
 private:
@@ -165,8 +166,8 @@ private:
 
 std::unique_ptr<Backend> create(void* window, void*) {
     if (!window) return nullptr;
-    try { return std::make_unique<D3D12Backend>(window); }
-    catch (const std::exception&) { return nullptr; }
+    auto backend = std::make_unique<D3D12Backend>(window);
+    return backend->ready() ? std::move(backend) : nullptr;
 }
 
 } // namespace kernetile::compute

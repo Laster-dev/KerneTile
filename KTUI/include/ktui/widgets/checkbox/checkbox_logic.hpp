@@ -33,7 +33,7 @@ public:
     void set_properties(bool is_chk, std::string lbl, float box_sz, float radius,
                         Color bg_norm, Color bg_chk, Color border_c,
                         Color mark_c, Color txt_c, float font_sz,
-                        std::function<void(bool)> on_ch) {
+                        Fn<void(bool)> on_ch) {
         m_data.label = std::move(lbl);
         m_data.box_size = (box_sz > 0.0f) ? box_sz : 18.0f;
         m_data.corner_radius = (radius >= 0.0f) ? radius : 3.0f;
@@ -51,17 +51,9 @@ public:
     }
 
     // 状态访问与设置
+    [[nodiscard]] const CheckboxData& data() const noexcept { return m_data; }
     [[nodiscard]] bool checked() const noexcept {
         return m_data.state == CheckState::Checked;
-    }
-
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::CheckBox;
-        if (p.name.empty()) p.name = m_data.label;
-        p.checked = (m_data.state == CheckState::Checked);
-        p.disabled = m_state.is_disabled;
-        return p;
     }
 
     void set_checked(bool is_chk) {
@@ -108,11 +100,11 @@ public:
         }
     }
 
-    void set_change_handler(std::function<void(bool)> cb) {
+    void set_change_handler(Fn<void(bool)> cb) {
         m_data.on_change = std::move(cb);
     }
 
-    void set_state_change_handler(std::function<void(CheckState)> cb) {
+    void set_state_change_handler(Fn<void(CheckState)> cb) {
         m_data.on_state_change = std::move(cb);
     }
 
@@ -368,46 +360,85 @@ public:
 
 class CheckboxWidget;
 
-// C++20 指定初始化器声明式复选框 (Checkbox DSL Wrapper - 全属性支持 Bind(...))
-struct Checkbox {
-    Bindable<bool> checked{false};
-    Bindable<CheckState> state{CheckState::Unchecked};
-    Bindable<bool> is_three_state{false};
-    Bindable<std::string> label{""};
+// C++20 指定初始化器声明式复选框 (Checkbox DSL Wrapper - 零开销原生字段 + 链式 .bind/.bind_two_way)
+struct Checkbox : BindableMixin<Checkbox, RenderCheckbox> {
+    bool checked{false};
+    CheckState state{CheckState::Unchecked};
+    bool is_three_state{false};
+    std::string label{""};
 
-    Bindable<float> size{0.0f};           // 0 表示按主题解析默认值 18px
-    Bindable<float> corner_radius{-1.0f}; // 负值代表采用主题解析默认值 3px
-    Bindable<Color> background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Bindable<Color> checked_background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Bindable<Color> border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Bindable<Color> check_mark_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Bindable<Color> text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Bindable<float> font_size{0.0f};
-    Bindable<bool> disabled{false};
+    float size{0.0f};           // 0 表示按主题解析默认值 18px
+    float corner_radius{-1.0f}; // 负值代表采用主题解析默认值 3px
+    Color background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Color checked_background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Color border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Color check_mark_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    Color text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
+    float font_size{0.0f};
+    bool disabled{false};
 
-    std::function<void(bool)> on_change{nullptr};
-    std::function<void(CheckState)> on_state_change{nullptr};
+    Fn<void(bool)> on_change{nullptr};
+    Fn<void(CheckState)> on_state_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderCheckbox>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_checked(prop.get());
+    std::weak_ptr<RenderCheckbox> weak = node;
+    bg.subscribe(prop, [weak, guard](bool val) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_checked(val);
+        }
+    });
+    auto prev = node->data().on_change;
+    Property<bool>* p = &prop;
+    node->set_change_handler([prev = std::move(prev), p, guard](bool is_chk) {
+        *guard = true;
+        p->set(is_chk);
+        if (prev) prev(is_chk);
+        *guard = false;
+    });
+}
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderCheckbox>& node, Property<CheckState>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_state(prop.get());
+    std::weak_ptr<RenderCheckbox> weak = node;
+    bg.subscribe(prop, [weak, guard](CheckState st) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_state(st);
+        }
+    });
+    auto prev = node->data().on_state_change;
+    Property<CheckState>* p = &prop;
+    node->set_state_change_handler([prev = std::move(prev), p, guard](CheckState st) {
+        *guard = true;
+        p->set(st);
+        if (prev) prev(st);
+        *guard = false;
+    });
+}
 
 // CheckboxWidget 声明式包装组件
 class CheckboxWidget : public Widget {
 public:
     explicit CheckboxWidget(const Checkbox& desc) : m_desc(desc) {}
+    explicit CheckboxWidget(Checkbox&& desc) noexcept : m_desc(std::move(desc)) {}
     ~CheckboxWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderCheckbox>();
+        auto node = make_render_node<RenderCheckbox>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto box = std::dynamic_pointer_cast<RenderCheckbox>(node)) {
+        if (auto box = std::static_pointer_cast<RenderCheckbox>(node)) {
             apply_desc_to_node(box);
-            setup_bindings(box);
         }
     }
 
@@ -415,88 +446,35 @@ public:
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderCheckbox>& node) {
-        node->set_three_state(m_desc.is_three_state.get());
-        node->set_label(m_desc.label.get());
+        node->set_three_state(m_desc.is_three_state);
+        node->set_label(m_desc.label);
 
-        CheckState init_state = m_desc.state.is_bound()
-            ? m_desc.state.get()
-            : (m_desc.checked.get() ? CheckState::Checked : m_desc.state.get());
+        CheckState init_state = m_desc.checked ? CheckState::Checked : m_desc.state;
         node->set_state(init_state);
-        node->set_disabled(m_desc.disabled.get());
+        node->set_disabled(m_desc.disabled);
 
-        Color bg_c = m_desc.background_color.get();
-        Color chk_c = m_desc.checked_background_color.get();
-        Color brd_c = m_desc.border_color.get();
-        Color mrk_c = m_desc.check_mark_color.get();
-        Color txt_c = m_desc.text_color.get();
-        float sz_v = m_desc.size.get();
-        float rad_v = m_desc.corner_radius.get();
-        float fs_v = m_desc.font_size.get();
-
-        std::optional<Color> bg_norm = (bg_c.r >= 0.0f) ? std::optional<Color>(bg_c) : std::nullopt;
-        std::optional<Color> bg_chk = (chk_c.r >= 0.0f) ? std::optional<Color>(chk_c) : std::nullopt;
-        std::optional<Color> border = (brd_c.r >= 0.0f) ? std::optional<Color>(brd_c) : std::nullopt;
-        std::optional<Color> mark = (mrk_c.r >= 0.0f) ? std::optional<Color>(mrk_c) : std::nullopt;
-        std::optional<Color> txt = (txt_c.r >= 0.0f) ? std::optional<Color>(txt_c) : std::nullopt;
-        std::optional<float> sz = (sz_v > 0.0f) ? std::optional<float>(sz_v) : std::nullopt;
-        std::optional<float> radius = (rad_v >= 0.0f) ? std::optional<float>(rad_v) : std::nullopt;
-        std::optional<float> font_sz = (fs_v > 0.0f) ? std::optional<float>(fs_v) : std::nullopt;
+        std::optional<Color> bg_norm = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
+        std::optional<Color> bg_chk = (m_desc.checked_background_color.r >= 0.0f) ? std::optional<Color>(m_desc.checked_background_color) : std::nullopt;
+        std::optional<Color> border = (m_desc.border_color.r >= 0.0f) ? std::optional<Color>(m_desc.border_color) : std::nullopt;
+        std::optional<Color> mark = (m_desc.check_mark_color.r >= 0.0f) ? std::optional<Color>(m_desc.check_mark_color) : std::nullopt;
+        std::optional<Color> txt = (m_desc.text_color.r >= 0.0f) ? std::optional<Color>(m_desc.text_color) : std::nullopt;
+        std::optional<float> sz = (m_desc.size > 0.0f) ? std::optional<float>(m_desc.size) : std::nullopt;
+        std::optional<float> radius = (m_desc.corner_radius >= 0.0f) ? std::optional<float>(m_desc.corner_radius) : std::nullopt;
+        std::optional<float> font_sz = (m_desc.font_size > 0.0f) ? std::optional<float>(m_desc.font_size) : std::nullopt;
 
         node->apply_custom_overrides(bg_norm, bg_chk, border, mark, txt, sz, radius, font_sz);
-
-        // 挂接双向通知代理
-        auto on_ch = [this](bool is_chk) {
-            m_is_internal_update = true;
-            m_desc.checked.set_bound(is_chk);
-            m_desc.state.set_bound(is_chk ? CheckState::Checked : CheckState::Unchecked);
-            if (m_desc.on_change) {
-                m_desc.on_change(is_chk);
-            }
-            m_is_internal_update = false;
-        };
-
-        auto on_st_ch = [this](CheckState st) {
-            m_is_internal_update = true;
-            m_desc.state.set_bound(st);
-            m_desc.checked.set_bound(st == CheckState::Checked);
-            if (m_desc.on_state_change) {
-                m_desc.on_state_change(st);
-            }
-            m_is_internal_update = false;
-        };
-
-        node->set_change_handler(on_ch);
-        node->set_state_change_handler(on_st_ch);
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderCheckbox>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.checked, node, [this](RenderCheckbox& n, bool val) {
-            if (!m_is_internal_update) n.set_checked(val);
-        });
-        m_bindings.attach(m_desc.state, node, [this](RenderCheckbox& n, CheckState st) {
-            if (!m_is_internal_update) n.set_state(st);
-        });
-        m_bindings.attach(m_desc.is_three_state, node, [](RenderCheckbox& n, bool v) { n.set_three_state(v); });
-        m_bindings.attach(m_desc.label, node, [](RenderCheckbox& n, const std::string& v) { n.set_label(v); });
-        m_bindings.attach(m_desc.size, node, [](RenderCheckbox& n, float v) { n.set_custom_box_size(v); });
-        m_bindings.attach(m_desc.corner_radius, node, [](RenderCheckbox& n, float v) { n.set_custom_corner_radius(v); });
-        m_bindings.attach(m_desc.background_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_background(v); });
-        m_bindings.attach(m_desc.checked_background_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_checked_background(v); });
-        m_bindings.attach(m_desc.border_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_border_color(v); });
-        m_bindings.attach(m_desc.check_mark_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_check_mark_color(v); });
-        m_bindings.attach(m_desc.text_color, node, [](RenderCheckbox& n, Color v) { n.set_custom_text_color(v); });
-        m_bindings.attach(m_desc.font_size, node, [](RenderCheckbox& n, float v) { n.set_custom_font_size(v); });
-        m_bindings.attach(m_desc.disabled, node, [](RenderCheckbox& n, bool v) { n.set_disabled(v); });
+        node->set_change_handler(m_desc.on_change);
+        node->set_state_change_handler(m_desc.on_state_change);
     }
 
     Checkbox m_desc;
-    bool m_is_internal_update{false};
-    BindingGroup m_bindings;
 };
 
-inline Checkbox::operator WidgetPtr() const {
-    return std::make_shared<CheckboxWidget>(*this);
+inline Checkbox::operator WidgetPtr() const& {
+    return make_widget<CheckboxWidget>(*this);
+}
+inline Checkbox::operator WidgetPtr() && {
+    return make_widget<CheckboxWidget>(std::move(*this));
 }
 
 } // namespace ktui

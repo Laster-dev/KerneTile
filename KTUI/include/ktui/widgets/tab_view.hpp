@@ -42,10 +42,10 @@ public:
                         int selected_index,
                         bool show_add_button,
                         float height,
-                        std::function<WidgetPtr(const std::string&)> content_builder,
-                        std::function<void(int)> on_selection_changed,
-                        std::function<void(int)> on_tab_close,
-                        std::function<void()> on_add_tab) {
+                        Fn<WidgetPtr(const std::string&)> content_builder,
+                        Fn<void(int)> on_selection_changed,
+                        Fn<void(int)> on_tab_close,
+                        Fn<void()> on_add_tab) {
         bool tabs_changed = (m_tabs != tabs);
         m_tabs = std::move(tabs);
         m_show_add_button = show_add_button;
@@ -340,10 +340,10 @@ private:
     int m_selected_index{0};
     bool m_show_add_button{true};
     float m_height{260.0f};
-    std::function<WidgetPtr(const std::string&)> m_content_builder;
-    std::function<void(int)> m_on_selection_changed;
-    std::function<void(int)> m_on_tab_close;
-    std::function<void()> m_on_add_tab;
+    Fn<WidgetPtr(const std::string&)> m_content_builder;
+    Fn<void(int)> m_on_selection_changed;
+    Fn<void(int)> m_on_tab_close;
+    Fn<void()> m_on_add_tab;
 
     std::vector<Rect> m_tab_rects;
     Rect m_add_btn_rect;
@@ -352,71 +352,84 @@ private:
     bool m_add_hovered{false};
     WidgetPtr m_active_content_widget;
     std::shared_ptr<RenderBox> m_active_content_box;
+
+public:
+    void wrap_on_selection_changed(Fn<void(int)> extra) {
+        auto prev = std::move(m_on_selection_changed);
+        m_on_selection_changed = [prev = std::move(prev), extra = std::move(extra)](int idx) {
+            if (extra) extra(idx);
+            if (prev) prev(idx);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 TabView
-struct TabView {
-    Bindable<std::vector<TabViewItem>> tabs{};
-    Bindable<int> selected_index{0};
+struct TabView : BindableMixin<TabView, RenderTabView> {
+    std::vector<TabViewItem> tabs{};
+    int selected_index{0};
     bool is_add_tab_button_visible{true};
     float height{260.0f};
-    std::function<WidgetPtr(const std::string&)> content_builder{nullptr};
-    std::function<void(int)> on_selection_changed{nullptr};
-    std::function<void(int)> on_tab_close{nullptr};
-    std::function<void()> on_add_tab{nullptr};
+    Fn<WidgetPtr(const std::string&)> content_builder{nullptr};
+    Fn<void(int)> on_selection_changed{nullptr};
+    Fn<void(int)> on_tab_close{nullptr};
+    Fn<void()> on_add_tab{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderTabView>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_index_value(prop.get());
+    std::weak_ptr<RenderTabView> weak = node;
+    bg.subscribe(prop, [weak, guard](int idx) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_index_value(idx);
+        }
+    });
+    Property<int>* p = &prop;
+    node->wrap_on_selection_changed([p, guard](int idx) {
+        *guard = true;
+        p->set(idx);
+        *guard = false;
+    });
+}
 
 class TabViewWidget : public Widget {
 public:
     explicit TabViewWidget(const TabView& desc) : m_desc(desc) {}
+    explicit TabViewWidget(TabView&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TabViewWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderTabView>();
+        auto node = make_render_node<RenderTabView>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto tv = std::dynamic_pointer_cast<RenderTabView>(node)) {
+        if (auto tv = std::static_pointer_cast<RenderTabView>(node)) {
             apply(tv);
-            bind(tv);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderTabView>& tv) const {
-        auto desc_sel = m_desc.selected_index;
-        auto user_sel = m_desc.on_selection_changed;
         tv->set_properties(
-            m_desc.tabs.get(), m_desc.selected_index.get(), m_desc.is_add_tab_button_visible,
+            m_desc.tabs, m_desc.selected_index, m_desc.is_add_tab_button_visible,
             m_desc.height, m_desc.content_builder,
-            [desc_sel, user_sel](int idx) mutable {
-                desc_sel.set_bound(idx);
-                if (user_sel) user_sel(idx);
-            },
-            m_desc.on_tab_close, m_desc.on_add_tab);
-    }
-
-    void bind(const std::shared_ptr<RenderTabView>& tv) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.tabs, tv, [](RenderTabView& n, const std::vector<TabViewItem>& v) {
-            n.set_tabs_value(v);
-        });
-        m_bindings.attach(m_desc.selected_index, tv, [](RenderTabView& n, int idx) {
-            n.set_selected_index_value(idx);
-        });
+            m_desc.on_selection_changed, m_desc.on_tab_close, m_desc.on_add_tab);
     }
 
     TabView m_desc;
-    BindingGroup m_bindings;
 };
 
-inline TabView::operator WidgetPtr() const {
-    return std::make_shared<TabViewWidget>(*this);
+inline TabView::operator WidgetPtr() const& {
+    return make_widget<TabViewWidget>(*this);
+}
+inline TabView::operator WidgetPtr() && {
+    return make_widget<TabViewWidget>(std::move(*this));
 }
 
 } // namespace ktui

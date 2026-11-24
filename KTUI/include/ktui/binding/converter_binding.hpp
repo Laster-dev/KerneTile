@@ -10,7 +10,7 @@ namespace ktui {
 template <typename T, typename R>
 class ConverterBinding {
 public:
-    ConverterBinding(const Property<T>& property, std::function<R(const T&)> converter)
+    ConverterBinding(const Property<T>& property, Fn<R(const T&)> converter)
         : m_property(&const_cast<Property<T>&>(property)),
           m_converter(std::move(converter)) {
         m_sub_id = m_property->subscribe([this](const T& val, uint64_t /*token*/) {
@@ -55,15 +55,15 @@ public:
         return m_converter ? m_converter(m_property->get()) : R{};
     }
 
-    void on_view_update(std::function<void(const R&)> updater) {
+    void on_view_update(Fn<void(const R&)> updater) {
         m_view_updater = std::move(updater);
     }
 
 private:
     Property<T>* m_property = nullptr;
-    std::function<R(const T&)> m_converter;
+    Fn<R(const T&)> m_converter;
     uint64_t m_sub_id = 0;
-    std::function<void(const R&)> m_view_updater;
+    Fn<void(const R&)> m_view_updater;
 };
 
 } // namespace ktui

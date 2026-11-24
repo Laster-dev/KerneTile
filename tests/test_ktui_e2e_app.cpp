@@ -70,7 +70,7 @@ void test_designated_initializer_syntax_and_tree_building() {
     assert(root_render_box->size() == Vec2(800.0f, 600.0f));
 
     // 验证 Flex 容器的子节点数
-    auto flex_box = std::dynamic_pointer_cast<RenderFlexBox>(root_render_box);
+    auto flex_box = std::static_pointer_cast<RenderFlexBox>(root_render_box);
     assert(flex_box != nullptr);
     assert(flex_box->child_boxes().size() == 3);
 
@@ -85,13 +85,11 @@ void test_view_model_reactive_binding_and_two_way_sync() {
     vm.build_on_save.set(true);
 
     // 1. 测试 TextInput 双向绑定
-    TextInput input_desc{
-        .text = Bind(vm.search_query),
+    WidgetPtr input_widget = TextInput{
         .height = 26.0f
-    };
-    auto input_widget = std::dynamic_pointer_cast<TextInputWidget>(static_cast<WidgetPtr>(input_desc));
+    }.bind_two_way(vm.search_query);
     assert(input_widget != nullptr);
-    auto input_render_box = std::dynamic_pointer_cast<RenderTextInput>(input_widget->create_render_node());
+    auto input_render_box = std::static_pointer_cast<RenderTextInput>(input_widget->create_render_node());
     assert(input_render_box != nullptr);
 
     // 初始值同步校验
@@ -110,12 +108,10 @@ void test_view_model_reactive_binding_and_two_way_sync() {
     assert(input_render_box->text() == "ShaderPipeline.hlsl");
 
     // 2. 测试 Checkbox 双向绑定
-    Checkbox check_desc{
-        .checked = Bind(vm.build_on_save),
+    WidgetPtr check_widget = Checkbox{
         .label = "Auto Build"
-    };
-    auto check_widget = std::dynamic_pointer_cast<CheckboxWidget>(static_cast<WidgetPtr>(check_desc));
-    auto check_render_box = std::dynamic_pointer_cast<RenderCheckbox>(check_widget->create_render_node());
+    }.bind_two_way(vm.build_on_save);
+    auto check_render_box = std::static_pointer_cast<RenderCheckbox>(check_widget->create_render_node());
     assert(check_render_box != nullptr);
     assert(check_render_box->checked() == true);
 
@@ -139,7 +135,7 @@ void test_desktop_button_interaction_lifecycle() {
     };
 
     auto btn_widget = static_cast<WidgetPtr>(btn_desc);
-    auto btn_node = std::dynamic_pointer_cast<RenderButton>(btn_widget->create_render_node());
+    auto btn_node = std::static_pointer_cast<RenderButton>(btn_widget->create_render_node());
     assert(btn_node != nullptr);
 
     btn_node->layout(BoxConstraints::loose(Vec2{200.0f, 50.0f}));
@@ -249,7 +245,7 @@ void test_overflow_clipping_selection_and_clipboard() {
         .placeholder = "Input...",
         .height = 26.0f
     };
-    auto node = std::dynamic_pointer_cast<RenderTextInput>(input_w->create_render_node());
+    auto node = std::static_pointer_cast<RenderTextInput>(input_w->create_render_node());
     assert(node != nullptr);
     assert(node->cursor_shape == CursorShape::IBeam);
 
@@ -362,7 +358,7 @@ void test_text_input_undo_redo_and_word_selection() {
         .text = "hello_world",
         .height = 26.0f
     };
-    auto node = std::dynamic_pointer_cast<RenderTextInput>(input_w->create_render_node());
+    auto node = std::static_pointer_cast<RenderTextInput>(input_w->create_render_node());
     assert(node != nullptr);
     node->set_input_focused(true);
 
@@ -446,7 +442,7 @@ void test_cursor_blink_and_on_demand_rendering() {
     win->render_frame();
     win->clear_redraw_flag();
 
-    win->focus_manager().request_focus(dynamic_cast<RenderBox*>(win->root_render_box()->first_child()));
+    win->focus_manager().request_focus(win->root_render_box()->first_child()->as_render_box());
     assert(win->has_blinking_cursor());
     uint32_t active_timeout = app.compute_wait_timeout();
     assert(active_timeout > 0); // 启动 100ms 间歇闪烁定时驱动

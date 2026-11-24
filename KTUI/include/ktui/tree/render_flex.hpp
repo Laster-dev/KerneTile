@@ -77,7 +77,7 @@ public:
     void perform_layout() override {
         m_size = m_constraints.constrain(m_fixed_size);
         for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
-            if (auto* box = dynamic_cast<RenderBox*>(child)) {
+            if (auto* box = (child ? (child)->as_render_box() : nullptr)) {
                 box->layout(BoxConstraints::loose(m_size));
             }
         }

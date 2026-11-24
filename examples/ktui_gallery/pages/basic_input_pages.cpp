@@ -13,7 +13,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .spacing = 4.0f,
         .content = {
             Text { .text = title, .font_size = 22.0f, .font_weight = FontWeight::SemiBold },
-            Text { .text = subtitle, .font_size = 12.5f, .color = Bind(app.muted_text) }
+            Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
         }
     };
 }
@@ -31,7 +31,7 @@ WidgetPtr build_button_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "交互式计数器与按钮变体", .font_size = 14.0f },
-                    Text { .text = Bind(app.count_text), .font_size = 15.0f },
+                    Text { .font_size = 15.0f }.bind(&RenderText::set_text, app.count_text),
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
@@ -44,9 +44,8 @@ WidgetPtr build_button_page(GalleryApp& app) {
                                     .on_click = [&app]() {
                                         app.count += app.step_ten.get() ? 10 : 1;
                                         app.refresh_count();
-                                    },
-                                    .disabled = Bind(app.locked)
-                                }
+                                    }
+                                }.bind(&RenderButton::set_disabled, app.locked)
                             },
                             Tooltip {
                                 .text = "将当前计数清零重置",
@@ -56,17 +55,15 @@ WidgetPtr build_button_page(GalleryApp& app) {
                                     .on_click = [&app]() {
                                         app.count = 0;
                                         app.refresh_count();
-                                    },
-                                    .disabled = Bind(app.locked)
-                                }
+                                    }
+                                }.bind(&RenderButton::set_disabled, app.locked)
                             },
                             Button {
-                                .text = Bind(app.theme_btn_text),
                                 .variant = ButtonVariant::Standard,
                                 .on_click = [&app]() {
                                     app.app->set_theme(app.app->current_theme().is_dark ? Theme::light() : Theme::dark());
                                 }
-                            },
+                            }.bind(&RenderButton::set_text, app.theme_btn_text),
                             Button {
                                 .text = "已禁用按钮",
                                 .variant = ButtonVariant::Standard,
@@ -81,7 +78,7 @@ WidgetPtr build_button_page(GalleryApp& app) {
                 .spacing = 8.0f,
                 .content = {
                     Text { .text = "多窗口派生示例", .font_size = 14.0f },
-                    Text { .text = "主窗口与子窗口共享响应式状态与主题切换。", .font_size = 12.0f, .color = Bind(app.muted_text) },
+                    Text { .text = "主窗口与子窗口共享响应式状态与主题切换。", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
@@ -112,13 +109,12 @@ WidgetPtr build_checkbox_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "基础复选框", .font_size = 14.0f },
                     Checkbox {
-                        .checked = Bind(app.step_ten),
                         .label = "每次递增步长设为 +10 (联动 Button 页面计数器)",
                         .on_change = [&app](bool v) {
                             app.step_ten.set(v);
                             app.refresh_count();
                         }
-                    },
+                    }.bind_two_way(app.step_ten),
                     Checkbox {
                         .checked = true,
                         .label = "已选中且禁用",
@@ -148,13 +144,12 @@ WidgetPtr build_toggle_switch_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "状态开关示例", .font_size = 14.0f },
                     ToggleSwitch {
-                        .checked = Bind(app.locked),
                         .label = "锁定计数器按钮 (联动 Button 页面)",
                         .on_change = [&app](bool v) {
                             app.locked.set(v);
                             app.refresh_count();
                         }
-                    },
+                    }.bind_two_way(app.locked),
                     ToggleSwitch {
                         .checked = true,
                         .label = "开启且禁用",
@@ -179,7 +174,6 @@ WidgetPtr build_radio_button_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "渲染策略单选组", .font_size = 14.0f },
                     RadioGroup {
-                        .selected_value = Bind(app.radio_btn_val),
                         .options = {
                             RadioOption { .label = "选项 A — 推荐默认配置", .value = 0 },
                             RadioOption { .label = "选项 B — 高刷新率优先 (120 FPS)", .value = 1 },
@@ -187,7 +181,7 @@ WidgetPtr build_radio_button_page(GalleryApp& app) {
                             RadioOption { .label = "选项 D — 已禁用项", .value = 3, .disabled = true }
                         },
                         .spacing = 6.0f
-                    }
+                    }.bind_two_way(app.radio_btn_val)
                 }
             })
         }
@@ -207,7 +201,6 @@ WidgetPtr build_radio_card_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "性能配置单选卡片组", .font_size = 14.0f },
                     RadioCardGroup {
-                        .selected_value = Bind(app.radio_card_val),
                         .options = {
                             RadioCardOption {
                                 .label = "节能",
@@ -243,7 +236,7 @@ WidgetPtr build_radio_card_page(GalleryApp& app) {
                         },
                         .tile_width = 96.0f,
                         .tile_height = 74.0f
-                    }
+                    }.bind_two_way(app.radio_card_val)
                 }
             })
         }
@@ -275,7 +268,6 @@ WidgetPtr build_combobox_page(GalleryApp& app) {
                             ComboBoxItem("Direct2D Interop"),
                             ComboBoxItem("Remote Tile Stream")
                         },
-                        .selected_index = Bind(app.combo_idx),
                         .placeholder = "选择渲染后端...",
                         .width = 240.0f,
                         .max_visible_items = 6,
@@ -283,8 +275,8 @@ WidgetPtr build_combobox_page(GalleryApp& app) {
                         .on_change = [&app](int, const std::string& label) {
                             app.combo_preview.set("已选后端: " + label);
                         }
-                    },
-                    Text { .text = Bind(app.combo_preview), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                    }.bind_two_way(app.combo_idx),
+                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.combo_preview).bind(&RenderText::set_color, app.accent_text)
                 }
             })
         }
@@ -394,13 +386,12 @@ WidgetPtr build_textbox_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "响应式双向绑定文本输入", .font_size = 14.0f },
                     TextInput {
-                        .text = Bind(app.input_text),
                         .placeholder = "键入中文或英文...",
                         .on_change = [&app](const std::string& val) {
                             app.input_preview.set(val.empty() ? "输入预览: (空)" : "输入预览: " + val);
                         }
-                    },
-                    Text { .text = Bind(app.input_preview), .color = Bind(app.accent_text) }
+                    }.bind_two_way(app.input_text),
+                    Text {}.bind(&RenderText::set_text, app.input_preview).bind(&RenderText::set_color, app.accent_text)
                 }
             })
         }
@@ -420,7 +411,6 @@ WidgetPtr build_password_box_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "按住窥视模式 (PasswordRevealMode::Peek)", .font_size = 14.0f },
                     PasswordBox {
-                        .password = Bind(app.password_val),
                         .placeholder = "输入访问密码...",
                         .header = "访问令牌",
                         .reveal_mode = PasswordRevealMode::Peek,
@@ -431,8 +421,8 @@ WidgetPtr build_password_box_page(GalleryApp& app) {
                         .on_submit = [&app](const std::string& v) {
                             app.password_status.set("已按 Enter 提交密码 (长度 " + std::to_string(v.size()) + ")");
                         }
-                    },
-                    Text { .text = Bind(app.password_status), .font_size = 12.0f, .color = Bind(app.muted_text) }
+                    }.bind_two_way(app.password_val),
+                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.password_status).bind(&RenderText::set_color, app.muted_text)
                 }
             }),
             app.make_card(VStack {
@@ -481,7 +471,6 @@ WidgetPtr build_number_box_page(GalleryApp& app) {
                         .spacing = 16.0f,
                         .content = {
                             NumberBox {
-                                .value = Bind(app.number_int_val),
                                 .minimum = 0.0,
                                 .maximum = 500.0,
                                 .small_change = 1.0,
@@ -497,9 +486,8 @@ WidgetPtr build_number_box_page(GalleryApp& app) {
                                                   v, app.number_float_val.get());
                                     app.number_status.set(buf);
                                 }
-                            },
+                            }.bind_two_way(app.number_int_val),
                             NumberBox {
-                                .value = Bind(app.number_float_val),
                                 .minimum = -100.0,
                                 .maximum = 100.0,
                                 .small_change = 0.25,
@@ -515,10 +503,10 @@ WidgetPtr build_number_box_page(GalleryApp& app) {
                                                   app.number_int_val.get(), v);
                                     app.number_status.set(buf);
                                 }
-                            }
+                            }.bind_two_way(app.number_float_val)
                         }
                     },
-                    Text { .text = Bind(app.number_status), .font_size = 12.0f, .color = Bind(app.muted_text) }
+                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.number_status).bind(&RenderText::set_color, app.muted_text)
                 }
             })
         }

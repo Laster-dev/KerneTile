@@ -5,7 +5,7 @@
 #include "vsync_source.hpp"
 #include "font_resolver.hpp"
 #include <memory>
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
 
@@ -73,7 +73,7 @@ public:
 
     virtual void set_decorated(bool decorated) = 0;
     virtual bool is_decorated() const = 0;
-    virtual void set_titlebar_hit_test_callback(std::function<TitlebarHitTest(PointF local_pos)> cb) = 0;
+    virtual void set_titlebar_hit_test_callback(Fn<TitlebarHitTest(PointF local_pos)> cb) = 0;
 
     // ==================== 显示器与 DPI ====================
     virtual float dpi_scale() const = 0;
@@ -92,7 +92,7 @@ public:
                                       uint32_t dirty_x, uint32_t dirty_y,
                                       uint32_t dirty_w, uint32_t dirty_h) = 0;
     virtual void invalidate() = 0;
-    virtual void on_paint_requested(std::function<void()> handler) = 0;
+    virtual void on_paint_requested(Fn<void()> handler) = 0;
 
     // ==================== 框架级 IME 输入法与光标形状控制 ====================
     virtual void set_ime_enabled(bool enabled) = 0;
@@ -100,11 +100,11 @@ public:
     virtual void set_cursor(CursorShape cursor) = 0;
 
     // ==================== 回调与销毁 ====================
-    virtual void on_close_requested(std::function<bool()> handler) = 0;
-    virtual void on_resized(std::function<void(Vec2 new_size)> handler) = 0;
-    virtual void on_moved(std::function<void(Vec2 new_pos)> handler) = 0;
-    virtual void on_dpi_changed(std::function<void(float new_dpi)> handler) = 0;
-    virtual void on_focus_changed(std::function<void(bool focused)> handler) = 0;
+    virtual void on_close_requested(Fn<bool()> handler) = 0;
+    virtual void on_resized(Fn<void(Vec2 new_size)> handler) = 0;
+    virtual void on_moved(Fn<void(Vec2 new_pos)> handler) = 0;
+    virtual void on_dpi_changed(Fn<void(float new_dpi)> handler) = 0;
+    virtual void on_focus_changed(Fn<void(bool focused)> handler) = 0;
     virtual void close() = 0;
 };
 
@@ -130,7 +130,7 @@ public:
     virtual void set_clipboard_text(const std::string& utf8_text) = 0;
 
     // 注册全局事件监听器
-    virtual void set_event_callback(std::function<void(const PlatformEvent&)> callback) = 0;
+    virtual void set_event_callback(Fn<void(const PlatformEvent&)> callback) = 0;
 
     virtual void shutdown() = 0;
 };

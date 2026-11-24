@@ -35,7 +35,7 @@ public:
                         float width,
                         float height,
                         size_t overscan,
-                        std::function<WidgetPtr(size_t)> item_builder) {
+                        Fn<WidgetPtr(size_t)> item_builder) {
         bool rebuild = (m_item_count != item_count || std::abs(m_item_height - item_height) > 0.001f);
         m_item_count = item_count;
         m_item_height = std::max(16.0f, item_height);
@@ -280,7 +280,7 @@ private:
     float m_width{0.0f};
     float m_height{300.0f};
     size_t m_overscan{3};
-    std::function<WidgetPtr(size_t)> m_item_builder;
+    Fn<WidgetPtr(size_t)> m_item_builder;
 
     SmoothScrollPhysics m_physics;
     WinUIScrollBar m_scrollbar;
@@ -303,24 +303,27 @@ struct VirtualList {
     float width{0.0f};
     float height{300.0f};
     size_t overscan{3};
-    std::function<WidgetPtr(size_t)> item_builder{nullptr};
+    Fn<WidgetPtr(size_t)> item_builder{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class VirtualListWidget : public Widget {
 public:
     explicit VirtualListWidget(const VirtualList& desc) : m_desc(desc) {}
+    explicit VirtualListWidget(VirtualList&& desc) noexcept : m_desc(std::move(desc)) {}
     ~VirtualListWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderVirtualList>();
+        auto node = make_render_node<RenderVirtualList>();
         node->set_properties(m_desc.item_count, m_desc.item_height, m_desc.width, m_desc.height, m_desc.overscan, m_desc.item_builder);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderVirtualList>(node)) {
+        if (auto n = std::static_pointer_cast<RenderVirtualList>(node)) {
             n->set_properties(m_desc.item_count, m_desc.item_height, m_desc.width, m_desc.height, m_desc.overscan, m_desc.item_builder);
         }
     }
@@ -329,8 +332,11 @@ private:
     VirtualList m_desc;
 };
 
-inline VirtualList::operator WidgetPtr() const {
-    return std::make_shared<VirtualListWidget>(*this);
+inline VirtualList::operator WidgetPtr() const& {
+    return make_widget<VirtualListWidget>(*this);
+}
+inline VirtualList::operator WidgetPtr() && {
+    return make_widget<VirtualListWidget>(std::move(*this));
 }
 
 } // namespace ktui

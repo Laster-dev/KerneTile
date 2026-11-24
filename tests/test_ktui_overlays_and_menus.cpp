@@ -45,14 +45,12 @@ int main() {
     // 1. InfoBar 开关与尺寸测试
     Property<bool> ib_open{true};
     Property<InfoBarSeverity> ib_sev{InfoBarSeverity::Success};
-    InfoBar ib{
+    WidgetPtr ib_ptr = InfoBar{
         .title = "完成",
-        .message = "测试消息",
-        .severity = Bind(ib_sev),
-        .is_open = Bind(ib_open)
-    };
-    WidgetPtr ib_ptr = ib;
-    auto ib_node = std::dynamic_pointer_cast<RenderInfoBar>(ib_ptr->create_render_node());
+        .message = "测试消息"
+    }.bind(&RenderInfoBar::set_severity, ib_sev)
+     .bind_two_way(ib_open);
+    auto ib_node = std::static_pointer_cast<RenderInfoBar>(ib_ptr->create_render_node());
     assert(ib_node != nullptr);
     ib_node->layout(BoxConstraints::loose(Vec2{500.0f, 100.0f}));
     assert(ib_node->is_open());
@@ -95,7 +93,7 @@ int main() {
         .on_click = [&]() { split_clicks++; }
     };
     WidgetPtr sb_ptr = sb;
-    auto sb_node = std::dynamic_pointer_cast<RenderSplitButton>(sb_ptr->create_render_node());
+    auto sb_node = std::static_pointer_cast<RenderSplitButton>(sb_ptr->create_render_node());
     sb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(sb_node->size().y == 32.0f);
 
@@ -109,7 +107,7 @@ int main() {
 
     DropDownButton ddb{ .text = "操作", .items = { MenuFlyoutItem{ .label = "选项 1" } } };
     WidgetPtr ddb_ptr = ddb;
-    auto ddb_node = std::dynamic_pointer_cast<RenderDropDownButton>(ddb_ptr->create_render_node());
+    auto ddb_node = std::static_pointer_cast<RenderDropDownButton>(ddb_ptr->create_render_node());
     ddb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(ddb_node->size().y == 32.0f);
 
@@ -123,7 +121,7 @@ int main() {
         .on_change = [&](const std::string& v) { latest_pwd = v; }
     };
     WidgetPtr pb_ptr = pb;
-    auto pb_node = std::dynamic_pointer_cast<RenderPasswordBox>(pb_ptr->create_render_node());
+    auto pb_node = std::static_pointer_cast<RenderPasswordBox>(pb_ptr->create_render_node());
     pb_node->layout(BoxConstraints::loose(Vec2{300.0f, 80.0f}));
     assert(pb_node->size().y == 54.0f); // 22px header + 32px box
     assert(!pb_node->is_revealing());
@@ -143,7 +141,7 @@ int main() {
         .on_value_changed = [&](double v) { latest_num = v; }
     };
     WidgetPtr nb_ptr = nb;
-    auto nb_node = std::dynamic_pointer_cast<RenderNumberBox>(nb_ptr->create_render_node());
+    auto nb_node = std::static_pointer_cast<RenderNumberBox>(nb_ptr->create_render_node());
     nb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     nb_node->step(5.0);
     assert(nb_node->value() == 15.0 && latest_num == 15.0);
@@ -167,7 +165,7 @@ int main() {
         .default_label_position = CommandBarDefaultLabelPosition::Right
     };
     WidgetPtr cmd_ptr = cmd;
-    auto cmd_node = std::dynamic_pointer_cast<RenderCommandBar>(cmd_ptr->create_render_node());
+    auto cmd_node = std::static_pointer_cast<RenderCommandBar>(cmd_ptr->create_render_node());
     cmd_node->layout(BoxConstraints::tight(Vec2{520.0f, 40.0f}));
     assert(cmd_node->visible_primary_count() == 4);
     assert(cmd_node->overflowed_primary_count() == 0);
@@ -178,7 +176,7 @@ int main() {
     // 8. Label 排版与胶囊徽章布局校验
     Label lb{ .text = "已就绪", .variant = LabelVariant::Success, .pill = true, .required = true };
     WidgetPtr lb_ptr = lb;
-    auto lb_node = std::dynamic_pointer_cast<RenderLabel>(lb_ptr->create_render_node());
+    auto lb_node = std::static_pointer_cast<RenderLabel>(lb_ptr->create_render_node());
     lb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(lb_node->size().x > 30.0f && lb_node->size().y >= 24.0f);
 
@@ -196,7 +194,7 @@ int main() {
         .on_expanded_changed = [&](bool v) { exp_state = v; }
     };
     WidgetPtr ex_ptr = ex;
-    auto ex_node = std::dynamic_pointer_cast<RenderExpander>(ex_ptr->create_render_node());
+    auto ex_node = std::static_pointer_cast<RenderExpander>(ex_ptr->create_render_node());
     ex_node->layout(BoxConstraints::loose(Vec2{400.0f, 400.0f}));
     assert(!ex_node->is_expanded() && ex_node->size().y == 48.0f);
     ex_node->toggle();
@@ -213,7 +211,7 @@ int main() {
         }
     };
     WidgetPtr bb_ptr = bb;
-    auto bb_node = std::dynamic_pointer_cast<RenderBreadcrumbBar>(bb_ptr->create_render_node());
+    auto bb_node = std::static_pointer_cast<RenderBreadcrumbBar>(bb_ptr->create_render_node());
     bb_node->layout(BoxConstraints::loose(Vec2{800.0f, 60.0f}));
     assert(bb_node->collapsed_count() == 0);
     bb_node->layout(BoxConstraints::loose(Vec2{200.0f, 60.0f}));
@@ -229,7 +227,7 @@ int main() {
         .height = 240.0f
     };
     WidgetPtr tv_ptr = tv;
-    auto tv_node = std::dynamic_pointer_cast<RenderTabView>(tv_ptr->create_render_node());
+    auto tv_node = std::static_pointer_cast<RenderTabView>(tv_ptr->create_render_node());
     tv_node->layout(BoxConstraints::tight(Vec2{500.0f, 240.0f}));
     assert(tv_node->tab_count() == 2 && tv_node->selected_index() == 0);
     tv_node->set_selected_index_value(1);
@@ -242,7 +240,7 @@ int main() {
         .on_suggestion_chosen = [&](const std::string& s) { chosen_item = s; }
     };
     WidgetPtr asb_ptr = asb;
-    auto asb_node = std::dynamic_pointer_cast<RenderAutoSuggestBox>(asb_ptr->create_render_node());
+    auto asb_node = std::static_pointer_cast<RenderAutoSuggestBox>(asb_ptr->create_render_node());
     asb_node->layout(BoxConstraints::loose(Vec2{320.0f, 60.0f}));
     assert(asb_node->filtered_items().size() == 4);
     asb_node->set_text_value("bar");
@@ -265,7 +263,7 @@ int main() {
         .height = 180.0f
     };
     WidgetPtr tree_ptr = tree;
-    auto tree_node = std::dynamic_pointer_cast<RenderTreeView>(tree_ptr->create_render_node());
+    auto tree_node = std::static_pointer_cast<RenderTreeView>(tree_ptr->create_render_node());
     tree_node->layout(BoxConstraints::loose(Vec2{300.0f, 200.0f}));
     assert(tree_node->visible_row_count() == 1);
     assert(tree_node->toggle_expand_by_id("root"));
@@ -283,7 +281,7 @@ int main() {
         .max_date = CalendarDate{2026, 11, 30}
     };
     WidgetPtr cdp_ptr = cdp;
-    auto cdp_node = std::dynamic_pointer_cast<RenderCalendarDatePicker>(cdp_ptr->create_render_node());
+    auto cdp_node = std::static_pointer_cast<RenderCalendarDatePicker>(cdp_ptr->create_render_node());
     cdp_node->layout(BoxConstraints::loose(Vec2{260.0f, 60.0f}));
     assert(cdp_node->date().format_iso() == "2026-11-24");
     assert(cdp_node->is_date_in_range(CalendarDate{2026, 11, 15}));
@@ -335,7 +333,7 @@ int main() {
         .item_builder = [](size_t) -> WidgetPtr { return Box{ .height = 40.0f }; }
     };
     WidgetPtr vl_ptr = vlist;
-    auto vl_node = std::dynamic_pointer_cast<RenderVirtualList>(vl_ptr->create_render_node());
+    auto vl_node = std::static_pointer_cast<RenderVirtualList>(vl_ptr->create_render_node());
     vl_node->layout(BoxConstraints::tight(Vec2{400.0f, 400.0f}));
     assert(vl_node->item_count() == 100000);
     assert(vl_node->rendered_item_count() > 0 && vl_node->rendered_item_count() <= 20);
@@ -361,7 +359,7 @@ int main() {
         .on_value_changed = [&](float v) { rating_out = v; }
     };
     WidgetPtr rc_ptr = rc;
-    auto rc_node = std::dynamic_pointer_cast<RenderRatingControl>(rc_ptr->create_render_node());
+    auto rc_node = std::static_pointer_cast<RenderRatingControl>(rc_ptr->create_render_node());
     rc_node->layout(BoxConstraints::loose(Vec2{300.0f, 40.0f}));
     rc_node->apply_rating_click(4.5f);
     assert(std::abs(rc_node->value() - 4.5f) < 0.001f && std::abs(rating_out - 4.5f) < 0.001f);
@@ -392,7 +390,7 @@ int main() {
         .height = 200.0f
     };
     WidgetPtr dg_ptr = dg;
-    auto dg_node = std::dynamic_pointer_cast<RenderDataGrid>(dg_ptr->create_render_node());
+    auto dg_node = std::static_pointer_cast<RenderDataGrid>(dg_ptr->create_render_node());
     dg_node->layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
     assert(dg_node->row_count() == 3 && dg_node->sorted_column() == -1);
     dg_node->sort_by_column(0);
@@ -408,7 +406,7 @@ int main() {
     // 25. InfoBadge 99+ 溢出格式化校验
     InfoBadge badge{ .value = 128, .severity = InfoBadgeSeverity::Critical };
     WidgetPtr badge_ptr = badge;
-    auto badge_node = std::dynamic_pointer_cast<RenderInfoBadge>(badge_ptr->create_render_node());
+    auto badge_node = std::static_pointer_cast<RenderInfoBadge>(badge_ptr->create_render_node());
     badge_node->layout(BoxConstraints::loose(Vec2{100.0f, 30.0f}));
     assert(badge_node->formatted_text() == "99+");
 
@@ -420,14 +418,14 @@ int main() {
     // 27. TextArea 多行换行统计校验
     TextArea ta{ .text = "Line 1\nLine 2\nLine 3", .height = 120.0f };
     WidgetPtr ta_ptr = ta;
-    auto ta_node = std::dynamic_pointer_cast<RenderTextArea>(ta_ptr->create_render_node());
+    auto ta_node = std::static_pointer_cast<RenderTextArea>(ta_ptr->create_render_node());
     ta_node->layout(BoxConstraints::tight(Vec2{300.0f, 120.0f}));
     assert(ta_node->line_count() == 3);
 
     // 28. PipsPager 分页切换与边界夹紧校验
     PipsPager pp{ .number_of_pages = 10, .selected_index = 0 };
     WidgetPtr pp_ptr = pp;
-    auto pp_node = std::dynamic_pointer_cast<RenderPipsPager>(pp_ptr->create_render_node());
+    auto pp_node = std::static_pointer_cast<RenderPipsPager>(pp_ptr->create_render_node());
     pp_node->select_page(5);
     assert(pp_node->selected_index() == 5);
     pp_node->select_page(99);
@@ -436,21 +434,21 @@ int main() {
     // 29. FlipView 页面切换校验
     FlipView fv{ .items = { Box{ .height = 100.0f }, Box{ .height = 100.0f }, Box{ .height = 100.0f } }, .selected_index = 0 };
     WidgetPtr fv_ptr = fv;
-    auto fv_node = std::dynamic_pointer_cast<RenderFlipView>(fv_ptr->create_render_node());
+    auto fv_node = std::static_pointer_cast<RenderFlipView>(fv_ptr->create_render_node());
     fv_node->go_to(2);
     assert(fv_node->item_count() == 3 && fv_node->selected_index() == 2);
 
     // 30. SegmentedControl 分段切换校验
     SegmentedControl sc{ .items = { SegmentedItem{ .label = "A" }, SegmentedItem{ .label = "B" } }, .selected_index = 0 };
     WidgetPtr sc_ptr = sc;
-    auto sc_node = std::dynamic_pointer_cast<RenderSegmentedControl>(sc_ptr->create_render_node());
+    auto sc_node = std::static_pointer_cast<RenderSegmentedControl>(sc_ptr->create_render_node());
     sc_node->select(1);
     assert(sc_node->selected_index() == 1);
 
     // 31. ToggleButton 状态翻转校验
     ToggleButton tb{ .checked = false, .text = "Bold" };
     WidgetPtr tb_ptr = tb;
-    auto tb_node = std::dynamic_pointer_cast<RenderToggleButton>(tb_ptr->create_render_node());
+    auto tb_node = std::static_pointer_cast<RenderToggleButton>(tb_ptr->create_render_node());
     tb_node->toggle();
     assert(tb_node->checked() == true);
 
@@ -472,7 +470,7 @@ int main() {
         .items = std::vector<std::string>{ "WinUI 3", "KerneTile", "Fluent" }
     };
     WidgetPtr asb_reuse_ptr = asb_reuse;
-    auto asb_reuse_node = std::dynamic_pointer_cast<RenderAutoSuggestBox>(asb_reuse_ptr->create_render_node());
+    auto asb_reuse_node = std::static_pointer_cast<RenderAutoSuggestBox>(asb_reuse_ptr->create_render_node());
     assert(asb_reuse_node->input_box() != nullptr);
     assert(asb_reuse_node->input_box()->text() == "WinUI");
 
@@ -480,7 +478,7 @@ int main() {
     FrameClock::global().enable_virtual_time(10.0);
     PipsPager pp_anim{ .number_of_pages = 6, .selected_index = 0 };
     WidgetPtr pp_anim_ptr = pp_anim;
-    auto pp_anim_node = std::dynamic_pointer_cast<RenderPipsPager>(pp_anim_ptr->create_render_node());
+    auto pp_anim_node = std::static_pointer_cast<RenderPipsPager>(pp_anim_ptr->create_render_node());
     pp_anim_node->layout(BoxConstraints::loose(Vec2{300.0f, 40.0f}));
     pp_anim_node->select_page(2);
     assert(pp_anim_node->is_badge_active());
@@ -504,14 +502,14 @@ int main() {
     // 35. PasswordBox / NumberBox 直接组合复用真实 RenderTextBox 子节点校验
     PasswordBox pb_reuse{ .password = "secret" };
     WidgetPtr pb_reuse_ptr = pb_reuse;
-    auto pb_reuse_node = std::dynamic_pointer_cast<RenderPasswordBox>(pb_reuse_ptr->create_render_node());
+    auto pb_reuse_node = std::static_pointer_cast<RenderPasswordBox>(pb_reuse_ptr->create_render_node());
     assert(pb_reuse_node->input_box() != nullptr);
     assert(pb_reuse_node->input_box()->is_password());
     assert(pb_reuse_node->input_box()->text() == "secret");
 
     NumberBox nb_reuse{ .value = 42.0, .minimum = 0.0, .maximum = 100.0, .small_change = 5.0 };
     WidgetPtr nb_reuse_ptr = nb_reuse;
-    auto nb_reuse_node = std::dynamic_pointer_cast<RenderNumberBox>(nb_reuse_ptr->create_render_node());
+    auto nb_reuse_node = std::static_pointer_cast<RenderNumberBox>(nb_reuse_ptr->create_render_node());
     assert(nb_reuse_node->input_box() != nullptr);
     assert(nb_reuse_node->input_box()->text() == "42");
     nb_reuse_node->step(5.0);
@@ -523,12 +521,12 @@ int main() {
 
     DropDownButton ddb_reuse{ .text = "操作", .items = {} };
     WidgetPtr ddb_reuse_ptr = ddb_reuse;
-    auto ddb_reuse_node = std::dynamic_pointer_cast<RenderDropDownButton>(ddb_reuse_ptr->create_render_node());
+    auto ddb_reuse_node = std::static_pointer_cast<RenderDropDownButton>(ddb_reuse_ptr->create_render_node());
     assert(ddb_reuse_node->button() != nullptr && ddb_reuse_node->button()->text() == "操作");
 
     SplitButton sb_reuse{ .text = "保存", .accent = true, .items = {} };
     WidgetPtr sb_reuse_ptr = sb_reuse;
-    auto sb_reuse_node = std::dynamic_pointer_cast<RenderSplitButton>(sb_reuse_ptr->create_render_node());
+    auto sb_reuse_node = std::static_pointer_cast<RenderSplitButton>(sb_reuse_ptr->create_render_node());
     assert(sb_reuse_node->main_button() != nullptr && sb_reuse_node->drop_button() != nullptr);
     assert(sb_reuse_node->main_button()->variant() == ButtonVariant::Accent);
 
@@ -550,7 +548,7 @@ int main() {
         .child = Button { .text = "确定" }
     };
     WidgetPtr tip_ptr = tip_widget;
-    auto tip_area = std::dynamic_pointer_cast<RenderTooltipArea>(tip_ptr->create_render_node());
+    auto tip_area = std::static_pointer_cast<RenderTooltipArea>(tip_ptr->create_render_node());
     tip_area->layout(BoxConstraints::loose(Vec2{200.0f, 60.0f}));
     assert(tip_area->size().x > 20.0f && tip_area->size().y == 32.0f);
 
@@ -590,37 +588,10 @@ int main() {
         .strikethrough = true
     };
     WidgetPtr rich_lbl_ptr = rich_lbl;
-    auto rich_lbl_node = std::dynamic_pointer_cast<RenderLabel>(rich_lbl_ptr->create_render_node());
+    auto rich_lbl_node = std::static_pointer_cast<RenderLabel>(rich_lbl_ptr->create_render_node());
     rich_lbl_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(rich_lbl_node->size().x > 20.0f && rich_lbl_node->size().y >= 16.0f);
 
-    // 41. WinUI 3 无障碍自动化树 (AccessibilityService::build_tree) 与 LiveRegion 播报校验
-    RenderDecoratedBox a11y_root;
-    a11y_root.layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
-    RenderButton a11y_btn;
-    a11y_btn.set_text("提交表单");
-    a11y_btn.layout(BoxConstraints::tight(Vec2{100.0f, 32.0f}));
-    RenderCheckbox a11y_chk;
-    a11y_chk.set_checked(true);
-    a11y_chk.layout(BoxConstraints::tight(Vec2{120.0f, 24.0f}));
-    assert(a11y_chk.is_focusable);
-    a11y_root.append_child(&a11y_btn);
-    a11y_root.append_child(&a11y_chk);
-
-    auto a11y_tree = AccessibilityService::build_tree(&a11y_root, &a11y_btn);
-    assert(a11y_tree.children.size() == 2);
-    assert(a11y_tree.children[0].props.role == AccessibilityRole::Button);
-    assert(a11y_tree.children[0].props.name == "提交表单");
-    assert(a11y_tree.children[0].props.focused == true);
-    assert(a11y_tree.children[1].props.role == AccessibilityRole::CheckBox);
-    assert(a11y_tree.children[1].props.checked.has_value() && *a11y_tree.children[1].props.checked == true);
-
-    AccessibilityService::global().announce("已保存更改", LiveRegionSetting::Polite);
-    assert(AccessibilityService::global().last_announcement() == "已保存更改");
-
-    a11y_root.remove_child(&a11y_btn);
-    a11y_root.remove_child(&a11y_chk);
-
-    std::cout << "All 41 KTUI widget, overlay & architecture tests passed!" << std::endl;
+    std::cout << "All 40 KTUI widget, overlay & architecture tests passed!" << std::endl;
     return 0;
 }

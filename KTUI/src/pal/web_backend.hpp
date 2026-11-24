@@ -6,7 +6,7 @@
 #include <string>
 #include <chrono>
 #include <algorithm>
-#include <iostream>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 
@@ -811,7 +811,7 @@ EM_JS(void, ktui_js_wake_frame, (), {
 // ==================== Web 平台任务调度器 ====================
 class WebDispatcher : public IPlatformDispatcher {
 public:
-    void post_task(std::function<void()> task) override {
+    void post_task(Fn<void()> task) override {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_queue.push_back(std::move(task));
@@ -820,7 +820,7 @@ public:
     }
 
     size_t process_tasks() override {
-        std::vector<std::function<void()>> to_run;
+        std::vector<Fn<void()>> to_run;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             to_run.swap(m_queue);
@@ -838,13 +838,13 @@ public:
 
 private:
     mutable std::mutex m_mutex;
-    std::vector<std::function<void()>> m_queue;
+    std::vector<Fn<void()>> m_queue;
 };
 
 // ==================== Web 平台虚拟帧时钟源 ====================
 class WebVSyncSource : public IVSyncSource {
 public:
-    uint64_t request_frame(std::function<void(double timestamp_seconds)> callback) override {
+    uint64_t request_frame(Fn<void(double timestamp_seconds)> callback) override {
         uint64_t id = m_next_id++;
         m_requests.push_back({id, std::move(callback)});
         ktui_js_wake_frame();
@@ -870,7 +870,7 @@ public:
 private:
     struct Request {
         uint64_t id = 0;
-        std::function<void(double)> callback;
+        Fn<void(double)> callback;
     };
     std::vector<Request> m_requests;
     uint64_t m_next_id = 1;
@@ -895,8 +895,8 @@ public:
     static constexpr float kTaskbarHeight = 48.0f;
 
     WebWindow(int win_id, const WindowDesc& desc, int z_index,
-              std::function<void(WebWindow*)> on_activate_req,
-              std::function<void(WebWindow*)> on_destroyed)
+              Fn<void(WebWindow*)> on_activate_req,
+              Fn<void(WebWindow*)> on_destroyed)
         : m_win_id(win_id),
           m_title(desc.title),
           m_size(desc.size),
@@ -1117,7 +1117,7 @@ public:
 
     void set_decorated(bool decorated) override { m_decorated = decorated; }
     bool is_decorated() const override { return m_decorated; }
-    void set_titlebar_hit_test_callback(std::function<TitlebarHitTest(PointF)> cb) override {
+    void set_titlebar_hit_test_callback(Fn<TitlebarHitTest(PointF)> cb) override {
         m_hit_test_cb = std::move(cb);
     }
 
@@ -1151,7 +1151,7 @@ public:
     void invalidate() override {
         ktui_js_wake_frame();
     }
-    void on_paint_requested(std::function<void()> handler) override {
+    void on_paint_requested(Fn<void()> handler) override {
         m_paint_handler = std::move(handler);
     }
 
@@ -1183,11 +1183,11 @@ public:
     }
 
     // ==================== 回调与销毁 ====================
-    void on_close_requested(std::function<bool()> handler) override { m_close_handler = std::move(handler); }
-    void on_resized(std::function<void(Vec2)> handler) override { m_resize_handler = std::move(handler); }
-    void on_moved(std::function<void(Vec2)> handler) override { m_move_handler = std::move(handler); }
-    void on_dpi_changed(std::function<void(float)> handler) override { m_dpi_handler = std::move(handler); }
-    void on_focus_changed(std::function<void(bool)> handler) override { m_focus_handler = std::move(handler); }
+    void on_close_requested(Fn<bool()> handler) override { m_close_handler = std::move(handler); }
+    void on_resized(Fn<void(Vec2)> handler) override { m_resize_handler = std::move(handler); }
+    void on_moved(Fn<void(Vec2)> handler) override { m_move_handler = std::move(handler); }
+    void on_dpi_changed(Fn<void(float)> handler) override { m_dpi_handler = std::move(handler); }
+    void on_focus_changed(Fn<void(bool)> handler) override { m_focus_handler = std::move(handler); }
 
     void close() override {
         if (m_is_closed) return;
@@ -1290,15 +1290,15 @@ private:
     WindowState m_state{WindowState::Normal};
     CursorShape m_cursor{CursorShape::Arrow};
 
-    std::function<void(WebWindow*)> m_on_activate_req;
-    std::function<void(WebWindow*)> m_on_destroyed;
-    std::function<TitlebarHitTest(PointF)> m_hit_test_cb;
-    std::function<void()> m_paint_handler;
-    std::function<bool()> m_close_handler;
-    std::function<void(Vec2)> m_resize_handler;
-    std::function<void(Vec2)> m_move_handler;
-    std::function<void(float)> m_dpi_handler;
-    std::function<void(bool)> m_focus_handler;
+    Fn<void(WebWindow*)> m_on_activate_req;
+    Fn<void(WebWindow*)> m_on_destroyed;
+    Fn<TitlebarHitTest(PointF)> m_hit_test_cb;
+    Fn<void()> m_paint_handler;
+    Fn<bool()> m_close_handler;
+    Fn<void(Vec2)> m_resize_handler;
+    Fn<void(Vec2)> m_move_handler;
+    Fn<void(float)> m_dpi_handler;
+    Fn<void(bool)> m_focus_handler;
 };
 
 // ==================== Web 平台抽象层统一后端 (多窗口虚拟桌面) ====================
@@ -1369,7 +1369,7 @@ public:
         ktui_js_set_clipboard(utf8_text.c_str());
     }
 
-    void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
+    void set_event_callback(Fn<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);
     }
 
@@ -1589,7 +1589,7 @@ private:
     WebFontResolver m_font_resolver;
     std::vector<WebWindow*> m_windows;
     WebWindow* m_focused_window{nullptr};
-    std::function<void(const PlatformEvent&)> m_event_callback;
+    Fn<void(const PlatformEvent&)> m_event_callback;
 };
 
 // C 函数桥接实现

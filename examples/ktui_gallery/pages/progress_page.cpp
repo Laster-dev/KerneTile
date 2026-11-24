@@ -12,7 +12,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .spacing = 4.0f,
         .content = {
             Text { .text = title, .font_size = 22.0f },
-            Text { .text = subtitle, .font_size = 12.5f, .color = Bind(app.muted_text) }
+            Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
         }
     };
 }
@@ -29,9 +29,8 @@ WidgetPtr build_slider_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
                 .content = {
-                    Text { .text = Bind(app.slider_text), .font_size = 14.0f },
+                    Text { .font_size = 14.0f }.bind(&RenderText::set_text, app.slider_text),
                     Slider {
-                        .value = Bind(app.slider_val),
                         .min_value = 0.0f,
                         .max_value = 100.0f,
                         .step = 1.0f,
@@ -40,8 +39,8 @@ WidgetPtr build_slider_page(GalleryApp& app) {
                             app.slider_text.set("调节数值 (滑块): " + std::to_string(static_cast<int>(std::round(v))) + "%");
                             app.progress_norm.set(v / 100.0f);
                         }
-                    },
-                    Text { .text = "拖动滑块将同步更新 ProgressBar 与 ProgressRing 页面的确定进度值。", .font_size = 12.0f, .color = Bind(app.muted_text) }
+                    }.bind_two_way(app.slider_val),
+                    Text { .text = "拖动滑块将同步更新 ProgressBar 与 ProgressRing 页面的确定进度值。", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text)
                 }
             })
         }
@@ -60,9 +59,8 @@ WidgetPtr build_progress_bar_page(GalleryApp& app) {
                 .spacing = 12.0f,
                 .content = {
                     Text { .text = "确定进度 (Determinate)", .font_size = 14.0f },
-                    ProgressBar { .value = Bind(app.progress_norm), .width = 320.0f },
+                    ProgressBar { .width = 320.0f }.bind(app.progress_norm, [](RenderProgressBar& n, float v) { n.set_value(v, true); }),
                     Slider {
-                        .value = Bind(app.slider_val),
                         .min_value = 0.0f,
                         .max_value = 100.0f,
                         .step = 1.0f,
@@ -71,7 +69,7 @@ WidgetPtr build_progress_bar_page(GalleryApp& app) {
                             app.slider_text.set("调节数值 (滑块): " + std::to_string(static_cast<int>(std::round(v))) + "%");
                             app.progress_norm.set(v / 100.0f);
                         }
-                    }
+                    }.bind_two_way(app.slider_val)
                 }
             }),
             app.make_card(VStack {
@@ -107,7 +105,7 @@ WidgetPtr build_progress_ring_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     ProgressRing { .indeterminate = true, .size = 18.0f },
-                                    Text { .text = "18px 紧凑", .font_size = 11.5f, .color = Bind(app.muted_text) }
+                                    Text { .text = "18px 紧凑", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
                                 }
                             },
                             VStack {
@@ -115,7 +113,7 @@ WidgetPtr build_progress_ring_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     ProgressRing { .indeterminate = true, .size = 32.0f },
-                                    Text { .text = "32px 标准", .font_size = 11.5f, .color = Bind(app.muted_text) }
+                                    Text { .text = "32px 标准", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
                                 }
                             },
                             VStack {
@@ -123,7 +121,7 @@ WidgetPtr build_progress_ring_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     ProgressRing { .indeterminate = true, .size = 54.0f },
-                                    Text { .text = "54px 大号", .font_size = 11.5f, .color = Bind(app.muted_text) }
+                                    Text { .text = "54px 大号", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
                                 }
                             }
                         }
@@ -139,8 +137,8 @@ WidgetPtr build_progress_ring_page(GalleryApp& app) {
                         .align_items = AlignItems::Center,
                         .spacing = 18.0f,
                         .content = {
-                            ProgressRing { .value = Bind(app.progress_norm), .indeterminate = false, .size = 36.0f, .stroke_width = 3.5f },
-                            Text { .text = Bind(app.slider_text), .font_size = 13.0f, .color = Bind(app.muted_text) }
+                            ProgressRing { .indeterminate = false, .size = 36.0f, .stroke_width = 3.5f }.bind(app.progress_norm, [](RenderProgressRing& n, float v) { n.set_value(v, true); }),
+                            Text { .font_size = 13.0f }.bind(&RenderText::set_text, app.slider_text).bind(&RenderText::set_color, app.muted_text)
                         }
                     }
                 }

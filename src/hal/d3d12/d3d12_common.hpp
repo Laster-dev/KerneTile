@@ -4,22 +4,19 @@
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
-#include <stdexcept>
 #include <string>
-#include <iostream>
+#include <cstdio>
 
 namespace kernetile::hal::d3d12 {
 
 using Microsoft::WRL::ComPtr;
 
-inline void throw_if_failed(HRESULT hr, const char* msg = "") {
+inline bool throw_if_failed(HRESULT hr, const char* msg = "") noexcept {
     if (FAILED(hr)) {
-        std::string err_msg = "D3D12 Error: ";
-        err_msg += msg;
-        err_msg += " (HRESULT 0x" + std::to_string(hr) + ")";
-        std::cerr << err_msg << std::endl;
-        throw std::runtime_error(err_msg);
+        std::fprintf(stderr, "D3D12 Error: %s (HRESULT 0x%08lX)\n", msg ? msg : "", static_cast<unsigned long>(hr));
+        return false;
     }
+    return true;
 }
 
 inline DXGI_FORMAT to_dxgi_format(TextureFormat format) noexcept {

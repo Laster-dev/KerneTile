@@ -26,7 +26,7 @@ struct ListChangeEvent {
 template <typename T>
 class ObservableList {
 public:
-    using Listener = std::function<void(const ListChangeEvent&)>;
+    using Listener = Fn<void(const ListChangeEvent&)>;
 
     ObservableList() = default;
 

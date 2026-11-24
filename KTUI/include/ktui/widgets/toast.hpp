@@ -41,15 +41,15 @@ struct ToastDesc {
     float duration_sec{3.5f};          // <= 0 表示不自动消失
     float width{340.0f};
     std::string action_text{""};
-    std::function<void()> on_action{nullptr};
-    std::function<void()> on_close{nullptr};
+    Fn<void()> on_action{nullptr};
+    Fn<void()> on_close{nullptr};
 };
 
 // WinUI 3 / Windows 11 悬浮通知吐司 (RenderToast)
 // 具备原生高斯软阴影、滑入/滑出动效、底部倒计时进度条 (悬停自动暂停)、操作按钮与多条自动堆叠
 class RenderToast : public RenderBox {
 public:
-    RenderToast(ToastDesc desc, std::function<void()> on_finish_close)
+    RenderToast(ToastDesc desc, Fn<void()> on_finish_close)
         : m_desc(std::move(desc)), m_on_finish_close(std::move(on_finish_close)) {
         m_last_tick = std::chrono::steady_clock::now();
         m_open_start = m_last_tick;
@@ -279,7 +279,7 @@ private:
     }
 
     ToastDesc m_desc;
-    std::function<void()> m_on_finish_close;
+    Fn<void()> m_on_finish_close;
     Rect m_close_rect;
     Rect m_action_rect;
     bool m_hovered{false};
@@ -310,7 +310,7 @@ struct Toast {
         }
         slot_idx = std::min(slot_idx, 4);
 
-        auto toast = std::make_shared<RenderToast>(
+        auto toast = make_render_node<RenderToast>(
             desc,
             [overlay_id, on_close]() {
                 uint64_t id = *overlay_id;

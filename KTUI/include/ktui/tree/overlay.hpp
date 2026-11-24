@@ -25,7 +25,7 @@ struct OverlayEntry {
     bool dismiss_on_outside_click{true};
     bool is_modal{false};
     Color barrier_color{Color{0.0f, 0.0f, 0.0f, 0.50f}};
-    std::function<void()> on_dismiss{nullptr};
+    Fn<void()> on_dismiss{nullptr};
 };
 
 // 浮层与弹出层管理器 (OverlayManager)
@@ -80,7 +80,7 @@ public:
 
     // 关闭所有非模态锚定浮层 (窗口缩放/父容器大幅滚动时调用，避免浮层悬空错位)
     void dismiss_non_modal() {
-        std::vector<std::function<void()>> cbs;
+        std::vector<Fn<void()>> cbs;
         auto it = m_entries.begin();
         while (it != m_entries.end()) {
             if (!it->is_modal && it->dismiss_on_outside_click) {

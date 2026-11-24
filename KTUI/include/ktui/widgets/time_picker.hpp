@@ -65,8 +65,8 @@ public:
     RenderTimePickerPopup(TimeOfDay initial,
                           bool use_24h,
                           int minute_increment,
-                          std::function<void(const TimeOfDay&)> on_confirm,
-                          std::function<void()> on_cancel)
+                          Fn<void(const TimeOfDay&)> on_confirm,
+                          Fn<void()> on_cancel)
         : m_time(initial.is_valid() ? initial : TimeOfDay{9, 0}),
           m_use_24h(use_24h),
           m_minute_inc(std::clamp(minute_increment, 1, 30)),
@@ -292,8 +292,8 @@ private:
     int m_hover_off{0};
     bool m_hover_ok{false};
     bool m_hover_cancel{false};
-    std::function<void(const TimeOfDay&)> m_on_confirm;
-    std::function<void()> m_on_cancel;
+    Fn<void(const TimeOfDay&)> m_on_confirm;
+    Fn<void()> m_on_cancel;
 };
 
 // WinUI 3 TimePicker 紧凑触发器渲染盒
@@ -312,7 +312,7 @@ public:
                         int minute_increment,
                         float width,
                         bool disabled,
-                        std::function<void(const TimeOfDay&)> on_time_changed) {
+                        Fn<void(const TimeOfDay&)> on_time_changed) {
         if (m_time != time) { m_time = time; mark_needs_paint(); }
         if (m_header != header) { m_header = header; mark_needs_layout(); }
         if (m_use_24h != use_24h) { m_use_24h = use_24h; mark_needs_paint(); }
@@ -391,7 +391,7 @@ private:
         if (!win || m_disabled) return;
 
         auto token = std::make_shared<bool>(true);
-        auto popup = std::make_shared<RenderTimePickerPopup>(
+        auto popup = make_render_node<RenderTimePickerPopup>(
             m_time, m_use_24h, m_minute_inc,
             [this, token](const TimeOfDay& picked) {
                 if (!*token) return;
@@ -455,67 +455,83 @@ private:
     bool m_hovered{false};
     bool m_pressed{false};
     PopupHandle m_popup_handle;
-    std::function<void(const TimeOfDay&)> m_on_time_changed;
+    Fn<void(const TimeOfDay&)> m_on_time_changed;
+
+public:
+    void wrap_on_time_changed(Fn<void(const TimeOfDay&)> extra) {
+        auto prev = std::move(m_on_time_changed);
+        m_on_time_changed = [prev = std::move(prev), extra = std::move(extra)](const TimeOfDay& t) {
+            if (extra) extra(t);
+            if (prev) prev(t);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 TimePicker
-struct TimePicker {
-    Bindable<TimeOfDay> time{TimeOfDay{9, 30}};
+struct TimePicker : BindableMixin<TimePicker, RenderTimePicker> {
+    TimeOfDay time{TimeOfDay{9, 30}};
     std::string header;
     bool use_24h{true};
     int minute_increment{1};
     float width{190.0f};
     bool disabled{false};
-    std::function<void(const TimeOfDay&)> on_time_changed{nullptr};
+    Fn<void(const TimeOfDay&)> on_time_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderTimePicker>& node, Property<TimeOfDay>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_time_value(prop.get());
+    std::weak_ptr<RenderTimePicker> weak = node;
+    bg.subscribe(prop, [weak, guard](const TimeOfDay& t) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_time_value(t);
+        }
+    });
+    Property<TimeOfDay>* p = &prop;
+    node->wrap_on_time_changed([p, guard](const TimeOfDay& t) {
+        *guard = true;
+        p->set(t);
+        *guard = false;
+    });
+}
 
 class TimePickerWidget : public Widget {
 public:
     explicit TimePickerWidget(const TimePicker& desc) : m_desc(desc) {}
+    explicit TimePickerWidget(TimePicker&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TimePickerWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderTimePicker>();
+        auto node = make_render_node<RenderTimePicker>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderTimePicker>(node)) {
+        if (auto n = std::static_pointer_cast<RenderTimePicker>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderTimePicker>& node) {
-        auto t_bind = m_desc.time;
-        auto user_cb = m_desc.on_time_changed;
         node->set_properties(
-            m_desc.time.get(), m_desc.header, m_desc.use_24h, m_desc.minute_increment,
-            m_desc.width, m_desc.disabled,
-            [t_bind, user_cb](const TimeOfDay& t) mutable {
-                t_bind.set_bound(t);
-                if (user_cb) user_cb(t);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderTimePicker>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.time, node, [](RenderTimePicker& n, const TimeOfDay& t) {
-            n.set_time_value(t);
-        });
+            m_desc.time, m_desc.header, m_desc.use_24h, m_desc.minute_increment,
+            m_desc.width, m_desc.disabled, m_desc.on_time_changed);
     }
 
     TimePicker m_desc;
-    BindingGroup m_bindings;
 };
 
-inline TimePicker::operator WidgetPtr() const {
-    return std::make_shared<TimePickerWidget>(*this);
+inline TimePicker::operator WidgetPtr() const& {
+    return make_widget<TimePickerWidget>(*this);
+}
+inline TimePicker::operator WidgetPtr() && {
+    return make_widget<TimePickerWidget>(std::move(*this));
 }
 
 } // namespace ktui

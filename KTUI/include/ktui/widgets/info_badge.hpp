@@ -116,46 +116,44 @@ private:
 };
 
 // C++20 指定初始化器声明式 WinUI 3 InfoBadge
-struct InfoBadge {
-    Bindable<int> value{-1};
+struct InfoBadge : BindableMixin<InfoBadge, RenderInfoBadge> {
+    int value{-1};
     InfoBadgeSeverity severity{InfoBadgeSeverity::Attention};
     std::string svg_path;
     int max_value{99};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class InfoBadgeWidget : public Widget {
 public:
     explicit InfoBadgeWidget(const InfoBadge& desc) : m_desc(desc) {}
+    explicit InfoBadgeWidget(InfoBadge&& desc) noexcept : m_desc(std::move(desc)) {}
     ~InfoBadgeWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderInfoBadge>();
-        node->set_properties(m_desc.value.get(), m_desc.severity, m_desc.svg_path, m_desc.max_value);
-        bind(node);
+        auto node = make_render_node<RenderInfoBadge>();
+        node->set_properties(m_desc.value, m_desc.severity, m_desc.svg_path, m_desc.max_value);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderInfoBadge>(node)) {
-            n->set_properties(m_desc.value.get(), m_desc.severity, m_desc.svg_path, m_desc.max_value);
-            bind(n);
+        if (auto n = std::static_pointer_cast<RenderInfoBadge>(node)) {
+            n->set_properties(m_desc.value, m_desc.severity, m_desc.svg_path, m_desc.max_value);
         }
     }
 
 private:
-    void bind(const std::shared_ptr<RenderInfoBadge>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, node, [](RenderInfoBadge& n, int v) { n.set_value(v); });
-    }
-
     InfoBadge m_desc;
-    BindingGroup m_bindings;
 };
 
-inline InfoBadge::operator WidgetPtr() const {
-    return std::make_shared<InfoBadgeWidget>(*this);
+inline InfoBadge::operator WidgetPtr() const& {
+    return make_widget<InfoBadgeWidget>(*this);
+}
+inline InfoBadge::operator WidgetPtr() && {
+    return make_widget<InfoBadgeWidget>(std::move(*this));
 }
 
 } // namespace ktui

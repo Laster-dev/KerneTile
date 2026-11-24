@@ -32,16 +32,6 @@ public:
     [[nodiscard]] float value() const noexcept { return m_data.value; }
     [[nodiscard]] float min_value() const noexcept { return m_data.min_value; }
     [[nodiscard]] float max_value() const noexcept { return m_data.max_value; }
-
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::Slider;
-        p.range_min = m_data.min_value;
-        p.range_max = m_data.max_value;
-        p.range_value = m_data.value;
-        p.disabled = m_state.is_disabled;
-        return p;
-    }
     [[nodiscard]] float step() const noexcept { return m_data.step; }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
     [[nodiscard]] const SliderData& data() const noexcept { return m_data; }
@@ -105,8 +95,8 @@ public:
         }
     }
 
-    void set_on_change(std::function<void(float)> cb) { m_data.on_change = std::move(cb); }
-    void set_on_change_end(std::function<void(float)> cb) { m_data.on_change_end = std::move(cb); }
+    void set_on_change(Fn<void(float)> cb) { m_data.on_change = std::move(cb); }
+    void set_on_change_end(Fn<void(float)> cb) { m_data.on_change_end = std::move(cb); }
 
     void perform_layout() override {
         float w = m_constraints.constrain_width(m_data.width > 0.0f ? m_data.width : 180.0f);
@@ -314,80 +304,79 @@ private:
 };
 
 // C++20 指定初始化器声明式滑块控件 (Slider DSL Wrapper)
-struct Slider {
-    Bindable<float> value{0.0f};
-    Bindable<float> min_value{0.0f};
-    Bindable<float> max_value{100.0f};
-    Bindable<float> step{0.0f};
-    Bindable<float> track_height{4.0f};
-    Bindable<float> thumb_radius{10.0f};
-    Bindable<float> width{180.0f};
-    Bindable<bool> disabled{false};
+struct Slider : BindableMixin<Slider, RenderSlider> {
+    float value{0.0f};
+    float min_value{0.0f};
+    float max_value{100.0f};
+    float step{0.0f};
+    float track_height{4.0f};
+    float thumb_radius{10.0f};
+    float width{180.0f};
+    bool disabled{false};
 
-    std::function<void(float)> on_change{nullptr};
-    std::function<void(float)> on_change_end{nullptr};
+    Fn<void(float)> on_change{nullptr};
+    Fn<void(float)> on_change_end{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderSlider>& node, Property<float>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_value(prop.get(), false);
+    std::weak_ptr<RenderSlider> weak = node;
+    bg.subscribe(prop, [weak, guard](float v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_value(v, false);
+        }
+    });
+    auto prev = node->data().on_change;
+    Property<float>* p = &prop;
+    node->set_on_change([prev = std::move(prev), p, guard](float val) {
+        *guard = true;
+        p->set(val);
+        if (prev) prev(val);
+        *guard = false;
+    });
+}
 
 class SliderWidget : public Widget {
 public:
     explicit SliderWidget(const Slider& desc) : m_desc(desc) {}
+    explicit SliderWidget(Slider&& desc) noexcept : m_desc(std::move(desc)) {}
     ~SliderWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderSlider>();
+        auto node = make_render_node<RenderSlider>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto sl = std::dynamic_pointer_cast<RenderSlider>(node)) {
+        if (auto sl = std::static_pointer_cast<RenderSlider>(node)) {
             apply_desc_to_node(sl);
-            setup_bindings(sl);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderSlider>& node) {
-        node->set_range(m_desc.min_value.get(), m_desc.max_value.get(), m_desc.step.get());
-        node->set_value(m_desc.value.get(), false);
-        node->set_disabled(m_desc.disabled.get());
-        node->set_track_size(m_desc.track_height.get(), m_desc.thumb_radius.get(), m_desc.width.get());
-        node->set_on_change([this](float val) {
-            m_is_internal_update = true;
-            m_desc.value.set_bound(val);
-            if (m_desc.on_change) m_desc.on_change(val);
-            m_is_internal_update = false;
-        });
+        node->set_range(m_desc.min_value, m_desc.max_value, m_desc.step);
+        node->set_value(m_desc.value, false);
+        node->set_disabled(m_desc.disabled);
+        node->set_track_size(m_desc.track_height, m_desc.thumb_radius, m_desc.width);
+        node->set_on_change(m_desc.on_change);
         node->set_on_change_end(m_desc.on_change_end);
     }
 
-    void setup_bindings(const std::shared_ptr<RenderSlider>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, node, [this](RenderSlider& n, float v) {
-            if (!m_is_internal_update) n.set_value(v, false);
-        });
-        m_bindings.attach(m_desc.min_value, node, [this](RenderSlider& n, float) {
-            n.set_range(m_desc.min_value.get(), m_desc.max_value.get(), m_desc.step.get());
-        });
-        m_bindings.attach(m_desc.max_value, node, [this](RenderSlider& n, float) {
-            n.set_range(m_desc.min_value.get(), m_desc.max_value.get(), m_desc.step.get());
-        });
-        m_bindings.attach(m_desc.step, node, [this](RenderSlider& n, float) {
-            n.set_range(m_desc.min_value.get(), m_desc.max_value.get(), m_desc.step.get());
-        });
-        m_bindings.attach(m_desc.disabled, node, [](RenderSlider& n, bool v) { n.set_disabled(v); });
-    }
-
     Slider m_desc;
-    BindingGroup m_bindings;
-    bool m_is_internal_update{false};
 };
 
-inline Slider::operator WidgetPtr() const {
-    return std::make_shared<SliderWidget>(*this);
+inline Slider::operator WidgetPtr() const& {
+    return make_widget<SliderWidget>(*this);
+}
+inline Slider::operator WidgetPtr() && {
+    return make_widget<SliderWidget>(std::move(*this));
 }
 
 } // namespace ktui

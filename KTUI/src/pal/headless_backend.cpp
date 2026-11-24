@@ -5,14 +5,14 @@ namespace ktui {
 
 // ==================== HeadlessDispatcher ====================
 
-void HeadlessDispatcher::post_task(std::function<void()> task) {
+void HeadlessDispatcher::post_task(Fn<void()> task) {
     if (!task) return;
     std::lock_guard<std::mutex> lock(m_mutex);
     m_queue.push_back(std::move(task));
 }
 
 size_t HeadlessDispatcher::process_tasks() {
-    std::vector<std::function<void()>> local_tasks;
+    std::vector<Fn<void()>> local_tasks;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         local_tasks.swap(m_queue);
@@ -30,7 +30,7 @@ bool HeadlessDispatcher::has_pending_tasks() const {
 
 // ==================== HeadlessVSyncSource ====================
 
-uint64_t HeadlessVSyncSource::request_frame(std::function<void(double timestamp_seconds)> callback) {
+uint64_t HeadlessVSyncSource::request_frame(Fn<void(double timestamp_seconds)> callback) {
     if (!callback) return 0;
     uint64_t id = m_next_id++;
     m_requests.push_back({id, std::move(callback)});

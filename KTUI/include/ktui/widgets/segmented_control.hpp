@@ -38,7 +38,7 @@ public:
     void set_properties(std::vector<SegmentedItem> items,
                         int selected_index,
                         float width,
-                        std::function<void(int)> on_selected_changed) {
+                        Fn<void(int)> on_selected_changed) {
         m_items = std::move(items);
         int max_idx = std::max(0, static_cast<int>(m_items.size()) - 1);
         m_selected = std::clamp(selected_index, 0, max_idx);
@@ -187,62 +187,77 @@ private:
     bool m_pill_init{false};
     float m_pill_x{3.0f};
     float m_pill_w{60.0f};
-    std::function<void(int)> m_on_selected;
+    Fn<void(int)> m_on_selected;
+
+public:
+    void wrap_on_selected(Fn<void(int)> extra) {
+        auto prev = std::move(m_on_selected);
+        m_on_selected = [prev = std::move(prev), extra = std::move(extra)](int idx) {
+            if (extra) extra(idx);
+            if (prev) prev(idx);
+        };
+    }
 };
 
-struct SegmentedControl {
+struct SegmentedControl : BindableMixin<SegmentedControl, RenderSegmentedControl> {
     std::vector<SegmentedItem> items;
-    Bindable<int> selected_index{0};
+    int selected_index{0};
     float width{0.0f};
-    std::function<void(int)> on_selected_index_changed{nullptr};
+    Fn<void(int)> on_selected_index_changed{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderSegmentedControl>& node, Property<int>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_selected_index(prop.get());
+    std::weak_ptr<RenderSegmentedControl> weak = node;
+    bg.subscribe(prop, [weak, guard](int idx) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_selected_index(idx);
+        }
+    });
+    Property<int>* p = &prop;
+    node->wrap_on_selected([p, guard](int idx) {
+        *guard = true;
+        p->set(idx);
+        *guard = false;
+    });
+}
 
 class SegmentedControlWidget : public Widget {
 public:
     explicit SegmentedControlWidget(const SegmentedControl& desc) : m_desc(desc) {}
+    explicit SegmentedControlWidget(SegmentedControl&& desc) noexcept : m_desc(std::move(desc)) {}
     ~SegmentedControlWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderSegmentedControl>();
+        auto node = make_render_node<RenderSegmentedControl>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderSegmentedControl>(node)) {
+        if (auto n = std::static_pointer_cast<RenderSegmentedControl>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderSegmentedControl>& node) {
-        auto sel_bind = m_desc.selected_index;
-        auto user_cb = m_desc.on_selected_index_changed;
-        node->set_properties(
-            m_desc.items, m_desc.selected_index.get(), m_desc.width,
-            [sel_bind, user_cb](int idx) mutable {
-                sel_bind.set_bound(idx);
-                if (user_cb) user_cb(idx);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderSegmentedControl>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.selected_index, node, [](RenderSegmentedControl& n, int idx) {
-            n.set_selected_index(idx);
-        });
+        node->set_properties(m_desc.items, m_desc.selected_index, m_desc.width, m_desc.on_selected_index_changed);
     }
 
     SegmentedControl m_desc;
-    BindingGroup m_bindings;
 };
 
-inline SegmentedControl::operator WidgetPtr() const {
-    return std::make_shared<SegmentedControlWidget>(*this);
+inline SegmentedControl::operator WidgetPtr() const& {
+    return make_widget<SegmentedControlWidget>(*this);
+}
+inline SegmentedControl::operator WidgetPtr() && {
+    return make_widget<SegmentedControlWidget>(std::move(*this));
 }
 
 } // namespace ktui

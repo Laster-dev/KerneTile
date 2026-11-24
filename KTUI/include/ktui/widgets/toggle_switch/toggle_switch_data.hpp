@@ -4,7 +4,7 @@
 // MIT License, Copyright (c) Galahhad (Galahad)
 
 #include <string>
-#include <functional>
+#include <ktui/core/fn.hpp>
 
 namespace ktui {
 
@@ -18,7 +18,7 @@ struct ToggleSwitchData {
     float gap{8.0f};               // 开关与标签间距 8px
     bool disabled{false};
 
-    std::function<void(bool)> on_change{nullptr};
+    Fn<void(bool)> on_change{nullptr};
 };
 
 // 开关交互状态

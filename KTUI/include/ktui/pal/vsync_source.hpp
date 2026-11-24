@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <cstdint>
 
 namespace ktui {
@@ -11,7 +11,7 @@ public:
     virtual ~IVSyncSource() = default;
 
     // 请求下一帧回调，返回非零请求 ID
-    virtual uint64_t request_frame(std::function<void(double timestamp_seconds)> callback) = 0;
+    virtual uint64_t request_frame(Fn<void(double timestamp_seconds)> callback) = 0;
 
     // 取消指定的帧请求
     virtual void cancel_frame(uint64_t request_id) = 0;

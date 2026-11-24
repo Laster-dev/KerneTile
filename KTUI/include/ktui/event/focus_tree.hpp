@@ -108,7 +108,7 @@ private:
     void collect_focusable_nodes(RenderNode* current, std::vector<RenderBox*>& out_list) {
         if (!current) return;
 
-        if (auto* box = dynamic_cast<RenderBox*>(current)) {
+        if (auto* box = (current ? (current)->as_render_box() : nullptr)) {
             if (box->is_focusable && box->size().x > 0.5f && box->size().y > 0.5f) {
                 out_list.push_back(box);
             }

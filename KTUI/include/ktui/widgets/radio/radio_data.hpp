@@ -4,7 +4,7 @@
 // RadioButton follows WinUI 3 (Windows 11 Fluent 2) official specification
 
 #include <ktui/pal/platform_types.hpp>
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <string>
 #include <vector>
 
@@ -16,7 +16,7 @@ class PaintContext;
 struct RadioButtonData {
     std::string label{""};
     std::string icon_text{""}; // 单选卡片可选图标字符/符号
-    std::function<void(PaintContext&, Rect, Color)> icon_painter{nullptr}; // 单选卡片可选矢量图标绘制器
+    Fn<void(PaintContext&, Rect, Color)> icon_painter{nullptr}; // 单选卡片可选矢量图标绘制器
     int value{0};
     bool checked{false};
     bool disabled{false};
@@ -26,7 +26,7 @@ struct RadioButtonData {
     float font_size{13.0f};
     float gap{8.0f};           // 经典单选按钮圆圈与文字间距
 
-    std::function<void(int)> on_select{nullptr};
+    Fn<void(int)> on_select{nullptr};
 };
 
 using RadioCardData = RadioButtonData;
@@ -44,7 +44,7 @@ struct RadioOption {
     std::string label;
     int value{0};
     std::string icon_text{""};
-    std::function<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
+    Fn<void(PaintContext&, Rect, Color)> icon_painter{nullptr};
     bool disabled{false};
 };
 

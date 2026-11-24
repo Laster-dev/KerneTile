@@ -107,12 +107,12 @@ public:
     }
 
     // 监听值变化
-    void on_change(std::function<void(const T&)> callback) {
+    void on_change(Fn<void(const T&)> callback) {
         m_listeners.push_back(std::move(callback));
     }
 
     // 监听动画收敛静止事件
-    void on_settled(std::function<void()> callback) {
+    void on_settled(Fn<void()> callback) {
         m_settled_listeners.push_back(std::move(callback));
     }
 
@@ -141,8 +141,8 @@ private:
     SpringConfig m_config;
     T m_target{};
     T m_current{};
-    std::vector<std::function<void(const T&)>> m_listeners;
-    std::vector<std::function<void()>> m_settled_listeners;
+    std::vector<Fn<void(const T&)>> m_listeners;
+    std::vector<Fn<void()>> m_settled_listeners;
 };
 
 // 隐式属性动画辅助构造函数

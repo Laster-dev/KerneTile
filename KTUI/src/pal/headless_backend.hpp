@@ -11,19 +11,19 @@ namespace ktui {
 // 纯内存虚拟任务调度器
 class HeadlessDispatcher : public IPlatformDispatcher {
 public:
-    void post_task(std::function<void()> task) override;
+    void post_task(Fn<void()> task) override;
     size_t process_tasks() override;
     bool has_pending_tasks() const override;
 
 private:
     mutable std::mutex m_mutex;
-    std::vector<std::function<void()>> m_queue;
+    std::vector<Fn<void()>> m_queue;
 };
 
 // 纯内存虚拟帧时钟源
 class HeadlessVSyncSource : public IVSyncSource {
 public:
-    uint64_t request_frame(std::function<void(double timestamp_seconds)> callback) override;
+    uint64_t request_frame(Fn<void(double timestamp_seconds)> callback) override;
     void cancel_frame(uint64_t request_id) override;
     bool is_sleeping() const override;
 
@@ -34,7 +34,7 @@ public:
 private:
     struct Request {
         uint64_t id = 0;
-        std::function<void(double)> callback;
+        Fn<void(double)> callback;
     };
     std::vector<Request> m_requests;
     uint64_t m_next_id = 1;
@@ -101,7 +101,7 @@ public:
 
     void set_decorated(bool decorated) override { m_decorated = decorated; }
     bool is_decorated() const override { return m_decorated; }
-    void set_titlebar_hit_test_callback(std::function<TitlebarHitTest(PointF local_pos)> cb) override {
+    void set_titlebar_hit_test_callback(Fn<TitlebarHitTest(PointF local_pos)> cb) override {
         m_titlebar_hit_test = std::move(cb);
     }
 
@@ -116,16 +116,16 @@ public:
     void present_rgba8_region(const uint8_t* rgba, uint32_t width, uint32_t height,
                               uint32_t x, uint32_t y, uint32_t w, uint32_t h) override;
     void invalidate() override { if (m_on_paint) m_on_paint(); }
-    void on_paint_requested(std::function<void()> handler) override { m_on_paint = std::move(handler); }
+    void on_paint_requested(Fn<void()> handler) override { m_on_paint = std::move(handler); }
     void set_ime_enabled(bool enabled) override { m_ime_enabled = enabled; }
     void set_ime_cursor_rect(Rect rect) override { m_ime_cursor_rect = rect; }
     void set_cursor(CursorShape shape) override { m_cursor = shape; }
 
-    void on_close_requested(std::function<bool()> handler) override { m_on_close = std::move(handler); }
-    void on_resized(std::function<void(Vec2 new_size)> handler) override { m_on_resized = std::move(handler); }
-    void on_moved(std::function<void(Vec2 new_pos)> handler) override { m_on_moved = std::move(handler); }
-    void on_dpi_changed(std::function<void(float new_dpi)> handler) override { m_on_dpi_changed = std::move(handler); }
-    void on_focus_changed(std::function<void(bool focused)> handler) override { m_on_focus_changed = std::move(handler); }
+    void on_close_requested(Fn<bool()> handler) override { m_on_close = std::move(handler); }
+    void on_resized(Fn<void(Vec2 new_size)> handler) override { m_on_resized = std::move(handler); }
+    void on_moved(Fn<void(Vec2 new_pos)> handler) override { m_on_moved = std::move(handler); }
+    void on_dpi_changed(Fn<void(float new_dpi)> handler) override { m_on_dpi_changed = std::move(handler); }
+    void on_focus_changed(Fn<void(bool focused)> handler) override { m_on_focus_changed = std::move(handler); }
     void close() override;
 
     // 虚拟离屏像素缓冲区 (RGBA8)
@@ -152,17 +152,17 @@ private:
     uint32_t m_refresh_rate = 60;
 
     std::vector<uint32_t> m_pixels;
-    std::function<void()> m_on_paint;
+    Fn<void()> m_on_paint;
     bool m_ime_enabled = false;
     Rect m_ime_cursor_rect{};
     CursorShape m_cursor = CursorShape::Arrow;
 
-    std::function<TitlebarHitTest(PointF)> m_titlebar_hit_test;
-    std::function<bool()> m_on_close;
-    std::function<void(Vec2)> m_on_resized;
-    std::function<void(Vec2)> m_on_moved;
-    std::function<void(float)> m_on_dpi_changed;
-    std::function<void(bool)> m_on_focus_changed;
+    Fn<TitlebarHitTest(PointF)> m_titlebar_hit_test;
+    Fn<bool()> m_on_close;
+    Fn<void(Vec2)> m_on_resized;
+    Fn<void(Vec2)> m_on_moved;
+    Fn<void(float)> m_on_dpi_changed;
+    Fn<void(bool)> m_on_focus_changed;
 };
 
 // 纯内存无头平台驱动 (脱离物理显卡与屏幕，100% CI 自动化测试)
@@ -184,7 +184,7 @@ public:
     std::string get_clipboard_text() const override { return m_clipboard_text; }
     void set_clipboard_text(const std::string& utf8_text) override { m_clipboard_text = utf8_text; }
 
-    void set_event_callback(std::function<void(const PlatformEvent&)> callback) override {
+    void set_event_callback(Fn<void(const PlatformEvent&)> callback) override {
         m_event_callback = std::move(callback);
     }
 
@@ -199,7 +199,7 @@ private:
     HeadlessDispatcher m_dispatcher;
     HeadlessVSyncSource m_vsync;
     DefaultFontResolver m_font_resolver;
-    std::function<void(const PlatformEvent&)> m_event_callback;
+    Fn<void(const PlatformEvent&)> m_event_callback;
     std::deque<PlatformEvent> m_event_queue;
     std::string m_clipboard_text;
 };

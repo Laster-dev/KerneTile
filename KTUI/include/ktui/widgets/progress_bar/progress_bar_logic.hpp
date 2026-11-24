@@ -223,79 +223,57 @@ private:
 };
 
 // C++20 指定初始化器声明式进度条控件 (ProgressBar DSL Wrapper)
-struct ProgressBar {
-    Bindable<float> value{0.0f};
-    Bindable<bool> indeterminate{false};
-    Bindable<ProgressBarState> state{ProgressBarState::Normal};
-    Bindable<float> track_height{3.0f};
-    Bindable<float> width{180.0f};
-    Bindable<float> corner_radius{-1.0f};
-    Bindable<bool> disabled{false};
+struct ProgressBar : BindableMixin<ProgressBar, RenderProgressBar> {
+    float value{0.0f};
+    bool indeterminate{false};
+    ProgressBarState state{ProgressBarState::Normal};
+    float track_height{3.0f};
+    float width{180.0f};
+    float corner_radius{-1.0f};
+    bool disabled{false};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class ProgressBarWidget : public Widget {
 public:
     explicit ProgressBarWidget(const ProgressBar& desc) : m_desc(desc) {}
+    explicit ProgressBarWidget(ProgressBar&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ProgressBarWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderProgressBar>();
+        auto node = make_render_node<RenderProgressBar>();
         apply_desc_to_node(node);
-        setup_bindings(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto pb = std::dynamic_pointer_cast<RenderProgressBar>(node)) {
+        if (auto pb = std::static_pointer_cast<RenderProgressBar>(node)) {
             apply_desc_to_node(pb);
-            setup_bindings(pb);
         }
     }
 
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderProgressBar>& node) {
-        node->set_value(m_desc.value.get(), false);
-        node->set_indeterminate(m_desc.indeterminate.get());
-        node->set_state(m_desc.state.get());
-        node->set_track_height(m_desc.track_height.get());
-        node->set_bar_width(m_desc.width.get());
-        node->set_corner_radius(m_desc.corner_radius.get());
-        node->set_disabled(m_desc.disabled.get());
-    }
-
-    void setup_bindings(const std::shared_ptr<RenderProgressBar>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.value, node, [](RenderProgressBar& n, float v) {
-            n.set_value(v, true);
-        });
-        m_bindings.attach(m_desc.indeterminate, node, [](RenderProgressBar& n, bool v) {
-            n.set_indeterminate(v);
-        });
-        m_bindings.attach(m_desc.state, node, [](RenderProgressBar& n, ProgressBarState s) {
-            n.set_state(s);
-        });
-        m_bindings.attach(m_desc.track_height, node, [](RenderProgressBar& n, float v) {
-            n.set_track_height(v);
-        });
-        m_bindings.attach(m_desc.width, node, [](RenderProgressBar& n, float v) {
-            n.set_bar_width(v);
-        });
-        m_bindings.attach(m_desc.corner_radius, node, [](RenderProgressBar& n, float v) {
-            n.set_corner_radius(v);
-        });
-        m_bindings.attach(m_desc.disabled, node, [](RenderProgressBar& n, bool v) {
-            n.set_disabled(v);
-        });
+        node->set_value(m_desc.value, false);
+        node->set_indeterminate(m_desc.indeterminate);
+        node->set_state(m_desc.state);
+        node->set_track_height(m_desc.track_height);
+        node->set_bar_width(m_desc.width);
+        node->set_corner_radius(m_desc.corner_radius);
+        node->set_disabled(m_desc.disabled);
     }
 
     ProgressBar m_desc;
-    BindingGroup m_bindings;
 };
 
-inline ProgressBar::operator WidgetPtr() const {
-    return std::make_shared<ProgressBarWidget>(*this);
+inline ProgressBar::operator WidgetPtr() const& {
+    return make_widget<ProgressBarWidget>(*this);
+}
+inline ProgressBar::operator WidgetPtr() && {
+    return make_widget<ProgressBarWidget>(std::move(*this));
 }
 
 } // namespace ktui

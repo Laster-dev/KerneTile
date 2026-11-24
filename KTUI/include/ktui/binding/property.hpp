@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <ktui/core/fn.hpp>
 #include <vector>
 #include <cstdint>
 #include <atomic>
@@ -12,7 +12,7 @@ namespace ktui {
 template <typename T>
 class Property {
 public:
-    using Listener = std::function<void(const T& value, uint64_t transaction_token)>;
+    using Listener = Fn<void(const T& value, uint64_t transaction_token)>;
 
     Property() = default;
     explicit Property(T initial_value) : m_value(std::move(initial_value)) {}
@@ -40,7 +40,7 @@ public:
         return id;
     }
 
-    uint64_t subscribe(std::function<void(const T&)> simple_listener) {
+    uint64_t subscribe(Fn<void(const T&)> simple_listener) {
         return subscribe([fn = std::move(simple_listener)](const T& val, uint64_t /*token*/) {
             if (fn) fn(val);
         });

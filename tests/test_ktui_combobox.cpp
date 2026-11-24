@@ -98,13 +98,11 @@ int main() {
 
     // 5. C++20 声明式 DSL 与双向绑定测试
     Property<int> bound_idx{1};
-    ComboBox dsl{
+    WidgetPtr ptr = ComboBox{
         .items = {"One", "Two", "Three"},
-        .selected_index = Bind(bound_idx),
         .width = 210.0f
-    };
-    WidgetPtr ptr = dsl;
-    auto node = std::dynamic_pointer_cast<RenderComboBox>(ptr->create_render_node());
+    }.bind_two_way(bound_idx);
+    auto node = std::static_pointer_cast<RenderComboBox>(ptr->create_render_node());
     assert(node != nullptr);
     assert(node->selected_index() == 1);
     assert(node->selected_label() == "Two");

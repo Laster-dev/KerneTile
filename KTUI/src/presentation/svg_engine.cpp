@@ -5,9 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <mutex>
-#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -53,13 +51,21 @@ std::string load_svg_file_cached(const std::string& path) {
         return it->second;
     }
 
-    std::ifstream ifs(path, std::ios::binary);
     std::string content;
-    if (ifs) {
-        std::ostringstream oss;
-        oss << ifs.rdbuf();
-        content = oss.str();
+#if !defined(__EMSCRIPTEN__)
+    if (std::FILE* fp = std::fopen(path.c_str(), "rb")) {
+        if (std::fseek(fp, 0, SEEK_END) == 0) {
+            long sz = std::ftell(fp);
+            if (sz > 0) {
+                std::rewind(fp);
+                content.resize(static_cast<size_t>(sz));
+                size_t got = std::fread(content.data(), 1, content.size(), fp);
+                content.resize(got);
+            }
+        }
+        std::fclose(fp);
     }
+#endif
     file_cache.emplace(path, content);
     return content;
 }

@@ -248,8 +248,8 @@ private:
 };
 
 // C++20 指定初始化器声明式 WinUI 3 Label
-struct Label {
-    Bindable<std::string> text{""};
+struct Label : BindableMixin<Label, RenderLabel> {
+    std::string text{""};
     LabelVariant variant{LabelVariant::Body};
     bool pill{false};
     bool required{false};
@@ -262,49 +262,45 @@ struct Label {
     bool underline{false};
     bool strikethrough{false};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
 
 class LabelWidget : public Widget {
 public:
     explicit LabelWidget(const Label& desc) : m_desc(desc) {}
+    explicit LabelWidget(Label&& desc) noexcept : m_desc(std::move(desc)) {}
     ~LabelWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderLabel>();
+        auto node = make_render_node<RenderLabel>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto lb = std::dynamic_pointer_cast<RenderLabel>(node)) {
+        if (auto lb = std::static_pointer_cast<RenderLabel>(node)) {
             apply(lb);
-            bind(lb);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderLabel>& lb) const {
-        lb->set_properties(m_desc.text.get(), m_desc.variant, m_desc.pill,
+        lb->set_properties(m_desc.text, m_desc.variant, m_desc.pill,
                            m_desc.required, m_desc.svg_path, m_desc.font_size, m_desc.disabled,
                            m_desc.font_weight, m_desc.bold, m_desc.italic,
                            m_desc.underline, m_desc.strikethrough);
     }
 
-    void bind(const std::shared_ptr<RenderLabel>& lb) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.text, lb, [](RenderLabel& n, const std::string& v) {
-            n.set_text_value(v);
-        });
-    }
-
     Label m_desc;
-    BindingGroup m_bindings;
 };
 
-inline Label::operator WidgetPtr() const {
-    return std::make_shared<LabelWidget>(*this);
+inline Label::operator WidgetPtr() const& {
+    return make_widget<LabelWidget>(*this);
+}
+inline Label::operator WidgetPtr() && {
+    return make_widget<LabelWidget>(std::move(*this));
 }
 
 } // namespace ktui

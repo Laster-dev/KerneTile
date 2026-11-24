@@ -42,7 +42,7 @@ public:
     // 获取生命周期令牌，供浮层内部回调安全判断宿主是否存活
     [[nodiscard]] std::shared_ptr<bool> lifetime_token() const noexcept { return m_alive; }
 
-    bool open(Window& win, OverlayEntry entry, std::function<void()> on_closed = nullptr) {
+    bool open(Window& win, OverlayEntry entry, Fn<void()> on_closed = nullptr) {
         close();
         m_alive = std::make_shared<bool>(true);
         auto alive = m_alive;

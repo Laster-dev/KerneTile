@@ -17,7 +17,7 @@ namespace ktui {
 class RenderToggleButton : public RenderBox {
 public:
     RenderToggleButton() noexcept {
-        m_btn = std::make_shared<RenderButton>();
+        m_btn = make_render_node<RenderButton>();
         m_btn->set_click_handler([this]() { toggle(); });
         append_child(m_btn.get());
     }
@@ -32,7 +32,7 @@ public:
                         std::string text,
                         std::string svg_path,
                         bool disabled,
-                        std::function<void(bool)> on_change) {
+                        Fn<void(bool)> on_change) {
         m_checked = checked;
         m_disabled = disabled;
         m_on_change = std::move(on_change);
@@ -55,15 +55,6 @@ public:
 
     [[nodiscard]] bool checked() const noexcept { return m_checked; }
     [[nodiscard]] const std::shared_ptr<RenderButton>& button() const noexcept { return m_btn; }
-
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::ToggleButton;
-        if (p.name.empty() && m_btn) p.name = m_btn->text();
-        p.checked = m_checked;
-        p.disabled = m_disabled;
-        return p;
-    }
 
     void toggle() {
         if (m_disabled) return;
@@ -94,61 +85,78 @@ private:
     std::shared_ptr<RenderButton> m_btn;
     bool m_checked{false};
     bool m_disabled{false};
-    std::function<void(bool)> m_on_change;
+    Fn<void(bool)> m_on_change;
+
+public:
+    void wrap_on_change(Fn<void(bool)> extra) {
+        auto prev = std::move(m_on_change);
+        m_on_change = [prev = std::move(prev), extra = std::move(extra)](bool v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
-struct ToggleButton {
-    Bindable<bool> checked{false};
+struct ToggleButton : BindableMixin<ToggleButton, RenderToggleButton> {
+    bool checked{false};
     std::string text;
     std::string svg_path;
     bool disabled{false};
-    std::function<void(bool)> on_change{nullptr};
+    Fn<void(bool)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderToggleButton>& node, Property<bool>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_checked(prop.get());
+    std::weak_ptr<RenderToggleButton> weak = node;
+    bg.subscribe(prop, [weak, guard](bool v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_checked(v);
+        }
+    });
+    Property<bool>* p = &prop;
+    node->wrap_on_change([p, guard](bool v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class ToggleButtonWidget : public Widget {
 public:
     explicit ToggleButtonWidget(const ToggleButton& desc) : m_desc(desc) {}
+    explicit ToggleButtonWidget(ToggleButton&& desc) noexcept : m_desc(std::move(desc)) {}
     ~ToggleButtonWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderToggleButton>();
+        auto node = make_render_node<RenderToggleButton>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderToggleButton>(node)) {
+        if (auto n = std::static_pointer_cast<RenderToggleButton>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderToggleButton>& node) {
-        auto chk_bind = m_desc.checked;
-        auto user_cb = m_desc.on_change;
-        node->set_properties(
-            m_desc.checked.get(), m_desc.text, m_desc.svg_path, m_desc.disabled,
-            [chk_bind, user_cb](bool v) mutable {
-                chk_bind.set_bound(v);
-                if (user_cb) user_cb(v);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderToggleButton>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.checked, node, [](RenderToggleButton& n, bool v) { n.set_checked(v); });
+        node->set_properties(m_desc.checked, m_desc.text, m_desc.svg_path, m_desc.disabled, m_desc.on_change);
     }
 
     ToggleButton m_desc;
-    BindingGroup m_bindings;
 };
 
-inline ToggleButton::operator WidgetPtr() const {
-    return std::make_shared<ToggleButtonWidget>(*this);
+inline ToggleButton::operator WidgetPtr() const& {
+    return make_widget<ToggleButtonWidget>(*this);
+}
+inline ToggleButton::operator WidgetPtr() && {
+    return make_widget<ToggleButtonWidget>(std::move(*this));
 }
 
 } // namespace ktui

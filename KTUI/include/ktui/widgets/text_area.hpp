@@ -31,6 +31,7 @@ namespace ktui {
 // WinUI 3 右键上下文菜单与内置垂直平滑滚动条
 class RenderTextArea : public RenderBox, public ITextInputClient {
 public:
+    [[nodiscard]] ITextInputClient* as_text_input_client() noexcept override { return this; }
     RenderTextArea() noexcept {
         is_focusable = true;
         cursor_shape = CursorShape::IBeam;
@@ -45,7 +46,7 @@ public:
                         float width,
                         float height,
                         bool disabled,
-                        std::function<void(const std::string&)> on_change) {
+                        Fn<void(const std::string&)> on_change) {
         if (m_text != text) {
             m_text = text;
             m_caret = std::min(m_caret, m_text.size());
@@ -86,15 +87,6 @@ public:
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     [[nodiscard]] size_t line_count() const noexcept { return std::max<size_t>(1, m_lines.size()); }
     [[nodiscard]] size_t caret() const noexcept { return m_caret; }
-
-    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
-        auto p = RenderBox::compute_accessibility();
-        p.role = AccessibilityRole::TextArea;
-        if (p.name.empty()) p.name = !m_header.empty() ? m_header : m_placeholder;
-        p.value = m_text;
-        p.disabled = m_disabled;
-        return p;
-    }
 
     // ==================== 选区与撤销/重做公共接口 ====================
     [[nodiscard]] bool has_selection() const noexcept { return m_sel_anchor != m_caret; }
@@ -908,65 +900,83 @@ private:
     std::vector<UndoSnapshot> m_redo_stack;
     SmoothScrollPhysics m_physics;
     WinUIScrollBar m_scrollbar;
-    std::function<void(const std::string&)> m_on_change;
+    Fn<void(const std::string&)> m_on_change;
+
+public:
+    void wrap_on_change(Fn<void(const std::string&)> extra) {
+        auto prev = std::move(m_on_change);
+        m_on_change = [prev = std::move(prev), extra = std::move(extra)](const std::string& v) {
+            if (extra) extra(v);
+            if (prev) prev(v);
+        };
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 TextArea
-struct TextArea {
-    Bindable<std::string> text{std::string{}};
+struct TextArea : BindableMixin<TextArea, RenderTextArea> {
+    std::string text{std::string{}};
     std::string placeholder{"输入多行文本..."};
     std::string header;
     float width{0.0f};
     float height{120.0f};
     bool disabled{false};
-    std::function<void(const std::string&)> on_change{nullptr};
+    Fn<void(const std::string&)> on_change{nullptr};
 
-    operator WidgetPtr() const;
+    operator WidgetPtr() const&;
+
+    operator WidgetPtr() &&;
 };
+
+inline void ktui_bind_two_way(const std::shared_ptr<RenderTextArea>& node, Property<std::string>& prop, BindingGroup& bg) {
+    auto guard = std::make_shared<bool>(false);
+    node->set_text_value(prop.get());
+    std::weak_ptr<RenderTextArea> weak = node;
+    bg.subscribe(prop, [weak, guard](const std::string& v) {
+        if (!*guard) {
+            if (auto n = weak.lock()) n->set_text_value(v);
+        }
+    });
+    Property<std::string>* p = &prop;
+    node->wrap_on_change([p, guard](const std::string& v) {
+        *guard = true;
+        p->set(v);
+        *guard = false;
+    });
+}
 
 class TextAreaWidget : public Widget {
 public:
     explicit TextAreaWidget(const TextArea& desc) : m_desc(desc) {}
+    explicit TextAreaWidget(TextArea&& desc) noexcept : m_desc(std::move(desc)) {}
     ~TextAreaWidget() override = default;
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = std::make_shared<RenderTextArea>();
+        auto node = make_render_node<RenderTextArea>();
         apply(node);
-        bind(node);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto n = std::dynamic_pointer_cast<RenderTextArea>(node)) {
+        if (auto n = std::static_pointer_cast<RenderTextArea>(node)) {
             apply(n);
-            bind(n);
         }
     }
 
 private:
     void apply(const std::shared_ptr<RenderTextArea>& node) {
-        auto t_bind = m_desc.text;
-        auto user_cb = m_desc.on_change;
         node->set_properties(
-            m_desc.text.get(), m_desc.placeholder, m_desc.header,
-            m_desc.width, m_desc.height, m_desc.disabled,
-            [t_bind, user_cb](const std::string& v) mutable {
-                t_bind.set_bound(v);
-                if (user_cb) user_cb(v);
-            });
-    }
-
-    void bind(const std::shared_ptr<RenderTextArea>& node) {
-        m_bindings.clear();
-        m_bindings.attach(m_desc.text, node, [](RenderTextArea& n, const std::string& v) { n.set_text_value(v); });
+            m_desc.text, m_desc.placeholder, m_desc.header,
+            m_desc.width, m_desc.height, m_desc.disabled, m_desc.on_change);
     }
 
     TextArea m_desc;
-    BindingGroup m_bindings;
 };
 
-inline TextArea::operator WidgetPtr() const {
-    return std::make_shared<TextAreaWidget>(*this);
+inline TextArea::operator WidgetPtr() const& {
+    return make_widget<TextAreaWidget>(*this);
+}
+inline TextArea::operator WidgetPtr() && {
+    return make_widget<TextAreaWidget>(std::move(*this));
 }
 
 } // namespace ktui

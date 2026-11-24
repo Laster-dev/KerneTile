@@ -67,7 +67,7 @@ public:
     }
 
     // 注册视图更新回调 (当外部业务修改 Model 时通知 UI 刷新)
-    void on_view_update(std::function<void(const T&)> updater) {
+    void on_view_update(Fn<void(const T&)> updater) {
         m_view_updater = std::move(updater);
     }
 
@@ -75,7 +75,7 @@ private:
     Property<T>* m_property = nullptr;
     uint64_t m_sub_id = 0;
     uint64_t m_last_ui_token = 0;
-    std::function<void(const T&)> m_view_updater;
+    Fn<void(const T&)> m_view_updater;
     inline static std::atomic<uint64_t> s_next_token{0};
 };
 
