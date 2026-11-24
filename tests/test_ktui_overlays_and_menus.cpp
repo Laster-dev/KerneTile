@@ -1,3 +1,4 @@
+#include <ktui/widgets/box.hpp>
 #include <ktui/widgets/info_bar.hpp>
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
@@ -7,6 +8,18 @@
 #include <ktui/widgets/command_bar.hpp>
 #include <ktui/widgets/label.hpp>
 #include <ktui/widgets/toast.hpp>
+#include <ktui/widgets/expander.hpp>
+#include <ktui/widgets/breadcrumb_bar.hpp>
+#include <ktui/widgets/tab_view.hpp>
+#include <ktui/widgets/auto_suggest_box.hpp>
+#include <ktui/widgets/tree_view.hpp>
+#include <ktui/widgets/calendar_date_picker.hpp>
+#include <ktui/widgets/color_picker.hpp>
+#include <ktui/widgets/rating_control.hpp>
+#include <ktui/widgets/teaching_tip.hpp>
+#include <ktui/widgets/virtual_list.hpp>
+#include <ktui/animation/frame_clock.hpp>
+#include <ktui/tree/popup_handle.hpp>
 #include <ktui/theme/theme.hpp>
 #include <cassert>
 #include <iostream>
@@ -163,6 +176,197 @@ int main() {
     toast.layout(BoxConstraints::loose(Vec2{500.0f, 200.0f}));
     assert(toast.size().x == 340.0f && toast.size().y == 100.0f);
 
-    std::cout << "All InfoBar, ContentDialog, MenuFlyout, Split/DropDownButton, PasswordBox, NumberBox, CommandBar, Label & Toast tests passed!" << std::endl;
+    // 10. Expander 折叠/展开状态与高度变化校验
+    bool exp_state = false;
+    Expander ex{
+        .header = "高级设置",
+        .is_expanded = false,
+        .content = Box{ .height = 60.0f },
+        .on_expanded_changed = [&](bool v) { exp_state = v; }
+    };
+    WidgetPtr ex_ptr = ex;
+    auto ex_node = std::dynamic_pointer_cast<RenderExpander>(ex_ptr->create_render_node());
+    ex_node->layout(BoxConstraints::loose(Vec2{400.0f, 400.0f}));
+    assert(!ex_node->is_expanded() && ex_node->size().y == 48.0f);
+    ex_node->toggle();
+    assert(ex_node->is_expanded() && exp_state == true);
+
+    // 11. BreadcrumbBar 宽屏完整显示与窄屏自动折叠 "..." 校验
+    BreadcrumbBar bb{
+        .items = std::vector<BreadcrumbItem>{
+            BreadcrumbItem{ .id = "1", .label = "此电脑" },
+            BreadcrumbItem{ .id = "2", .label = "KerneTile" },
+            BreadcrumbItem{ .id = "3", .label = "KTUI" },
+            BreadcrumbItem{ .id = "4", .label = "widgets" },
+            BreadcrumbItem{ .id = "5", .label = "breadcrumb_bar.hpp" }
+        }
+    };
+    WidgetPtr bb_ptr = bb;
+    auto bb_node = std::dynamic_pointer_cast<RenderBreadcrumbBar>(bb_ptr->create_render_node());
+    bb_node->layout(BoxConstraints::loose(Vec2{800.0f, 60.0f}));
+    assert(bb_node->collapsed_count() == 0);
+    bb_node->layout(BoxConstraints::loose(Vec2{200.0f, 60.0f}));
+    assert(bb_node->collapsed_count() > 0);
+
+    // 12. TabView 多标签切换校验
+    TabView tv{
+        .tabs = std::vector<TabViewItem>{
+            TabViewItem{ .id = "t1", .header = "Tab 1" },
+            TabViewItem{ .id = "t2", .header = "Tab 2" }
+        },
+        .selected_index = 0,
+        .height = 240.0f
+    };
+    WidgetPtr tv_ptr = tv;
+    auto tv_node = std::dynamic_pointer_cast<RenderTabView>(tv_ptr->create_render_node());
+    tv_node->layout(BoxConstraints::tight(Vec2{500.0f, 240.0f}));
+    assert(tv_node->tab_count() == 2 && tv_node->selected_index() == 0);
+    tv_node->set_selected_index_value(1);
+    assert(tv_node->selected_index() == 1);
+
+    // 13. AutoSuggestBox 实时过滤与建议选中校验
+    std::string chosen_item;
+    AutoSuggestBox asb{
+        .items = std::vector<std::string>{"AutoSuggestBox", "Button", "BreadcrumbBar", "TabView"},
+        .on_suggestion_chosen = [&](const std::string& s) { chosen_item = s; }
+    };
+    WidgetPtr asb_ptr = asb;
+    auto asb_node = std::dynamic_pointer_cast<RenderAutoSuggestBox>(asb_ptr->create_render_node());
+    asb_node->layout(BoxConstraints::loose(Vec2{320.0f, 60.0f}));
+    assert(asb_node->filtered_items().size() == 4);
+    asb_node->set_text_value("bar");
+    assert(asb_node->filtered_items().size() == 1 && asb_node->filtered_items()[0] == "BreadcrumbBar");
+    asb_node->select_suggestion(0);
+    assert(chosen_item == "BreadcrumbBar" && asb_node->text() == "BreadcrumbBar");
+
+    // 14. TreeView 展开/折叠与父子三态复选框联动校验
+    TreeView tree{
+        .nodes = {
+            TreeViewNode{
+                .id = "root", .label = "Root", .is_expanded = false,
+                .children = {
+                    TreeViewNode{ .id = "c1", .label = "Child 1" },
+                    TreeViewNode{ .id = "c2", .label = "Child 2" }
+                }
+            }
+        },
+        .selection_mode = TreeViewSelectionMode::Multiple,
+        .height = 180.0f
+    };
+    WidgetPtr tree_ptr = tree;
+    auto tree_node = std::dynamic_pointer_cast<RenderTreeView>(tree_ptr->create_render_node());
+    tree_node->layout(BoxConstraints::loose(Vec2{300.0f, 200.0f}));
+    assert(tree_node->visible_row_count() == 1);
+    assert(tree_node->toggle_expand_by_id("root"));
+    assert(tree_node->visible_row_count() == 3);
+    assert(tree_node->toggle_check_by_id("root"));
+    assert(tree_node->checked_ids().size() == 3);
+
+    // 15. CalendarDatePicker 日历算法与日期范围约束校验
+    assert(CalendarDate::days_in_month(2024, 2) == 29);
+    assert(CalendarDate::days_in_month(2026, 2) == 28);
+    assert(CalendarDate::day_of_week(2026, 11, 24) == 2); // 2026-11-24 is Tuesday
+    CalendarDatePicker cdp{
+        .date = CalendarDate{2026, 11, 24},
+        .min_date = CalendarDate{2026, 11, 1},
+        .max_date = CalendarDate{2026, 11, 30}
+    };
+    WidgetPtr cdp_ptr = cdp;
+    auto cdp_node = std::dynamic_pointer_cast<RenderCalendarDatePicker>(cdp_ptr->create_render_node());
+    cdp_node->layout(BoxConstraints::loose(Vec2{260.0f, 60.0f}));
+    assert(cdp_node->date().format_iso() == "2026-11-24");
+    assert(cdp_node->is_date_in_range(CalendarDate{2026, 11, 15}));
+    assert(!cdp_node->is_date_in_range(CalendarDate{2026, 12, 1}));
+
+    // 16. Fluent 2 语义令牌校验 (Dark / Light)
+    Theme dark_t = Theme::dark();
+    Theme light_t = Theme::light();
+    assert(dark_t.colors.flyout_surface.a == 1.0f && light_t.colors.flyout_surface.a == 1.0f);
+    assert(dark_t.colors.control_fill_default != light_t.colors.control_fill_default);
+
+    // 17. FrameClock 确定性虚拟时间步进校验
+    auto& clock = FrameClock::global();
+    clock.enable_virtual_time(10.0);
+    FluentPopupSurface surf;
+    clock.advance_virtual(0.065f);
+    auto st1 = surf.tick(0.13f);
+    assert(st1.animating && st1.ease > 0.5f && st1.ease < 1.0f);
+    clock.advance_virtual(0.10f);
+    auto st2 = surf.tick(0.13f);
+    assert(!st2.animating && st2.alpha == 1.0f);
+    clock.disable_virtual_time();
+
+    // 18. RenderNode 挂载/卸载生命周期钩子校验
+    struct LifecycleProbe : public RenderBox {
+        int mounted{0};
+        int unmounted{0};
+        void perform_layout() override { set_size(Vec2{10.0f, 10.0f}); }
+        void on_mounted() override { ++mounted; }
+        void on_unmounted() override { ++unmounted; }
+    };
+    {
+        struct DummyBox : public RenderBox { void perform_layout() override { set_size(Vec2{100.0f, 100.0f}); } };
+        DummyBox parent_b;
+        LifecycleProbe probe;
+        assert(!probe.is_mounted());
+        parent_b.append_child(&probe);
+        assert(probe.is_mounted() && probe.mounted == 1 && probe.unmounted == 0);
+        parent_b.remove_child(&probe);
+        assert(!probe.is_mounted() && probe.unmounted == 1);
+    }
+
+    // 19. VirtualList 100,000 行 O(1) 视口虚拟化裁剪校验
+    VirtualList vlist{
+        .item_count = 100000,
+        .item_height = 40.0f,
+        .height = 400.0f,
+        .overscan = 2,
+        .item_builder = [](size_t) -> WidgetPtr { return Box{ .height = 40.0f }; }
+    };
+    WidgetPtr vl_ptr = vlist;
+    auto vl_node = std::dynamic_pointer_cast<RenderVirtualList>(vl_ptr->create_render_node());
+    vl_node->layout(BoxConstraints::tight(Vec2{400.0f, 400.0f}));
+    assert(vl_node->item_count() == 100000);
+    assert(vl_node->rendered_item_count() > 0 && vl_node->rendered_item_count() <= 20);
+    vl_node->scroll_to(200000.0f); // 滚至第 5000 行附近
+    assert(vl_node->first_visible_index() >= 4995 && vl_node->first_visible_index() <= 5000);
+    assert(vl_node->rendered_item_count() <= 20);
+
+    // 20. ColorPicker HSV <-> RGB 转换与 Hex 格式化校验
+    float cr, cg, cb, ch, cs, cv;
+    RenderColorPicker::hsv_to_rgb(120.0f, 1.0f, 1.0f, cr, cg, cb);
+    assert(std::abs(cr) < 1e-4f && std::abs(cg - 1.0f) < 1e-4f && std::abs(cb) < 1e-4f);
+    RenderColorPicker::rgb_to_hsv(cr, cg, cb, ch, cs, cv);
+    assert(std::abs(ch - 120.0f) < 0.1f && std::abs(cs - 1.0f) < 1e-4f && std::abs(cv - 1.0f) < 1e-4f);
+    assert(RenderColorPicker::format_hex(Color{0.0f, 1.0f, 0.0f, 1.0f}, false) == "#00FF00");
+
+    // 21. RatingControl 评分、半星与二次点击清零校验
+    float rating_out = 0.0f;
+    RatingControl rc{
+        .value = 3.0f,
+        .max_rating = 5,
+        .is_clear_enabled = true,
+        .allow_half_stars = true,
+        .on_value_changed = [&](float v) { rating_out = v; }
+    };
+    WidgetPtr rc_ptr = rc;
+    auto rc_node = std::dynamic_pointer_cast<RenderRatingControl>(rc_ptr->create_render_node());
+    rc_node->layout(BoxConstraints::loose(Vec2{300.0f, 40.0f}));
+    rc_node->apply_rating_click(4.5f);
+    assert(std::abs(rc_node->value() - 4.5f) < 0.001f && std::abs(rating_out - 4.5f) < 0.001f);
+    rc_node->apply_rating_click(4.5f); // 二次点击清零
+    assert(std::abs(rc_node->value()) < 0.001f);
+
+    // 22. TeachingTip 尺寸布局计算校验
+    RenderTeachingTip tip(TeachingTipDesc{
+        .title = "引导提示",
+        .subtitle = "这是一段用于测试多行折行与尾标高度计算的引导说明文字。",
+        .action_text = "确认",
+        .close_text = "取消"
+    }, true, true, 160.0f, nullptr);
+    tip.layout(BoxConstraints::loose(Vec2{500.0f, 400.0f}));
+    assert(tip.size().x == 320.0f && tip.size().y > 120.0f);
+
+    std::cout << "All 22 KTUI widget, overlay & architecture tests passed!" << std::endl;
     return 0;
 }

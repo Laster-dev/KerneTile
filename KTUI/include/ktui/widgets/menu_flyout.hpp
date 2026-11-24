@@ -8,6 +8,7 @@
 #include <ktui/theme/theme_scope.hpp>
 #include <ktui/tree/overlay.hpp>
 #include <ktui/tree/render_box.hpp>
+#include <ktui/widgets/common/fluent_chrome.hpp>
 #include <ktui/widgets/widget.hpp>
 
 #include <algorithm>
@@ -44,7 +45,6 @@ public:
     RenderMenuFlyout(std::vector<MenuFlyoutItem> items, std::function<void()> on_close)
         : m_items(std::move(items)), m_on_close(std::move(on_close)) {
         cursor_shape = CursorShape::Arrow;
-        m_open_start = std::chrono::steady_clock::now();
         for (const auto& it : m_items) {
             if (!it.svg_path.empty() || it.is_checkable) {
                 m_has_leading_col = true;
@@ -79,24 +79,13 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
-        if (m_open_progress < 1.0f) {
-            auto now = std::chrono::steady_clock::now();
-            float elapsed = std::chrono::duration<float>(now - m_open_start).count();
-            m_open_progress = std::clamp(elapsed / 0.13f, 0.0f, 1.0f);
-            if (m_open_progress < 1.0f) mark_needs_paint();
-        }
+        auto st = m_surface.tick();
+        if (st.animating) mark_needs_paint();
 
         const Theme& theme = ThemeContext::current();
-        float ease = 1.0f - std::pow(1.0f - m_open_progress, 3.0f);
-        float anim_h = std::max(16.0f, size().y * (0.76f + 0.24f * ease));
-        float alpha = std::clamp(ease * 1.15f, 0.0f, 1.0f);
+        float anim_h = std::max(16.0f, size().y * (0.76f + 0.24f * st.ease));
+        float alpha = st.alpha;
 
-        Color bg = theme.is_dark
-            ? Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, alpha}
-            : Color{250.0f / 255.0f, 250.0f / 255.0f, 250.0f / 255.0f, alpha};
-        Color border = theme.is_dark
-            ? Color{1.0f, 1.0f, 1.0f, 0.09f * alpha}
-            : Color{0.0f, 0.0f, 0.0f, 0.09f * alpha};
         Color sep_col = theme.is_dark
             ? Color{1.0f, 1.0f, 1.0f, 0.08f * alpha}
             : Color{0.0f, 0.0f, 0.0f, 0.08f * alpha};
@@ -116,11 +105,8 @@ public:
             ? Color{1.0f, 1.0f, 1.0f, 0.36f * alpha}
             : Color{0.0f, 0.0f, 0.0f, 0.36f * alpha};
 
-        // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影 + 8px 圆角浮层底板
-        Rect panel = Rect::from_xywh(0.0f, 0.0f, size().x, anim_h);
-        ctx.draw_elevation_shadow(panel, 8.0f, theme.is_dark, 32.0f, alpha);
-        ctx.draw_rect(panel, bg, 8.0f, 0.0f);
-        ctx.draw_rect(panel, border, 8.0f, 1.0f);
+        // 1. 复用 FluentPopupSurface 绘制 32dp 真高斯阴影 + 8px 圆角浮层底板
+        FluentPopupSurface::paint_panel(ctx, theme, Rect::from_xywh(0.0f, 0.0f, size().x, anim_h), alpha);
 
         // 2. 菜单项绘制
         ctx.push_clip(Rect::from_xywh(4.0f, 4.0f, std::max(0.0f, size().x - 8.0f), std::max(0.0f, anim_h - 8.0f)), 4.0f);
@@ -232,8 +218,7 @@ private:
     bool m_has_leading_col{false};
     int m_hovered_index{-1};
     int m_pressed_index{-1};
-    float m_open_progress{0.0f};
-    std::chrono::steady_clock::time_point m_open_start;
+    FluentPopupSurface m_surface;
 };
 
 // 静态便捷菜单弹出器 (MenuFlyout::show_at)

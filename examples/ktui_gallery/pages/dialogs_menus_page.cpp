@@ -481,4 +481,630 @@ WidgetPtr build_navigation_view_page(GalleryApp& app) {
     });
 }
 
+// ==================== TabView ====================
+WidgetPtr build_tab_view_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            page_header(app, "TabView", "WinUI 3 多标签页控件 (Windows Terminal / Edge 风格)：选中标签无缝融底、单标签关闭 (×) 与动态新建 (+)。"),
+            TabView {
+                .tabs = Bind(app.tab_items),
+                .selected_index = Bind(app.tab_selected),
+                .is_add_tab_button_visible = true,
+                .height = 280.0f,
+                .content_builder = [&app](const std::string& tab_id) -> WidgetPtr {
+                    return Box {
+                        .padding = EdgeInsets(18.0f, 20.0f),
+                        .child = VStack {
+                            .align_items = AlignItems::Stretch,
+                            .spacing = 10.0f,
+                            .content = {
+                                Label { .text = "当前标签页: " + tab_id, .variant = LabelVariant::Subtitle },
+                                Text {
+                                    .text = "点击顶部「+」可动态新建标签页，点击标签右侧「×」可关闭可关闭标签页；首标签「欢迎页」设置为不可关闭 (is_closable = false)。",
+                                    .font_size = 13.0f,
+                                    .color = Bind(app.muted_text)
+                                },
+                                HStack {
+                                    .align_items = AlignItems::Center,
+                                    .spacing = 8.0f,
+                                    .content = {
+                                        Label { .text = "Tab ID: " + tab_id, .variant = LabelVariant::Accent, .pill = true },
+                                        Label { .text = "GPU 硬件合成", .variant = LabelVariant::Success, .pill = true }
+                                    }
+                                }
+                            }
+                        }
+                    };
+                },
+                .on_selection_changed = [&app](int idx) {
+                    app.tab_selected.set(idx);
+                },
+                .on_tab_close = [&app](int idx) {
+                    auto list = app.tab_items.get();
+                    if (idx >= 0 && idx < static_cast<int>(list.size())) {
+                        list.erase(list.begin() + idx);
+                        int next_sel = std::min(app.tab_selected.get(), static_cast<int>(list.size()) - 1);
+                        app.tab_items.set(std::move(list));
+                        app.tab_selected.set(std::max(0, next_sel));
+                    }
+                },
+                .on_add_tab = [&app]() {
+                    auto list = app.tab_items.get();
+                    int n = app.tab_seq++;
+                    list.push_back(TabViewItem{
+                        .id = "tab_" + std::to_string(n),
+                        .header = "文档 #" + std::to_string(n),
+                        .svg_path = kSaveSvg,
+                        .is_closable = true
+                    });
+                    int new_idx = static_cast<int>(list.size()) - 1;
+                    app.tab_items.set(std::move(list));
+                    app.tab_selected.set(new_idx);
+                }
+            }
+        }
+    });
+}
+
+// ==================== BreadcrumbBar ====================
+WidgetPtr build_breadcrumb_bar_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            page_header(app, "BreadcrumbBar", "WinUI 3 面包屑路径导航条：支持点击前段路径回溯，窗口缩窄时自动将前段路径折叠至「...」浮层菜单。"),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "交互式文件系统路径导航", .font_size = 14.0f },
+                    BreadcrumbBar {
+                        .items = Bind(app.breadcrumb_items),
+                        .font_size = 14.5f,
+                        .on_item_clicked = [&app](size_t idx, const BreadcrumbItem& item) {
+                            auto list = app.breadcrumb_items.get();
+                            if (idx + 1 < list.size()) {
+                                list.resize(idx + 1);
+                                app.breadcrumb_items.set(std::move(list));
+                            }
+                            app.breadcrumb_status.set("已跳转至目录: " + item.label);
+                        }
+                    },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            Button {
+                                .text = "进入子目录 (+)",
+                                .variant = ButtonVariant::Accent,
+                                .on_click = [&app]() {
+                                    auto list = app.breadcrumb_items.get();
+                                    std::string name = "folder_" + std::to_string(list.size());
+                                    list.push_back(BreadcrumbItem{ .id = name, .label = name });
+                                    app.breadcrumb_items.set(std::move(list));
+                                    app.breadcrumb_status.set("已进入子目录: " + name);
+                                }
+                            },
+                            Button {
+                                .text = "重置完整路径",
+                                .variant = ButtonVariant::Standard,
+                                .on_click = [&app]() {
+                                    app.breadcrumb_items.set({
+                                        BreadcrumbItem{ .id = "root", .label = "此电脑" },
+                                        BreadcrumbItem{ .id = "d", .label = "D:\\" },
+                                        BreadcrumbItem{ .id = "kt", .label = "KerneTile" },
+                                        BreadcrumbItem{ .id = "ktui", .label = "KTUI" },
+                                        BreadcrumbItem{ .id = "widgets", .label = "widgets" }
+                                    });
+                                    app.breadcrumb_status.set("已恢复默认 5 级路径");
+                                }
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.breadcrumb_status), .font_size = 12.0f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+// ==================== Expander ====================
+WidgetPtr build_expander_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            page_header(app, "Expander", "WinUI 3 折叠展开卡片：标题栏带旋转 180° 箭头与平滑高度过渡动效，适合设置项与高级选项分组。"),
+            Expander {
+                .header = "渲染管线与帧率策略",
+                .subtitle = "配置 GPU 计算着色器、高刷定时器与脏瓦片合批选项",
+                .svg_path = kSaveSvg,
+                .is_expanded = Bind(app.expander_open_1),
+                .content = VStack {
+                    .align_items = AlignItems::Stretch,
+                    .spacing = 10.0f,
+                    .content = {
+                        Text { .text = "展开后支持内嵌任意交互控件（开关、按钮、输入框等）：", .font_size = 12.5f, .color = Bind(app.muted_text) },
+                        ToggleSwitch { .checked = Bind(app.step_ten), .label = "启用 120 FPS 高精度等待定时器" },
+                        HStack {
+                            .align_items = AlignItems::Center,
+                            .spacing = 8.0f,
+                            .content = {
+                                Label { .text = "D3D12 Compute", .variant = LabelVariant::Accent, .pill = true },
+                                Label { .text = "16×16 Tile Binning", .variant = LabelVariant::Success, .pill = true }
+                            }
+                        }
+                    }
+                }
+            },
+            Expander {
+                .header = "高级开发者诊断选项",
+                .subtitle = "默认折叠状态，点击整行标题栏即可平滑展开",
+                .svg_path = kCopySvg,
+                .is_expanded = Bind(app.expander_open_2),
+                .content = VStack {
+                    .align_items = AlignItems::Stretch,
+                    .spacing = 8.0f,
+                    .content = {
+                        Text { .text = "这里可以放置低频诊断参数、日志级别或实验性功能开关。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+                        Button {
+                            .text = "触发一条诊断 Toast",
+                            .variant = ButtonVariant::Standard,
+                            .on_click = []() {
+                                Toast::show(ToastDesc{
+                                    .title = "诊断就绪",
+                                    .message = "Expander 内部按钮交互响应正常。",
+                                    .severity = ToastSeverity::Success,
+                                    .duration_sec = 3.0f
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+WidgetPtr build_auto_suggest_box_page(GalleryApp& app) {
+    static const std::vector<std::string> kAllControls = {
+        "AutoSuggestBox", "BreadcrumbBar", "Button", "CalendarDatePicker",
+        "CheckBox", "ComboBox", "CommandBar", "ContentDialog",
+        "DropDownButton", "Expander", "InfoBar", "Label",
+        "MenuFlyout", "NavigationView", "NumberBox", "PasswordBox",
+        "ProgressBar", "ProgressRing", "RadioButton", "RadioCard",
+        "Slider", "TabView", "TextBox", "Toast", "ToggleSwitch", "TreeView"
+    };
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "AutoSuggestBox", .font_size = 22.0f },
+            Text { .text = "WinUI 3 自动补全搜索框，内置清除与搜索按钮、真高斯阴影悬浮候选列表，支持 ↑/↓/Enter/Esc 键盘导航。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "快速检索 KTUI 控件", .font_size = 14.0f },
+                    AutoSuggestBox {
+                        .text = Bind(app.suggest_query),
+                        .placeholder = "输入控件名 (如 Tab, Box, Bar, Tree)...",
+                        .header = "控件搜索",
+                        .items = kAllControls,
+                        .width = 340.0f,
+                        .on_text_changed = [&app](const std::string& q) {
+                            app.suggest_status.set(q.empty() ? "已清空搜索词，点击输入框可浏览全部候选" : ("正在过滤关键字: " + q));
+                        },
+                        .on_suggestion_chosen = [&app](const std::string& chosen) {
+                            app.suggest_status.set("已选择建议项: " + chosen);
+                        },
+                        .on_query_submitted = [&app](const std::string& q) {
+                            app.suggest_status.set("已提交搜索查询: " + (q.empty() ? "(空)" : q));
+                        }
+                    },
+                    Text { .text = Bind(app.suggest_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_tree_view_page(GalleryApp& app) {
+    static constexpr const char* kFolderSvg =
+        "M3 6.75A2.75 2.75 0 0 1 5.75 4h3.58c.7 0 1.37.28 1.86.78l1.03 1.03c.2.2.48.31.76.31h5.27A2.75 2.75 0 0 1 21 8.87v8.38A2.75 2.75 0 0 1 18.25 20H5.75A2.75 2.75 0 0 1 3 17.25V6.75z";
+    static constexpr const char* kFileSvg =
+        "M6.75 3h6.5L19 8.75v10.5A1.75 1.75 0 0 1 17.25 21H6.75A1.75 1.75 0 0 1 5 19.25V4.75C5 3.78 5.78 3 6.75 3zm5.75 1.5v4.25h4.25L12.5 4.5z";
+
+    std::vector<TreeViewNode> project_tree = {
+        TreeViewNode{
+            .id = "root_kt", .label = "KerneTile", .svg_path = kFolderSvg, .is_expanded = true,
+            .children = {
+                TreeViewNode{
+                    .id = "src_ktui", .label = "KTUI", .svg_path = kFolderSvg, .is_expanded = true,
+                    .children = {
+                        TreeViewNode{ .id = "f_auto", .label = "auto_suggest_box.hpp", .svg_path = kFileSvg },
+                        TreeViewNode{ .id = "f_tree", .label = "tree_view.hpp", .svg_path = kFileSvg },
+                        TreeViewNode{ .id = "f_cal",  .label = "calendar_date_picker.hpp", .svg_path = kFileSvg }
+                    }
+                },
+                TreeViewNode{
+                    .id = "src_hal", .label = "HAL 后端", .svg_path = kFolderSvg, .is_expanded = false,
+                    .children = {
+                        TreeViewNode{ .id = "hal_d3d12",  .label = "d3d12_backend.cpp", .svg_path = kFileSvg },
+                        TreeViewNode{ .id = "hal_vulkan", .label = "vulkan_backend.cpp", .svg_path = kFileSvg },
+                        TreeViewNode{ .id = "hal_cpu",    .label = "cpu_rasterizer.cpp", .svg_path = kFileSvg }
+                    }
+                },
+                TreeViewNode{ .id = "f_cmake", .label = "CMakeLists.txt", .svg_path = kFileSvg }
+            }
+        }
+    };
+
+    std::vector<TreeViewNode> feature_tree = {
+        TreeViewNode{
+            .id = "pkg_core", .label = "渲染与合成核心", .is_expanded = true,
+            .children = {
+                TreeViewNode{ .id = "feat_tile", .label = "16×16 瓦片分箱引擎", .is_checked = true },
+                TreeViewNode{ .id = "feat_mica", .label = "云母动态聚焦背景", .is_checked = true },
+                TreeViewNode{ .id = "feat_hdr",  .label = "广色域 HDR 合成 (实验)", .is_checked = false }
+            }
+        },
+        TreeViewNode{
+            .id = "pkg_platform", .label = "跨平台目标", .is_expanded = true,
+            .children = {
+                TreeViewNode{ .id = "plat_win", .label = "Windows 11 (Win32 + D3D12)", .is_checked = true },
+                TreeViewNode{ .id = "plat_lin", .label = "Linux (X11 + XInput2)", .is_checked = false },
+                TreeViewNode{ .id = "plat_web", .label = "WebOS Desktop (WASM)", .is_checked = false }
+            }
+        }
+    };
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "TreeView", .font_size = 22.0f },
+            Text { .text = "WinUI 3 层级树形视图，支持单选指示条、多选父子三态复选框联动、自定义节点图标与滚动。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "单选文件目录树 (SelectionMode::Single)", .font_size = 14.0f },
+                    TreeView {
+                        .nodes = std::move(project_tree),
+                        .selection_mode = TreeViewSelectionMode::Single,
+                        .selected_id = Bind(app.tree_single_selected),
+                        .height = 220.0f,
+                        .on_selection_changed = [&app](const std::string& id, const std::string& label) {
+                            app.tree_single_status.set("当前选中节点: " + label + " (" + id + ")");
+                        }
+                    },
+                    Text { .text = Bind(app.tree_single_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "多选三态勾选树 (SelectionMode::Multiple)", .font_size = 14.0f },
+                    TreeView {
+                        .nodes = std::move(feature_tree),
+                        .selection_mode = TreeViewSelectionMode::Multiple,
+                        .height = 220.0f,
+                        .on_checked_changed = [&app](const std::vector<std::string>& ids) {
+                            app.tree_multi_status.set("当前已勾选 " + std::to_string(ids.size()) + " 项");
+                        }
+                    },
+                    Text { .text = Bind(app.tree_multi_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_calendar_date_picker_page(GalleryApp& app) {
+    CalendarDate today = CalendarDate::today();
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "CalendarDatePicker", .font_size = 22.0f },
+            Text { .text = "WinUI 3 日历日期选择器，点击弹出带真高斯阴影的月历浮层，支持上下月翻页、今日高亮与日期范围限制。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "双向绑定日期选择", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::FlexEnd,
+                        .spacing = 12.0f,
+                        .content = {
+                            CalendarDatePicker {
+                                .date = Bind(app.picked_date),
+                                .placeholder = "请选择日期",
+                                .header = "发布日期",
+                                .width = 240.0f,
+                                .on_date_changed = [&app](const CalendarDate& d) {
+                                    app.date_status.set("当前选中日期: " + d.format_iso());
+                                }
+                            },
+                            Button {
+                                .text = "回到今天",
+                                .variant = ButtonVariant::Standard,
+                                .on_click = [&app, today]() {
+                                    app.picked_date.set(today);
+                                    app.date_status.set("当前选中日期: " + today.format_iso());
+                                }
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.date_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "限定可选范围 (仅限本月内)", .font_size = 14.0f },
+                    CalendarDatePicker {
+                        .date = today,
+                        .header = "本月排期窗口",
+                        .min_date = CalendarDate{today.year, today.month, 1},
+                        .max_date = CalendarDate{today.year, today.month, CalendarDate::days_in_month(today.year, today.month)},
+                        .width = 240.0f
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_virtual_list_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "VirtualList", .font_size = 22.0f },
+            Text { .text = "视口虚拟化高性能列表：仅按需实例化与绘制可见视口范围内的行，100,000 条记录仍保持 O(1) 内存与 120 FPS 丝滑滚动。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 10.0f,
+                        .content = {
+                            Text { .text = "100,000 行实时虚拟化滚动演示", .font_size = 14.0f },
+                            Label { .text = "O(1) 视口裁剪", .variant = LabelVariant::Accent, .pill = true }
+                        }
+                    },
+                    VirtualList {
+                        .item_count = 100000,
+                        .item_height = 38.0f,
+                        .height = 360.0f,
+                        .overscan = 3,
+                        .item_builder = [&app](size_t idx) -> WidgetPtr {
+                            bool even = (idx % 2 == 0);
+                            return Box {
+                                .background_color = even ? Color::transparent() : Color{1.0f, 1.0f, 1.0f, 0.02f},
+                                .padding = EdgeInsets(0.0f, 12.0f),
+                                .child = HStack {
+                                    .align_items = AlignItems::Center,
+                                    .spacing = 12.0f,
+                                    .content = {
+                                        Label {
+                                            .text = "#" + std::to_string(idx + 1),
+                                            .variant = (idx % 5 == 0) ? LabelVariant::Accent : LabelVariant::Caption,
+                                            .pill = true
+                                        },
+                                        Text {
+                                            .text = "KerneTile 虚拟化数据条目 #" + std::to_string(idx + 1) + "  ·  Tile Binning 16×16",
+                                            .font_size = 13.0f
+                                        },
+                                        Text {
+                                            .text = (idx % 3 == 0) ? "GPU Ready" : "Active",
+                                            .font_size = 11.5f,
+                                            .color = Bind(app.muted_text)
+                                        }
+                                    }
+                                }
+                            };
+                        }
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_color_picker_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "ColorPicker", .font_size = 22.0f },
+            Text { .text = "WinUI 3 弹出式颜色选择器，点击色块按钮弹出固定尺寸（324px）真高斯阴影色盘，支持 SV 色盘拖拽、色相彩虹条与透明度滑条。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "弹出式固定尺寸 RGBA 选色器", .font_size = 14.0f },
+                    ColorPicker {
+                        .color = Bind(app.picked_color),
+                        .header = "主题强调色",
+                        .is_alpha_enabled = true,
+                        .width = 210.0f,
+                        .on_color_changed = [&app](const Color& c) {
+                            app.color_status.set("当前颜色: " + RenderColorPicker::format_hex(c, true));
+                        }
+                    },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            Button {
+                                .text = "Windows 蓝",
+                                .on_click = [&app]() {
+                                    Color c{0.0f, 120.0f / 255.0f, 212.0f / 255.0f, 1.0f};
+                                    app.picked_color.set(c);
+                                    app.color_status.set("当前颜色: " + RenderColorPicker::format_hex(c, true));
+                                }
+                            },
+                            Button {
+                                .text = "翡翠绿",
+                                .on_click = [&app]() {
+                                    Color c{16.0f / 255.0f, 185.0f / 255.0f, 129.0f / 255.0f, 1.0f};
+                                    app.picked_color.set(c);
+                                    app.color_status.set("当前颜色: " + RenderColorPicker::format_hex(c, true));
+                                }
+                            },
+                            Button {
+                                .text = "珊瑚红 80%",
+                                .on_click = [&app]() {
+                                    Color c{239.0f / 255.0f, 68.0f / 255.0f, 68.0f / 255.0f, 0.8f};
+                                    app.picked_color.set(c);
+                                    app.color_status.set("当前颜色: " + RenderColorPicker::format_hex(c, true));
+                                }
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.color_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_rating_control_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "RatingControl", .font_size = 22.0f },
+            Text { .text = "WinUI 3 星级评分控件，支持 Hover 实时预览高亮、整星/半星精度、再次点击清零与只读展示模式。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "交互式整星评分 (再次点击当前星级可清零)", .font_size = 14.0f },
+                    RatingControl {
+                        .value = Bind(app.rating_val),
+                        .max_rating = 5,
+                        .is_clear_enabled = true,
+                        .allow_half_stars = false,
+                        .star_size = 24.0f,
+                        .caption = Bind(app.rating_caption),
+                        .on_value_changed = [&app](float v) {
+                            char buf[32];
+                            std::snprintf(buf, sizeof(buf), "%.1f / 5.0", v);
+                            app.rating_caption.set(buf);
+                        }
+                    }
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "半星精度评分 (AllowHalfStars = true)", .font_size = 14.0f },
+                    RatingControl {
+                        .value = Bind(app.rating_half_val),
+                        .max_rating = 5,
+                        .allow_half_stars = true,
+                        .star_size = 24.0f,
+                        .caption = Bind(app.rating_half_caption),
+                        .on_value_changed = [&app](float v) {
+                            char buf[48];
+                            std::snprintf(buf, sizeof(buf), "%.1f / 5.0 (半星模式)", v);
+                            app.rating_half_caption.set(buf);
+                        }
+                    }
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "只读展示 (ReadOnly = true)", .font_size = 14.0f },
+                    RatingControl {
+                        .value = 4.7f,
+                        .max_rating = 5,
+                        .is_read_only = true,
+                        .star_size = 20.0f,
+                        .caption = "4.7 (1,284 条评价)"
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_teaching_tip_page(GalleryApp& app) {
+    static constexpr const char* kBulbSvg =
+        "M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2zm-2 19a1 1 0 0 0 1 1h2a1 1 0 1 0 0-2h-2a1 1 0 0 0-1 1z";
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "TeachingTip", .font_size = 22.0f },
+            Text { .text = "WinUI 3 功能引导气泡，复用 FluentPopupSurface 真高斯阴影与 130ms 缓出动效，带指向目标锚点的矢量三角尾标。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "触发引导气泡", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 10.0f,
+                        .content = {
+                            Button {
+                                .text = "弹出带尾标引导气泡",
+                                .variant = ButtonVariant::Accent,
+                                .on_click = [&app]() {
+                                    Vec2 anchor{420.0f, 185.0f};
+                                    if (Window* w = Window::active_window()) {
+                                        anchor = Vec2{w->size().x * 0.52f, w->titlebar_height() + 140.0f};
+                                    }
+                                    TeachingTip::show(TeachingTipDesc{
+                                        .title = "试试新的主题涟漪切换",
+                                        .subtitle = "点击右上角标题栏主题按钮，即可体验仿 CUI 圆形 SDF 涟漪展开式深浅色平滑过渡效果。",
+                                        .svg_path = kBulbSvg,
+                                        .action_text = "立即了解",
+                                        .close_text = "知道了",
+                                        .preferred_placement = TeachingTipPlacement::Bottom,
+                                        .on_action = [&app]() { app.tip_status.set("TeachingTip: 用户点击了主操作「立即了解」"); },
+                                        .on_close  = [&app]() { app.tip_status.set("TeachingTip: 用户关闭了引导气泡"); }
+                                    }, anchor);
+                                }
+                            },
+                            Button {
+                                .text = "弹出居中无尾标气泡",
+                                .variant = ButtonVariant::Standard,
+                                .on_click = [&app]() {
+                                    TeachingTip::show(TeachingTipDesc{
+                                        .title = "KTUI Gallery 31 个展厅已就绪",
+                                        .subtitle = "所有浮层均统一接入 FluentPopupSurface 真高斯阴影与 FrameClock 帧时钟调度。",
+                                        .svg_path = kBulbSvg,
+                                        .action_text = "查看 VirtualList",
+                                        .close_text = "关闭",
+                                        .on_action = [&app]() {
+                                            app.tip_status.set("TeachingTip: 已跳转至 VirtualList 展厅");
+                                            app.nav_selected.set("virtual_list");
+                                        },
+                                        .on_close = [&app]() { app.tip_status.set("TeachingTip: 已关闭居中引导气泡"); }
+                                    });
+                                }
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.tip_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
 } // namespace gallery::pages

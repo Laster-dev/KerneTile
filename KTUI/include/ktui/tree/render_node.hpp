@@ -13,6 +13,7 @@ class RenderNode {
 public:
     RenderNode() noexcept = default;
     virtual ~RenderNode() {
+        m_destroying = true;
         // 析构时安全断开所有子节点
         while (m_first_child) {
             remove_child(m_first_child);
@@ -21,6 +22,11 @@ public:
             m_parent->remove_child(this);
         }
     }
+
+    // ==================== 节点挂载生命周期钩子 ====================
+    virtual void on_mounted() {}
+    virtual void on_unmounted() {}
+    [[nodiscard]] bool is_mounted() const noexcept { return m_parent != nullptr; }
 
     RenderNode(const RenderNode&) = delete;
     RenderNode& operator=(const RenderNode&) = delete;
@@ -76,6 +82,7 @@ public:
         }
 
         m_child_count++;
+        child->on_mounted();
         mark_needs_layout();
     }
 
@@ -100,6 +107,9 @@ public:
         child->m_prev_sibling = nullptr;
         child->m_next_sibling = nullptr;
         m_child_count--;
+        if (!child->m_destroying) {
+            child->on_unmounted();
+        }
 
         mark_needs_layout();
     }
@@ -172,6 +182,7 @@ protected:
     bool m_needs_paint{true};
     bool m_is_relayout_boundary{false};
     bool m_force_relayout_boundary{false};
+    bool m_destroying{false};
     bool m_sized_by_parent{false};
 };
 

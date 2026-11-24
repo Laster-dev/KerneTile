@@ -29,6 +29,7 @@
 #include <ktui/animation/spring_presets.hpp>
 #include <ktui/animation/animation.hpp>
 #include <ktui/animation/animation_controller.hpp>
+#include <ktui/animation/frame_clock.hpp>
 
 // 设计令牌与主题级联系统
 #include <ktui/theme/color_palette.hpp>
@@ -49,6 +50,7 @@
 #include <ktui/tree/render_box.hpp>
 #include <ktui/tree/render_flex.hpp>
 #include <ktui/tree/overlay.hpp>
+#include <ktui/tree/popup_handle.hpp>
 
 // 事件与焦点管线
 #include <ktui/event/event_types.hpp>
@@ -89,4 +91,14 @@
 #include <ktui/widgets/menu_flyout.hpp>
 #include <ktui/widgets/dropdown_button.hpp>
 #include <ktui/widgets/command_bar.hpp>
+#include <ktui/widgets/expander.hpp>
+#include <ktui/widgets/breadcrumb_bar.hpp>
+#include <ktui/widgets/tab_view.hpp>
+#include <ktui/widgets/auto_suggest_box.hpp>
+#include <ktui/widgets/tree_view.hpp>
+#include <ktui/widgets/calendar_date_picker.hpp>
+#include <ktui/widgets/color_picker.hpp>
+#include <ktui/widgets/rating_control.hpp>
+#include <ktui/widgets/teaching_tip.hpp>
+#include <ktui/widgets/virtual_list.hpp>
 #include <ktui/widgets/navigation_view.hpp>

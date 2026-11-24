@@ -45,6 +45,22 @@ struct ColorPalette {
     Color active_overlay;       // 通用按下微遮罩
     Color focus_ring;           // 键盘焦点高亮环
 
+    // ==================== WinUI 3 / Fluent 2 语义化控件令牌 ====================
+    Color control_fill_default;      // 控件默认填充 (输入框/按钮)
+    Color control_fill_secondary;    // 控件悬停填充
+    Color control_fill_tertiary;     // 控件按下填充
+    Color control_fill_input_active; // 输入框聚焦填充
+    Color control_fill_disabled;     // 控件禁用填充
+    Color control_stroke_default;    // 控件默认描边
+    Color control_stroke_bottom;     // 输入框底部 1px 抬升线
+    Color flyout_surface;            // Flyout / Menu / Calendar 浮层底板
+    Color flyout_stroke;             // Flyout 浮层 1px 描边
+    Color card_surface;              // 卡片容器背景
+    Color card_stroke;               // 卡片容器 1px 描边
+    Color subtle_fill_secondary;     // 透明列表项/导航项悬停底色
+    Color subtle_fill_tertiary;      // 透明列表项/导航项按下底色
+    Color divider_stroke;            // 细分隔线
+
     bool operator==(const ColorPalette&) const noexcept = default;
 };
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/fluent_icons.hpp"
 #include "menu_flyout.hpp"
 #include "widget.hpp"
 #include <ktui/app/window.hpp>
@@ -125,15 +126,7 @@ public:
                 if (prs) ctx.draw_rect(slot.rect, prs_bg, 4.0f, 0.0f);
                 else if (hov) ctx.draw_rect(slot.rect, hov_bg, 4.0f, 0.0f);
 
-                static constexpr const char* kMoreSvg =
-                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>"
-                    "<path fill='#FFFFFF' d='M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'/>"
-                    "</svg>";
-                float isz = 16.0f;
-                Rect ir = Rect::from_xywh(
-                    std::round(slot.rect.min_x + (slot.rect.width() - isz) * 0.5f),
-                    std::round(slot.rect.min_y + (slot.rect.height() - isz) * 0.5f), isz, isz);
-                SvgEngine::draw_svg_xml(ctx, kMoreSvg, ir, text_col);
+                fluent_icons::draw_centered(ctx, fluent_icons::kMoreHorizontal, slot.rect, 16.0f, text_col);
                 continue;
             }
 

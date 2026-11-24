@@ -322,6 +322,7 @@ public:
     // 即使脏瓦片为 0，也必须将现有帧缓冲完整提交到物理窗口表面，彻底避免首帧/遮挡恢复后白屏。
     void render_frame(bool force_full_present = false) {
         if (!m_root_render_box || !m_platform_window) return;
+        FrameClock::global().begin_frame();
         Vec2 sz = m_platform_window->size();
         if (sz.x <= 0 || sz.y <= 0) return;
         const float scale = m_platform_window->render_scale();
@@ -352,6 +353,9 @@ public:
         }
 
         if (m_renderer_w != w || m_renderer_h != h || m_render_scale != scale) {
+            if (m_renderer_w != 0 && (m_renderer_w != w || m_renderer_h != h)) {
+                m_overlay_manager.dismiss_non_modal();
+            }
             m_render_scale = scale;
             m_renderer->resize(w, h);
             m_renderer_w = w;

@@ -31,6 +31,37 @@ struct GalleryApp {
     ktui::Property<std::string> demo_nav_selected{"overview"};
     ktui::Property<ktui::NavigationPaneDisplayMode> demo_nav_mode{ktui::NavigationPaneDisplayMode::Left};
     ktui::Property<int> demo_nav_mode_idx{0};
+    ktui::Property<bool> expander_open_1{true};
+    ktui::Property<bool> expander_open_2{false};
+    ktui::Property<std::vector<ktui::BreadcrumbItem>> breadcrumb_items{{
+        ktui::BreadcrumbItem{ .id = "root", .label = "此电脑" },
+        ktui::BreadcrumbItem{ .id = "d", .label = "D:\\" },
+        ktui::BreadcrumbItem{ .id = "kt", .label = "KerneTile" },
+        ktui::BreadcrumbItem{ .id = "ktui", .label = "KTUI" },
+        ktui::BreadcrumbItem{ .id = "widgets", .label = "widgets" }
+    }};
+    ktui::Property<std::string> breadcrumb_status{"点击任意前置路径节点即可回溯，或点击重置恢复完整路径"};
+    ktui::Property<std::vector<ktui::TabViewItem>> tab_items{{
+        ktui::TabViewItem{ .id = "tab_1", .header = "欢迎页", .is_closable = false },
+        ktui::TabViewItem{ .id = "tab_2", .header = "renderer.cpp", .is_closable = true },
+        ktui::TabViewItem{ .id = "tab_3", .header = "tab_view.hpp", .is_closable = true }
+    }};
+    ktui::Property<int> tab_selected{0};
+    int tab_seq{4};
+    ktui::Property<std::string> suggest_query{""};
+    ktui::Property<std::string> suggest_status{"输入关键字实时过滤建议，支持 ↑/↓/Enter 或点击选择"};
+    ktui::Property<std::string> tree_single_selected{"src_ktui"};
+    ktui::Property<std::string> tree_single_status{"当前选中节点: KTUI (src_ktui)"};
+    ktui::Property<std::string> tree_multi_status{"已勾选 2 个组件 (点击父节点可一键全选/取消)"};
+    ktui::Property<ktui::CalendarDate> picked_date{ktui::CalendarDate::today()};
+    ktui::Property<std::string> date_status{"当前选中日期: " + ktui::CalendarDate::today().format_iso()};
+    ktui::Property<ktui::Color> picked_color{ktui::Color{0.0f, 120.0f / 255.0f, 212.0f / 255.0f, 1.0f}};
+    ktui::Property<std::string> color_status{"当前颜色: #FF0078D4 (拖拽色盘或滑条实时预览)"};
+    ktui::Property<float> rating_val{4.0f};
+    ktui::Property<float> rating_half_val{3.5f};
+    ktui::Property<std::string> rating_caption{"4.0 / 5.0"};
+    ktui::Property<std::string> rating_half_caption{"3.5 / 5.0 (半星模式)"};
+    ktui::Property<std::string> tip_status{"点击下方按钮弹出带尾标或居中的 WinUI 3 引导气泡"};
     ktui::Property<std::string> theme_btn_text{"切换浅色主题"};
     ktui::Property<float> slider_val{45.0f};
     ktui::Property<float> progress_norm{0.45f};

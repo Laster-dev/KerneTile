@@ -52,6 +52,22 @@ struct Theme {
         t.colors.active_overlay = Color{1.0f, 1.0f, 1.0f, 0.12f};
         t.colors.focus_ring = Color{59.0f / 255.0f, 130.0f / 255.0f, 246.0f / 255.0f, 0.5f};
 
+        // WinUI 3 / Fluent 2 Dark 语义令牌
+        t.colors.control_fill_default      = Color{1.0f, 1.0f, 1.0f, 0.055f};
+        t.colors.control_fill_secondary    = Color{1.0f, 1.0f, 1.0f, 0.080f};
+        t.colors.control_fill_tertiary     = Color{1.0f, 1.0f, 1.0f, 0.040f};
+        t.colors.control_fill_input_active = Color{30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 0.92f};
+        t.colors.control_fill_disabled     = Color{1.0f, 1.0f, 1.0f, 0.030f};
+        t.colors.control_stroke_default    = Color{1.0f, 1.0f, 1.0f, 0.100f};
+        t.colors.control_stroke_bottom     = Color{1.0f, 1.0f, 1.0f, 0.420f};
+        t.colors.flyout_surface            = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 1.0f};
+        t.colors.flyout_stroke             = Color{1.0f, 1.0f, 1.0f, 0.090f};
+        t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.045f};
+        t.colors.card_stroke               = Color{1.0f, 1.0f, 1.0f, 0.070f};
+        t.colors.subtle_fill_secondary     = Color{1.0f, 1.0f, 1.0f, 0.065f};
+        t.colors.subtle_fill_tertiary      = Color{1.0f, 1.0f, 1.0f, 0.040f};
+        t.colors.divider_stroke            = Color{1.0f, 1.0f, 1.0f, 0.080f};
+
         return t;
     }
 
@@ -92,6 +108,22 @@ struct Theme {
         t.colors.hover_overlay = Color{0.0f, 0.0f, 0.0f, 0.04f};
         t.colors.active_overlay = Color{0.0f, 0.0f, 0.0f, 0.08f};
         t.colors.focus_ring = Color{37.0f / 255.0f, 99.0f / 255.0f, 235.0f / 255.0f, 0.5f};
+
+        // WinUI 3 / Fluent 2 Light 语义令牌
+        t.colors.control_fill_default      = Color{1.0f, 1.0f, 1.0f, 0.720f};
+        t.colors.control_fill_secondary    = Color{1.0f, 1.0f, 1.0f, 0.920f};
+        t.colors.control_fill_tertiary     = Color{0.0f, 0.0f, 0.0f, 0.030f};
+        t.colors.control_fill_input_active = Color{1.0f, 1.0f, 1.0f, 1.0f};
+        t.colors.control_fill_disabled     = Color{0.0f, 0.0f, 0.0f, 0.025f};
+        t.colors.control_stroke_default    = Color{0.0f, 0.0f, 0.0f, 0.110f};
+        t.colors.control_stroke_bottom     = Color{0.0f, 0.0f, 0.0f, 0.420f};
+        t.colors.flyout_surface            = Color{250.0f / 255.0f, 250.0f / 255.0f, 250.0f / 255.0f, 1.0f};
+        t.colors.flyout_stroke             = Color{0.0f, 0.0f, 0.0f, 0.090f};
+        t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.650f};
+        t.colors.card_stroke               = Color{0.0f, 0.0f, 0.0f, 0.070f};
+        t.colors.subtle_fill_secondary     = Color{0.0f, 0.0f, 0.0f, 0.045f};
+        t.colors.subtle_fill_tertiary      = Color{0.0f, 0.0f, 0.0f, 0.028f};
+        t.colors.divider_stroke            = Color{0.0f, 0.0f, 0.0f, 0.080f};
 
         return t;
     }

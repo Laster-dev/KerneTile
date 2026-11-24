@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ktui/animation/frame_clock.hpp>
 #include <ktui/pal/platform_types.hpp>
 #include <kernetile/renderer.hpp>
 #include <algorithm>
@@ -209,6 +210,9 @@ public:
 
     [[nodiscard]] size_t primitive_count() const noexcept { return m_primitive_count; }
     void reset_primitive_count() noexcept { m_primitive_count = 0; }
+
+    [[nodiscard]] double frame_time_sec() const noexcept { return FrameClock::global().frame_time_sec(); }
+    [[nodiscard]] float frame_dt() const noexcept { return FrameClock::global().dt(); }
 
     [[nodiscard]] kernetile::KerneTileRenderer* renderer() const noexcept { return m_renderer; }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/fluent_chrome.hpp"
+#include "common/fluent_icons.hpp"
 #include "widget.hpp"
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
@@ -244,53 +246,17 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
-        update_focus_anim();
+        if (FluentInputChrome::step_focus_anim(m_focus_anim, m_focused && !m_disabled)) {
+            mark_needs_paint();
+        }
         const Theme& theme = ThemeContext::current();
-
-        // 1. 可选 Header
-        if (!m_header.empty()) {
-            Color hc = theme.is_dark
-                ? Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.92f}
-                : Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.88f};
-            ctx.draw_text(m_header, PointF{0.0f, 2.0f}, 13.0f, hc);
-        }
-
         Rect box = box_rect();
-        Color bg, border, bottom_line, text_col, ph_col, accent;
-        if (theme.is_dark) {
-            bg = m_disabled ? Color{1.0f, 1.0f, 1.0f, 0.03f}
-               : (m_focused ? Color{30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 0.92f}
-                            : (m_hovered ? Color{1.0f, 1.0f, 1.0f, 0.075f} : Color{1.0f, 1.0f, 1.0f, 0.055f}));
-            border = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.05f : 0.085f};
-            bottom_line = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.06f : 0.48f};
-            text_col = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.96f};
-            ph_col = Color{1.0f, 1.0f, 1.0f, 0.50f};
-            accent = Color{96.0f / 255.0f, 205.0f / 255.0f, 255.0f / 255.0f, 1.0f};
-        } else {
-            bg = m_disabled ? Color{0.96f, 0.96f, 0.96f, 0.55f}
-               : (m_focused ? Color{1.0f, 1.0f, 1.0f, 1.0f}
-                            : (m_hovered ? Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.65f}
-                                         : Color{1.0f, 1.0f, 1.0f, 0.78f}));
-            border = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.05f : 0.08f};
-            bottom_line = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.06f : 0.42f};
-            text_col = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.90f};
-            ph_col = Color{0.0f, 0.0f, 0.0f, 0.50f};
-            accent = Color{0.0f, 95.0f / 255.0f, 184.0f / 255.0f, 1.0f};
-        }
+        FluentInputChrome::paint_box(ctx, theme, box, m_header, m_disabled, m_hovered, m_focused, m_focus_anim);
 
-        // 2. 底板、边框与 1px 抬升底线
-        ctx.draw_rect(box, bg, 4.0f, 0.0f);
-        ctx.draw_rect(box, border, 4.0f, 1.0f);
-        ctx.draw_rect(Rect::from_xywh(box.min_x + 1.0f, box.max_y - 1.0f, std::max(0.0f, box.width() - 2.0f), 1.0f),
-                      bottom_line, 0.0f, 0.0f);
-
-        // 3. 2px 中心展开聚焦底线
-        if (m_focus_anim > 0.01f) {
-            float full_w = std::max(0.0f, box.width() - 2.0f);
-            float line_w = full_w * m_focus_anim;
-            float lx = box.min_x + 1.0f + (full_w - line_w) * 0.5f;
-            ctx.draw_rect(Rect::from_xywh(lx, box.max_y - 2.0f, line_w, 2.0f), accent, 1.0f, 0.0f);
-        }
+        Color text_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.96f}
+                                       : Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.90f};
+        Color ph_col   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.50f} : Color{0.0f, 0.0f, 0.0f, 0.50f};
+        Color accent   = theme.colors.primary;
 
         // 4. 数值文本绘制
         const bool show_spins = spin_buttons_visible();
@@ -348,23 +314,11 @@ public:
                 Color ic = theme.is_dark
                     ? Color{1.0f, 1.0f, 1.0f, at_limit ? 0.25f : 0.80f}
                     : Color{0.0f, 0.0f, 0.0f, at_limit ? 0.25f : 0.72f};
-                float isz = 11.0f;
-                Rect ir = Rect::from_xywh(std::round(r.min_x + (r.width() - isz) * 0.5f),
-                                          std::round(r.min_y + (r.height() - isz) * 0.5f), isz, isz);
-                SvgEngine::draw_svg_xml(ctx, svg, ir, ic);
+                fluent_icons::draw_centered(ctx, svg, r, 11.0f, ic);
             };
 
-            static constexpr const char* kChevronUpSvg =
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>"
-                "<path fill='#FFFFFF' d='M4.29 15.71a1 1 0 0 1 0-1.42l7-7a1 1 0 0 1 1.42 0l7 7a1 1 0 1 1-1.42 1.42L12 9.41l-6.29 6.3a1 1 0 0 1-1.42 0z'/>"
-                "</svg>";
-            static constexpr const char* kChevronDownSvg =
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>"
-                "<path fill='#FFFFFF' d='M4.29 8.29a1 1 0 0 1 1.42 0L12 14.59l6.29-6.3a1 1 0 1 1 1.42 1.42l-7 7a1 1 0 0 1-1.42 0l-7-7a1 1 0 0 1 0-1.42z'/>"
-                "</svg>";
-
-            paint_spin(up_r, SpinPart::Up, m_value >= m_maximum - 1e-9, kChevronUpSvg);
-            paint_spin(dn_r, SpinPart::Down, m_value <= m_minimum + 1e-9, kChevronDownSvg);
+            paint_spin(up_r, SpinPart::Up, m_value >= m_maximum - 1e-9, fluent_icons::kChevronUp);
+            paint_spin(dn_r, SpinPart::Down, m_value <= m_minimum + 1e-9, fluent_icons::kChevronDown);
         }
     }
 

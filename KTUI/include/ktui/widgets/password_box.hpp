@@ -1,5 +1,8 @@
 #pragma once
 
+#include "common/fluent_chrome.hpp"
+#include "common/fluent_icons.hpp"
+#include "common/text_edit_core.hpp"
 #include "widget.hpp"
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
@@ -50,8 +53,8 @@ public:
                         std::function<void(const std::string&)> on_submit) {
         if (m_password != password) {
             m_password = password;
-            m_caret = std::min(m_caret, m_password.size());
-            m_select_all = false;
+            m_edit.clamp_caret(m_password);
+            m_edit.clear_selection();
             mark_needs_paint();
         }
         if (m_placeholder != placeholder) { m_placeholder = placeholder; mark_needs_paint(); }
@@ -73,8 +76,8 @@ public:
     void set_password_value(const std::string& v) {
         if (m_password != v) {
             m_password = v;
-            m_caret = std::min(m_caret, m_password.size());
-            m_select_all = false;
+            m_edit.clamp_caret(m_password);
+            m_edit.clear_selection();
             mark_needs_paint();
         }
     }
@@ -92,7 +95,7 @@ public:
         Vec2 g = global_offset();
         Rect box = box_rect();
         std::string disp = display_string();
-        size_t disp_caret = display_byte_index(m_caret);
+        size_t disp_caret = display_byte_index(m_edit.caret());
         float cx = box.min_x + 11.0f + TextMeasure::measure(disp.substr(0, disp_caret), 13.5f).x;
         return Rect::from_xywh(g.x + cx, g.y + box.min_y + 6.0f, 2.0f, 20.0f);
     }
@@ -100,17 +103,13 @@ public:
     void on_ime_preedit(const std::string&, size_t) override {}
 
     void on_ime_commit(const std::string& utf8_text) override {
-        if (m_disabled || utf8_text.empty()) return;
-        insert_text(utf8_text);
+        if (!m_disabled && m_edit.insert_text(m_password, utf8_text, m_max_length)) {
+            notify_changed();
+        }
     }
 
     bool tick_cursor_blink() override {
-        if (!m_focused || m_disabled) return false;
-        auto now = std::chrono::steady_clock::now();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_blink_time).count();
-        if (ms >= 530) {
-            m_caret_visible = !m_caret_visible;
-            m_blink_time = now;
+        if (m_edit.tick_blink(m_focused, m_disabled)) {
             mark_needs_paint();
             return true;
         }
@@ -118,10 +117,7 @@ public:
     }
 
     [[nodiscard]] uint32_t time_until_next_blink_ms() const noexcept override {
-        if (!m_focused || m_disabled) return 1000;
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - m_blink_time).count();
-        return (elapsed >= 530) ? 16 : static_cast<uint32_t>(530 - elapsed);
+        return m_edit.time_until_next_blink_ms(m_focused, m_disabled);
     }
 
     void perform_layout() override {
@@ -131,53 +127,17 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
-        update_focus_anim();
+        if (FluentInputChrome::step_focus_anim(m_focus_anim, m_focused && !m_disabled)) {
+            mark_needs_paint();
+        }
         const Theme& theme = ThemeContext::current();
-
-        // 1. 可选标题 Header
-        if (!m_header.empty()) {
-            Color hc = theme.is_dark
-                ? Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.92f}
-                : Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.88f};
-            ctx.draw_text(m_header, PointF{0.0f, 2.0f}, 13.0f, hc);
-        }
-
         Rect box = box_rect();
-        Color bg, border, bottom_line, text_col, ph_col, accent;
-        if (theme.is_dark) {
-            bg = m_disabled ? Color{1.0f, 1.0f, 1.0f, 0.03f}
-               : (m_focused ? Color{30.0f / 255.0f, 30.0f / 255.0f, 30.0f / 255.0f, 0.92f}
-                            : (m_hovered ? Color{1.0f, 1.0f, 1.0f, 0.075f} : Color{1.0f, 1.0f, 1.0f, 0.055f}));
-            border = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.05f : 0.085f};
-            bottom_line = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.06f : 0.48f};
-            text_col = Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.96f};
-            ph_col = Color{1.0f, 1.0f, 1.0f, 0.50f};
-            accent = Color{96.0f / 255.0f, 205.0f / 255.0f, 255.0f / 255.0f, 1.0f};
-        } else {
-            bg = m_disabled ? Color{0.96f, 0.96f, 0.96f, 0.55f}
-               : (m_focused ? Color{1.0f, 1.0f, 1.0f, 1.0f}
-                            : (m_hovered ? Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.65f}
-                                         : Color{1.0f, 1.0f, 1.0f, 0.78f}));
-            border = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.05f : 0.08f};
-            bottom_line = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.06f : 0.42f};
-            text_col = Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.90f};
-            ph_col = Color{0.0f, 0.0f, 0.0f, 0.50f};
-            accent = Color{0.0f, 95.0f / 255.0f, 184.0f / 255.0f, 1.0f};
-        }
+        FluentInputChrome::paint_box(ctx, theme, box, m_header, m_disabled, m_hovered, m_focused, m_focus_anim);
 
-        // 2. 输入框底板 + 边框 + 1px 底部抬升线
-        ctx.draw_rect(box, bg, 4.0f, 0.0f);
-        ctx.draw_rect(box, border, 4.0f, 1.0f);
-        ctx.draw_rect(Rect::from_xywh(box.min_x + 1.0f, box.max_y - 1.0f, std::max(0.0f, box.width() - 2.0f), 1.0f),
-                      bottom_line, 0.0f, 0.0f);
-
-        // 3. 中心展开 2px WinUI 3 强调色聚焦底线
-        if (m_focus_anim > 0.01f) {
-            float full_w = std::max(0.0f, box.width() - 2.0f);
-            float line_w = full_w * m_focus_anim;
-            float lx = box.min_x + 1.0f + (full_w - line_w) * 0.5f;
-            ctx.draw_rect(Rect::from_xywh(lx, box.max_y - 2.0f, line_w, 2.0f), accent, 1.0f, 0.0f);
-        }
+        Color text_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, m_disabled ? 0.36f : 0.96f}
+                                       : Color{0.0f, 0.0f, 0.0f, m_disabled ? 0.36f : 0.90f};
+        Color ph_col   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.50f} : Color{0.0f, 0.0f, 0.0f, 0.50f};
+        Color accent   = theme.colors.primary;
 
         // 4. 文本或掩码圆点绘制区
         const bool show_eye = has_reveal_button();
@@ -199,11 +159,11 @@ public:
             Vec2 ts = TextMeasure::measure(disp, 13.5f);
             float ty = std::round(box.min_y + (box.height() - ts.y) * 0.5f);
             float scroll_x = 0.0f;
-            float caret_px = TextMeasure::measure(disp.substr(0, display_byte_index(m_caret)), 13.5f).x;
+            float caret_px = TextMeasure::measure(disp.substr(0, display_byte_index(m_edit.caret())), 13.5f).x;
             if (caret_px > text_clip.width() - 4.0f) {
                 scroll_x = caret_px - (text_clip.width() - 4.0f);
             }
-            if (m_select_all && m_focused) {
+            if (m_edit.select_all() && m_focused) {
                 Color sel_bg = accent;
                 sel_bg.a = theme.is_dark ? 0.35f : 0.25f;
                 ctx.draw_rect(Rect::from_xywh(text_clip.min_x - scroll_x, box.min_y + 6.0f,
@@ -211,19 +171,19 @@ public:
             }
             ctx.draw_text(disp, PointF{std::round(text_clip.min_x - scroll_x), ty}, 13.5f, text_col);
 
-            if (m_focused && m_caret_visible && !m_disabled) {
+            if (m_focused && m_edit.caret_visible() && !m_disabled) {
                 float cx = std::round(text_clip.min_x + caret_px - scroll_x);
                 ctx.draw_rect(Rect::from_xywh(cx, box.min_y + 7.0f, 1.5f, box.height() - 14.0f),
                               text_col, 0.5f, 0.0f);
             }
         }
-        if (disp.empty() && m_focused && m_caret_visible && !m_disabled) {
+        if (disp.empty() && m_focused && m_edit.caret_visible() && !m_disabled) {
             ctx.draw_rect(Rect::from_xywh(std::round(text_clip.min_x), box.min_y + 7.0f, 1.5f, box.height() - 14.0f),
                           text_col, 0.5f, 0.0f);
         }
         ctx.pop_clip();
 
-        // 5. 右侧眼睛按住窥视按钮 (Fluent Eye SVG Icon)
+        // 5. 右侧眼睛按住窥视按钮 (复用 fluent_icons::kEye)
         if (show_eye) {
             Rect er = eye_button_rect();
             if (m_peeking) {
@@ -233,15 +193,8 @@ public:
                 Color bg_h = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.06f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
                 ctx.draw_rect(er, bg_h, 4.0f, 0.0f);
             }
-            static constexpr const char* kEyeSvg =
-                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>"
-                "<path fill='#FFFFFF' d='M12 5C7.24 5 3.17 7.91 1.5 12c1.67 4.09 5.74 7 10.5 7s8.83-2.91 10.5-7C20.83 7.91 16.76 5 12 5zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-7a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z'/>"
-                "</svg>";
             Color ic = m_peeking ? accent : (theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.78f} : Color{0.0f, 0.0f, 0.0f, 0.68f});
-            float isz = 15.0f;
-            Rect ir = Rect::from_xywh(std::round(er.min_x + (er.width() - isz) * 0.5f),
-                                      std::round(er.min_y + (er.height() - isz) * 0.5f), isz, isz);
-            SvgEngine::draw_svg_xml(ctx, kEyeSvg, ir, ic);
+            fluent_icons::draw_centered(ctx, fluent_icons::kEye, er, 15.0f, ic);
         }
     }
 
@@ -297,62 +250,21 @@ private:
         return count_codepoints(m_password, raw_byte) * 3;
     }
 
-    void reset_blink() noexcept {
-        m_caret_visible = true;
-        m_blink_time = std::chrono::steady_clock::now();
-    }
-
     void notify_changed() {
-        reset_blink();
+        m_edit.reset_blink();
         mark_needs_paint();
         if (m_on_change) m_on_change(m_password);
-    }
-
-    void insert_text(const std::string& raw) {
-        std::string filtered;
-        for (char c : raw) {
-            if (static_cast<unsigned char>(c) >= 0x20 && c != '\r' && c != '\n') filtered.push_back(c);
-        }
-        if (filtered.empty()) return;
-        if (m_select_all) {
-            m_password.clear();
-            m_caret = 0;
-            m_select_all = false;
-        }
-        if (m_max_length > 0) {
-            size_t cur_cp = count_codepoints(m_password, m_password.size());
-            size_t add_cp = count_codepoints(filtered, filtered.size());
-            if (cur_cp + add_cp > m_max_length) return;
-        }
-        m_password.insert(m_caret, filtered);
-        m_caret += filtered.size();
-        notify_changed();
-    }
-
-    void update_focus_anim() {
-        auto now = std::chrono::steady_clock::now();
-        if (m_anim_time.time_since_epoch().count() == 0) m_anim_time = now;
-        float dt = std::clamp(std::chrono::duration<float>(now - m_anim_time).count(), 0.0f, 0.05f);
-        m_anim_time = now;
-        float target = (m_focused && !m_disabled) ? 1.0f : 0.0f;
-        if (std::abs(m_focus_anim - target) > 0.005f) {
-            m_focus_anim += (target - m_focus_anim) * std::min(1.0f, dt * 22.0f);
-            if (std::abs(m_focus_anim - target) <= 0.005f) m_focus_anim = target;
-            mark_needs_paint();
-        }
     }
 
     void setup_behavior() {
         on_focus = [this](FocusEvent& e) {
             m_focused = e.gained_focus && !m_disabled;
             if (m_focused) {
-                m_caret = m_password.size();
-                reset_blink();
+                m_edit.set_caret(m_password.size(), m_password);
             } else {
-                m_select_all = false;
+                m_edit.clear_selection();
                 m_peeking = false;
             }
-            m_anim_time = std::chrono::steady_clock::now();
             mark_needs_paint();
         };
 
@@ -384,9 +296,7 @@ private:
                 e.stop_propagation();
                 return;
             }
-            m_select_all = false;
-            m_caret = m_password.size();
-            reset_blink();
+            m_edit.set_caret(m_password.size(), m_password);
             mark_needs_paint();
             e.stop_propagation();
         };
@@ -401,101 +311,16 @@ private:
 
         on_key = [this](KeyEvent& e) {
             if (m_disabled || e.type != PlatformEventType::KeyDown) return;
-            if (e.modifiers.ctrl) {
-                if (e.key_code == 'A' || e.key_code == 'a') {
-                    m_select_all = !m_password.empty();
-                    mark_needs_paint();
-                    e.stop_propagation();
-                    return;
-                }
-                if (e.key_code == 'V' || e.key_code == 'v') {
-                    insert_text(Clipboard::get_text());
-                    e.stop_propagation();
-                    return;
-                }
-                // 安全策略：掩码态禁止 Ctrl+C / Ctrl+X 复制密码
-                if (e.key_code == 'C' || e.key_code == 'c' || e.key_code == 'X' || e.key_code == 'x') {
-                    if (is_revealing() && !m_password.empty()) {
-                        Clipboard::set_text(m_password);
-                        if (e.key_code == 'X' || e.key_code == 'x') {
-                            m_password.clear();
-                            m_caret = 0;
-                            m_select_all = false;
-                            notify_changed();
-                        }
-                    }
-                    e.stop_propagation();
-                    return;
-                }
+            // 安全策略：仅明文态允许 Ctrl+C / Ctrl+X 复制到剪贴板
+            auto r = m_edit.handle_key(m_password, e, is_revealing(), m_max_length);
+            if (r.submitted) {
+                if (m_on_submit) m_on_submit(m_password);
+                e.stop_propagation();
+                return;
             }
-
-            switch (e.key_code) {
-                case 8: // Backspace
-                    if (m_select_all) {
-                        m_password.clear();
-                        m_caret = 0;
-                        m_select_all = false;
-                        notify_changed();
-                    } else if (m_caret > 0) {
-                        size_t p = prev_utf8(m_password, m_caret);
-                        m_password.erase(p, m_caret - p);
-                        m_caret = p;
-                        notify_changed();
-                    }
-                    e.stop_propagation();
-                    return;
-                case 46: // Delete
-                    if (m_select_all) {
-                        m_password.clear();
-                        m_caret = 0;
-                        m_select_all = false;
-                        notify_changed();
-                    } else if (m_caret < m_password.size()) {
-                        size_t n = next_utf8(m_password, m_caret);
-                        m_password.erase(m_caret, n - m_caret);
-                        notify_changed();
-                    }
-                    e.stop_propagation();
-                    return;
-                case 37: // Left
-                    m_select_all = false;
-                    m_caret = prev_utf8(m_password, m_caret);
-                    reset_blink();
-                    mark_needs_paint();
-                    e.stop_propagation();
-                    return;
-                case 39: // Right
-                    m_select_all = false;
-                    m_caret = next_utf8(m_password, m_caret);
-                    reset_blink();
-                    mark_needs_paint();
-                    e.stop_propagation();
-                    return;
-                case 36: // Home
-                    m_select_all = false;
-                    m_caret = 0;
-                    reset_blink();
-                    mark_needs_paint();
-                    e.stop_propagation();
-                    return;
-                case 35: // End
-                    m_select_all = false;
-                    m_caret = m_password.size();
-                    reset_blink();
-                    mark_needs_paint();
-                    e.stop_propagation();
-                    return;
-                case 13: // Enter
-                    if (m_on_submit) m_on_submit(m_password);
-                    e.stop_propagation();
-                    return;
-                default:
-                    if (!e.text.empty()) {
-                        insert_text(e.text);
-                        e.stop_propagation();
-                    }
-                    break;
-            }
+            if (r.text_changed) notify_changed();
+            else if (r.caret_moved) mark_needs_paint();
+            if (r.handled) e.stop_propagation();
         };
     }
 
@@ -509,16 +334,12 @@ private:
     std::function<void(const std::string&)> m_on_change;
     std::function<void(const std::string&)> m_on_submit;
 
-    size_t m_caret{0};
-    bool m_select_all{false};
+    SingleLineTextEditCore m_edit;
     bool m_focused{false};
     bool m_hovered{false};
     bool m_eye_hovered{false};
     bool m_peeking{false};
-    bool m_caret_visible{true};
     float m_focus_anim{0.0f};
-    std::chrono::steady_clock::time_point m_blink_time{std::chrono::steady_clock::now()};
-    std::chrono::steady_clock::time_point m_anim_time{};
 };
 
 // C++20 指定初始化器声明式 WinUI 3 PasswordBox

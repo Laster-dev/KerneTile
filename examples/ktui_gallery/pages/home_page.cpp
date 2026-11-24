@@ -77,7 +77,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             Text { .text = "KTUI Gallery", .font_size = 24.0f },
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 21 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 31 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -100,7 +100,16 @@ WidgetPtr build_home_page(GalleryApp& app) {
                             nav_chip(app, "RadioButton", "radio_button"),
                             nav_chip(app, "RadioCard", "radio_card"),
                             nav_chip(app, "ComboBox", "combobox"),
-                            nav_chip(app, "Slider", "slider")
+                            nav_chip(app, "Slider", "slider"),
+                            nav_chip(app, "CalendarDatePicker", "calendar_date_picker")
+                        }
+                    },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            nav_chip(app, "ColorPicker", "color_picker", true),
+                            nav_chip(app, "RatingControl", "rating_control", true)
                         }
                     }
                 }
@@ -114,8 +123,9 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
                         .content = {
-                            nav_chip(app, "Label", "label", true),
+                            nav_chip(app, "Label", "label"),
                             nav_chip(app, "TextBox", "textbox"),
+                            nav_chip(app, "AutoSuggestBox", "auto_suggest_box", true),
                             nav_chip(app, "PasswordBox", "password_box"),
                             nav_chip(app, "NumberBox", "number_box")
                         }
@@ -126,12 +136,23 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "导航、菜单与工具栏 (Navigation, Menus & Toolbars)", .font_size = 14.0f },
+                    Text { .text = "导航、容器与工具栏 (Navigation, Containers & Toolbars)", .font_size = 14.0f },
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
                         .content = {
-                            nav_chip(app, "NavigationView", "navigation_view", true),
+                            nav_chip(app, "NavigationView", "navigation_view"),
+                            nav_chip(app, "TabView", "tab_view"),
+                            nav_chip(app, "BreadcrumbBar", "breadcrumb_bar"),
+                            nav_chip(app, "Expander", "expander"),
+                            nav_chip(app, "TreeView", "tree_view"),
+                            nav_chip(app, "VirtualList", "virtual_list", true)
+                        }
+                    },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
                             nav_chip(app, "CommandBar", "command_bar"),
                             nav_chip(app, "MenuFlyout / ContextMenu", "menu_flyout")
                         }
@@ -148,6 +169,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .spacing = 8.0f,
                         .content = {
                             nav_chip(app, "ContentDialog", "content_dialog"),
+                            nav_chip(app, "TeachingTip", "teaching_tip", true),
                             nav_chip(app, "InfoBar", "info_bar"),
                             nav_chip(app, "Toast", "toast", true),
                             nav_chip(app, "ProgressBar", "progress_bar"),

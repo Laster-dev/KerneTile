@@ -279,6 +279,9 @@ target_include_directories(ktui_gallery PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+    target_precompile_headers(ktui_gallery PRIVATE <ktui/ktui.hpp>)
+endif()
 target_link_libraries(ktui_gallery PRIVATE
     ktui_pal
     kernetile_engine

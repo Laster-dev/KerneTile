@@ -132,31 +132,40 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "8", .expanded = true,
+                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "11", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "button",          .label = "Button" },
-                    NavigationViewItem{ .id = "dropdown_button", .label = "DropDownButton" },
-                    NavigationViewItem{ .id = "checkbox",        .label = "CheckBox" },
-                    NavigationViewItem{ .id = "toggle_switch",   .label = "ToggleSwitch" },
-                    NavigationViewItem{ .id = "radio_button",    .label = "RadioButton" },
-                    NavigationViewItem{ .id = "radio_card",      .label = "RadioCard" },
-                    NavigationViewItem{ .id = "combobox",        .label = "ComboBox" },
-                    NavigationViewItem{ .id = "slider",          .label = "Slider" }
+                    NavigationViewItem{ .id = "button",               .label = "Button" },
+                    NavigationViewItem{ .id = "dropdown_button",      .label = "DropDownButton" },
+                    NavigationViewItem{ .id = "checkbox",             .label = "CheckBox" },
+                    NavigationViewItem{ .id = "toggle_switch",        .label = "ToggleSwitch" },
+                    NavigationViewItem{ .id = "radio_button",         .label = "RadioButton" },
+                    NavigationViewItem{ .id = "radio_card",           .label = "RadioCard" },
+                    NavigationViewItem{ .id = "combobox",             .label = "ComboBox" },
+                    NavigationViewItem{ .id = "slider",               .label = "Slider" },
+                    NavigationViewItem{ .id = "calendar_date_picker", .label = "CalendarDatePicker" },
+                    NavigationViewItem{ .id = "color_picker",         .label = "ColorPicker",        .badge = "New" },
+                    NavigationViewItem{ .id = "rating_control",       .label = "RatingControl",      .badge = "New" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "4", .expanded = true,
+                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "5", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "label",        .label = "Label",       .badge = "New" },
-                    NavigationViewItem{ .id = "textbox",      .label = "TextBox" },
-                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox" },
-                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox" }
+                    NavigationViewItem{ .id = "label",            .label = "Label" },
+                    NavigationViewItem{ .id = "textbox",          .label = "TextBox" },
+                    NavigationViewItem{ .id = "auto_suggest_box", .label = "AutoSuggestBox", .badge = "New" },
+                    NavigationViewItem{ .id = "password_box",     .label = "PasswordBox" },
+                    NavigationViewItem{ .id = "number_box",       .label = "NumberBox" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_nav", .label = "导航", .icon = NavigationIcon::Layout, .badge = "1", .expanded = false,
+                .id = "cat_nav", .label = "导航与容器", .icon = NavigationIcon::Layout, .badge = "6", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "navigation_view", .label = "NavigationView", .badge = "New" }
+                    NavigationViewItem{ .id = "navigation_view", .label = "NavigationView" },
+                    NavigationViewItem{ .id = "tab_view",        .label = "TabView" },
+                    NavigationViewItem{ .id = "breadcrumb_bar",  .label = "BreadcrumbBar" },
+                    NavigationViewItem{ .id = "expander",        .label = "Expander" },
+                    NavigationViewItem{ .id = "tree_view",       .label = "TreeView" },
+                    NavigationViewItem{ .id = "virtual_list",    .label = "VirtualList",    .badge = "New" }
                 }
             },
             NavigationViewItem{
@@ -167,11 +176,12 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "5", .expanded = false,
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "6", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
+                    NavigationViewItem{ .id = "teaching_tip",   .label = "TeachingTip",   .badge = "New" },
                     NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
-                    NavigationViewItem{ .id = "toast",          .label = "Toast",         .badge = "New" },
+                    NavigationViewItem{ .id = "toast",          .label = "Toast" },
                     NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar" },
                     NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing" }
                 }
@@ -201,16 +211,26 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "toggle_switch")   return pages::build_toggle_switch_page(*this);
             if (page_id == "radio_button")    return pages::build_radio_button_page(*this);
             if (page_id == "radio_card")      return pages::build_radio_card_page(*this);
-            if (page_id == "combobox")        return pages::build_combobox_page(*this);
-            if (page_id == "slider")          return pages::build_slider_page(*this);
-            if (page_id == "label")           return pages::build_label_page(*this);
-            if (page_id == "textbox")         return pages::build_textbox_page(*this);
-            if (page_id == "password_box")    return pages::build_password_box_page(*this);
-            if (page_id == "number_box")      return pages::build_number_box_page(*this);
-            if (page_id == "navigation_view") return pages::build_navigation_view_page(*this);
+            if (page_id == "combobox")             return pages::build_combobox_page(*this);
+            if (page_id == "slider")               return pages::build_slider_page(*this);
+            if (page_id == "calendar_date_picker") return pages::build_calendar_date_picker_page(*this);
+            if (page_id == "color_picker")         return pages::build_color_picker_page(*this);
+            if (page_id == "rating_control")       return pages::build_rating_control_page(*this);
+            if (page_id == "label")                return pages::build_label_page(*this);
+            if (page_id == "textbox")              return pages::build_textbox_page(*this);
+            if (page_id == "auto_suggest_box")     return pages::build_auto_suggest_box_page(*this);
+            if (page_id == "password_box")         return pages::build_password_box_page(*this);
+            if (page_id == "number_box")           return pages::build_number_box_page(*this);
+            if (page_id == "navigation_view")      return pages::build_navigation_view_page(*this);
+            if (page_id == "tab_view")             return pages::build_tab_view_page(*this);
+            if (page_id == "breadcrumb_bar")       return pages::build_breadcrumb_bar_page(*this);
+            if (page_id == "expander")             return pages::build_expander_page(*this);
+            if (page_id == "tree_view")            return pages::build_tree_view_page(*this);
+            if (page_id == "virtual_list")         return pages::build_virtual_list_page(*this);
             if (page_id == "command_bar")     return pages::build_command_bar_page(*this);
             if (page_id == "menu_flyout")     return pages::build_menu_flyout_page(*this);
-            if (page_id == "content_dialog")  return pages::build_content_dialog_page(*this);
+            if (page_id == "content_dialog")       return pages::build_content_dialog_page(*this);
+            if (page_id == "teaching_tip")         return pages::build_teaching_tip_page(*this);
             if (page_id == "info_bar")        return pages::build_info_bar_page(*this);
             if (page_id == "toast")           return pages::build_toast_page(*this);
             if (page_id == "progress_bar")    return pages::build_progress_bar_page(*this);

@@ -78,6 +78,21 @@ public:
         }
     }
 
+    // 关闭所有非模态锚定浮层 (窗口缩放/父容器大幅滚动时调用，避免浮层悬空错位)
+    void dismiss_non_modal() {
+        std::vector<std::function<void()>> cbs;
+        auto it = m_entries.begin();
+        while (it != m_entries.end()) {
+            if (!it->is_modal && it->dismiss_on_outside_click) {
+                if (it->on_dismiss) cbs.push_back(std::move(it->on_dismiss));
+                it = m_entries.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto& cb : cbs) cb();
+    }
+
     [[nodiscard]] bool has_active_overlay() const noexcept {
         return !m_entries.empty();
     }
