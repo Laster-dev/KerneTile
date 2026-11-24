@@ -18,6 +18,15 @@
 #include <ktui/widgets/rating_control.hpp>
 #include <ktui/widgets/teaching_tip.hpp>
 #include <ktui/widgets/virtual_list.hpp>
+#include <ktui/widgets/data_grid.hpp>
+#include <ktui/widgets/time_picker.hpp>
+#include <ktui/widgets/info_badge.hpp>
+#include <ktui/widgets/person_picture.hpp>
+#include <ktui/widgets/text_area.hpp>
+#include <ktui/widgets/pips_pager.hpp>
+#include <ktui/widgets/flip_view.hpp>
+#include <ktui/widgets/segmented_control.hpp>
+#include <ktui/widgets/toggle_button.hpp>
 #include <ktui/animation/frame_clock.hpp>
 #include <ktui/tree/popup_handle.hpp>
 #include <ktui/theme/theme.hpp>
@@ -367,6 +376,160 @@ int main() {
     tip.layout(BoxConstraints::loose(Vec2{500.0f, 400.0f}));
     assert(tip.size().x == 320.0f && tip.size().y > 120.0f);
 
-    std::cout << "All 22 KTUI widget, overlay & architecture tests passed!" << std::endl;
+    // 23. DataGrid 数值列排序与状态切换校验
+    DataGrid dg{
+        .columns = {
+            DataGridColumn{ .title = "ID", .width = 80.0f, .sortable = true, .numeric = true },
+            DataGridColumn{ .title = "Name", .width = 0.0f, .sortable = true, .numeric = false }
+        },
+        .rows = {
+            {"10", "Beta"},
+            {"2", "Alpha"},
+            {"30", "Gamma"}
+        },
+        .height = 200.0f
+    };
+    WidgetPtr dg_ptr = dg;
+    auto dg_node = std::dynamic_pointer_cast<RenderDataGrid>(dg_ptr->create_render_node());
+    dg_node->layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
+    assert(dg_node->row_count() == 3 && dg_node->sorted_column() == -1);
+    dg_node->sort_by_column(0);
+    assert(dg_node->sorted_column() == 0 && dg_node->sort_direction() == DataGridSortDirection::Ascending);
+    dg_node->sort_by_column(0);
+    assert(dg_node->sort_direction() == DataGridSortDirection::Descending);
+
+    // 24. TimePicker 24h/12h 格式化校验
+    assert((TimeOfDay{0, 5}.format(true) == "00:05"));
+    assert((TimeOfDay{0, 5}.format(false) == "12:05 AM"));
+    assert((TimeOfDay{14, 30}.format(false) == "02:30 PM"));
+
+    // 25. InfoBadge 99+ 溢出格式化校验
+    InfoBadge badge{ .value = 128, .severity = InfoBadgeSeverity::Critical };
+    WidgetPtr badge_ptr = badge;
+    auto badge_node = std::dynamic_pointer_cast<RenderInfoBadge>(badge_ptr->create_render_node());
+    badge_node->layout(BoxConstraints::loose(Vec2{100.0f, 30.0f}));
+    assert(badge_node->formatted_text() == "99+");
+
+    // 26. PersonPicture 中英文姓名首字母提取校验
+    assert(RenderPersonPicture::extract_initials("Jane Doe") == "JD");
+    assert(RenderPersonPicture::extract_initials("KerneTile") == "K");
+    assert(RenderPersonPicture::extract_initials("林思远") == "林");
+
+    // 27. TextArea 多行换行统计校验
+    TextArea ta{ .text = "Line 1\nLine 2\nLine 3", .height = 120.0f };
+    WidgetPtr ta_ptr = ta;
+    auto ta_node = std::dynamic_pointer_cast<RenderTextArea>(ta_ptr->create_render_node());
+    ta_node->layout(BoxConstraints::tight(Vec2{300.0f, 120.0f}));
+    assert(ta_node->line_count() == 3);
+
+    // 28. PipsPager 分页切换与边界夹紧校验
+    PipsPager pp{ .number_of_pages = 10, .selected_index = 0 };
+    WidgetPtr pp_ptr = pp;
+    auto pp_node = std::dynamic_pointer_cast<RenderPipsPager>(pp_ptr->create_render_node());
+    pp_node->select_page(5);
+    assert(pp_node->selected_index() == 5);
+    pp_node->select_page(99);
+    assert(pp_node->selected_index() == 9);
+
+    // 29. FlipView 页面切换校验
+    FlipView fv{ .items = { Box{ .height = 100.0f }, Box{ .height = 100.0f }, Box{ .height = 100.0f } }, .selected_index = 0 };
+    WidgetPtr fv_ptr = fv;
+    auto fv_node = std::dynamic_pointer_cast<RenderFlipView>(fv_ptr->create_render_node());
+    fv_node->go_to(2);
+    assert(fv_node->item_count() == 3 && fv_node->selected_index() == 2);
+
+    // 30. SegmentedControl 分段切换校验
+    SegmentedControl sc{ .items = { SegmentedItem{ .label = "A" }, SegmentedItem{ .label = "B" } }, .selected_index = 0 };
+    WidgetPtr sc_ptr = sc;
+    auto sc_node = std::dynamic_pointer_cast<RenderSegmentedControl>(sc_ptr->create_render_node());
+    sc_node->select(1);
+    assert(sc_node->selected_index() == 1);
+
+    // 31. ToggleButton 状态翻转校验
+    ToggleButton tb{ .checked = false, .text = "Bold" };
+    WidgetPtr tb_ptr = tb;
+    auto tb_node = std::dynamic_pointer_cast<RenderToggleButton>(tb_ptr->create_render_node());
+    tb_node->toggle();
+    assert(tb_node->checked() == true);
+
+    // 32. TextArea 局部选区、删除与撤销/重做校验
+    ta_node->set_selection(0, 6); // "Line 1"
+    assert(ta_node->has_selection() && ta_node->selected_text() == "Line 1");
+    ta_node->delete_selection();
+    assert(ta_node->text() == "\nLine 2\nLine 3");
+    assert(ta_node->can_undo());
+    ta_node->undo();
+    assert(ta_node->text() == "Line 1\nLine 2\nLine 3");
+    assert(ta_node->can_redo());
+    ta_node->redo();
+    assert(ta_node->text() == "\nLine 2\nLine 3");
+
+    // 33. AutoSuggestBox 直接组合复用真实 RenderTextBox 子节点校验
+    AutoSuggestBox asb_reuse{
+        .text = "WinUI",
+        .items = std::vector<std::string>{ "WinUI 3", "KerneTile", "Fluent" }
+    };
+    WidgetPtr asb_reuse_ptr = asb_reuse;
+    auto asb_reuse_node = std::dynamic_pointer_cast<RenderAutoSuggestBox>(asb_reuse_ptr->create_render_node());
+    assert(asb_reuse_node->input_box() != nullptr);
+    assert(asb_reuse_node->input_box()->text() == "WinUI");
+
+    // 34. PipsPager 切换页码时圆点放大显示数字、1 秒后平滑缩小与淡出校验
+    FrameClock::global().enable_virtual_time(10.0);
+    PipsPager pp_anim{ .number_of_pages = 6, .selected_index = 0 };
+    WidgetPtr pp_anim_ptr = pp_anim;
+    auto pp_anim_node = std::dynamic_pointer_cast<RenderPipsPager>(pp_anim_ptr->create_render_node());
+    pp_anim_node->layout(BoxConstraints::loose(Vec2{300.0f, 40.0f}));
+    pp_anim_node->select_page(2);
+    assert(pp_anim_node->is_badge_active());
+    for (int f = 0; f < 25; ++f) {
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+        pp_anim_node->step_animations();
+    }
+    assert(pp_anim_node->badge_alpha() > 0.85f);
+    assert(pp_anim_node->active_pip_diameter() > 19.0f);
+    // 推进超过 1.0 秒停留期后，数字淡出且圆点平滑缩回
+    FrameClock::global().advance_virtual(0.8f);
+    for (int f = 0; f < 45; ++f) {
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+        pp_anim_node->step_animations();
+    }
+    assert(!pp_anim_node->is_badge_active());
+    assert(pp_anim_node->badge_alpha() < 0.05f);
+    assert(pp_anim_node->active_pip_diameter() < 9.5f);
+    FrameClock::global().disable_virtual_time();
+
+    // 35. PasswordBox / NumberBox 直接组合复用真实 RenderTextBox 子节点校验
+    PasswordBox pb_reuse{ .password = "secret" };
+    WidgetPtr pb_reuse_ptr = pb_reuse;
+    auto pb_reuse_node = std::dynamic_pointer_cast<RenderPasswordBox>(pb_reuse_ptr->create_render_node());
+    assert(pb_reuse_node->input_box() != nullptr);
+    assert(pb_reuse_node->input_box()->is_password());
+    assert(pb_reuse_node->input_box()->text() == "secret");
+
+    NumberBox nb_reuse{ .value = 42.0, .minimum = 0.0, .maximum = 100.0, .small_change = 5.0 };
+    WidgetPtr nb_reuse_ptr = nb_reuse;
+    auto nb_reuse_node = std::dynamic_pointer_cast<RenderNumberBox>(nb_reuse_ptr->create_render_node());
+    assert(nb_reuse_node->input_box() != nullptr);
+    assert(nb_reuse_node->input_box()->text() == "42");
+    nb_reuse_node->step(5.0);
+    assert(nb_reuse_node->value() == 47.0 && nb_reuse_node->input_box()->text() == "47");
+
+    // 36. ToggleButton / DropDownButton / SplitButton 直接组合复用真实 RenderButton 子节点校验
+    assert(tb_node->button() != nullptr);
+    assert(tb_node->button()->variant() == ButtonVariant::Accent);
+
+    DropDownButton ddb_reuse{ .text = "操作", .items = {} };
+    WidgetPtr ddb_reuse_ptr = ddb_reuse;
+    auto ddb_reuse_node = std::dynamic_pointer_cast<RenderDropDownButton>(ddb_reuse_ptr->create_render_node());
+    assert(ddb_reuse_node->button() != nullptr && ddb_reuse_node->button()->text() == "操作");
+
+    SplitButton sb_reuse{ .text = "保存", .accent = true, .items = {} };
+    WidgetPtr sb_reuse_ptr = sb_reuse;
+    auto sb_reuse_node = std::dynamic_pointer_cast<RenderSplitButton>(sb_reuse_ptr->create_render_node());
+    assert(sb_reuse_node->main_button() != nullptr && sb_reuse_node->drop_button() != nullptr);
+    assert(sb_reuse_node->main_button()->variant() == ButtonVariant::Accent);
+
+    std::cout << "All 36 KTUI widget, overlay & architecture tests passed!" << std::endl;
     return 0;
 }

@@ -101,4 +101,13 @@
 #include <ktui/widgets/rating_control.hpp>
 #include <ktui/widgets/teaching_tip.hpp>
 #include <ktui/widgets/virtual_list.hpp>
+#include <ktui/widgets/data_grid.hpp>
+#include <ktui/widgets/time_picker.hpp>
+#include <ktui/widgets/info_badge.hpp>
+#include <ktui/widgets/person_picture.hpp>
+#include <ktui/widgets/text_area.hpp>
+#include <ktui/widgets/pips_pager.hpp>
+#include <ktui/widgets/flip_view.hpp>
+#include <ktui/widgets/segmented_control.hpp>
+#include <ktui/widgets/toggle_button.hpp>
 #include <ktui/widgets/navigation_view.hpp>

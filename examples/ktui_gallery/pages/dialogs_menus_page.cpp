@@ -1107,4 +1107,351 @@ WidgetPtr build_teaching_tip_page(GalleryApp& app) {
     });
 }
 
+WidgetPtr build_data_grid_page(GalleryApp& app) {
+    static const std::vector<DataGridColumn> kCols = {
+        DataGridColumn{ .title = "ID", .width = 76.0f, .sortable = true, .numeric = true },
+        DataGridColumn{ .title = "模块名称", .width = 180.0f, .sortable = true, .numeric = false },
+        DataGridColumn{ .title = "渲染后端", .width = 140.0f, .sortable = true, .numeric = false },
+        DataGridColumn{ .title = "耗时 (ms)", .width = 100.0f, .sortable = true, .numeric = true },
+        DataGridColumn{ .title = "状态", .width = 0.0f, .sortable = true, .numeric = false }
+    };
+
+    static const std::vector<std::vector<std::string>> kRows = []() {
+        static constexpr const char* kMods[] = {"TileBinning", "GaussianShadow", "MicaBackdrop", "ThemeRipple", "NanoSVG", "FlexLayout", "TextShaper", "Compositor"};
+        static constexpr const char* kBackends[] = {"D3D12 Compute", "Vulkan Compute", "CPU AVX2", "WebGPU / WASM"};
+        static constexpr const char* kStatus[] = {"120 FPS 就绪", "GPU 加速", "缓存命中", "活跃"};
+        std::vector<std::vector<std::string>> r;
+        r.reserve(5000);
+        for (int i = 0; i < 5000; ++i) {
+            char ms_buf[16];
+            std::snprintf(ms_buf, sizeof(ms_buf), "%.2f", 0.15 + static_cast<double>((i * 37) % 450) / 100.0);
+            r.push_back({
+                std::to_string(i + 1),
+                std::string(kMods[i % 8]) + " #" + std::to_string((i / 8) + 1),
+                kBackends[i % 4],
+                ms_buf,
+                kStatus[i % 4]
+            });
+        }
+        return r;
+    }();
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "DataGrid", .font_size = 22.0f },
+            Text { .text = "高性能虚拟化数据表格：支持 5,000+ 行 O(1) 视口裁剪滚动、固定表头、点击列头数值/字典序升降排序与行选中反馈。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    DataGrid {
+                        .columns = kCols,
+                        .rows = kRows,
+                        .row_height = 34.0f,
+                        .height = 340.0f,
+                        .on_row_selected = [&app](size_t orig_idx) {
+                            app.datagrid_status.set("已选中原始行 #" + std::to_string(orig_idx + 1) +
+                                                    " (" + kRows[orig_idx][1] + " · " + kRows[orig_idx][3] + " ms)");
+                        }
+                    },
+                    Text { .text = Bind(app.datagrid_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_time_picker_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "TimePicker", .font_size = 22.0f },
+            Text { .text = "WinUI 3 时间选择器，点击弹出固定尺寸滚轮选时浮层，支持 24h / 12h AM·PM 模式、滚轮滚动步进与分钟步长配置。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "24 小时制与 12 小时制对比", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::FlexEnd,
+                        .spacing = 16.0f,
+                        .content = {
+                            TimePicker {
+                                .time = Bind(app.picked_time_24),
+                                .header = "会议开始时间 (24h)",
+                                .use_24h = true,
+                                .minute_increment = 5,
+                                .width = 200.0f,
+                                .on_time_changed = [&app](const TimeOfDay& t) {
+                                    app.time_status.set("当前选择: " + t.format(true) + " (24h) / " + app.picked_time_12.get().format(false) + " (12h)");
+                                }
+                            },
+                            TimePicker {
+                                .time = Bind(app.picked_time_12),
+                                .header = "提醒时间 (12h AM/PM)",
+                                .use_24h = false,
+                                .minute_increment = 15,
+                                .width = 210.0f,
+                                .on_time_changed = [&app](const TimeOfDay& t) {
+                                    app.time_status.set("当前选择: " + app.picked_time_24.get().format(true) + " (24h) / " + t.format(false) + " (12h)");
+                                }
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.time_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_info_badge_page(GalleryApp& app) {
+    static constexpr const char* kStarSvg =
+        "M12 2.5l2.84 5.75 6.35.92-4.6 4.48 1.09 6.32L12 16.98l-5.68 2.99 1.09-6.32-4.6-4.48 6.35-.92L12 2.5z";
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "InfoBadge", .font_size = 22.0f },
+            Text { .text = "WinUI 3 状态角标，提供数字（支持 99+ 溢出）、圆点与矢量图标三种形态，覆盖 5 种 Fluent 2 语义色。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "动态数字角标与 5 种语义形态", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 14.0f,
+                        .content = {
+                            InfoBadge { .value = Bind(app.badge_count), .severity = InfoBadgeSeverity::Attention },
+                            InfoBadge { .value = 128, .severity = InfoBadgeSeverity::Critical },
+                            InfoBadge { .value = -1, .severity = InfoBadgeSeverity::Success },
+                            InfoBadge { .value = -1, .severity = InfoBadgeSeverity::Caution, .svg_path = kStarSvg },
+                            InfoBadge { .value = 7, .severity = InfoBadgeSeverity::Informational }
+                        }
+                    },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            Button {
+                                .text = "未读数 +1",
+                                .variant = ButtonVariant::Accent,
+                                .on_click = [&app]() { app.badge_count.set(app.badge_count.get() + 1); }
+                            },
+                            Button {
+                                .text = "设为 105 (触发 99+)",
+                                .on_click = [&app]() { app.badge_count.set(105); }
+                            },
+                            Button {
+                                .text = "清零",
+                                .on_click = [&app]() { app.badge_count.set(0); }
+                            }
+                        }
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_person_picture_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "PersonPicture", .font_size = 22.0f },
+            Text { .text = "WinUI 3 用户头像组件，支持中英文姓名首字母自动提取、确定性 Fluent 配色、多尺寸规范与在线状态指示圆点。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "多尺寸头像与在线状态指示点", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 18.0f,
+                        .content = {
+                            PersonPicture { .display_name = "Jane Doe", .diameter = 64.0f, .presence = PersonPresence::Available },
+                            PersonPicture { .display_name = "林思远", .diameter = 52.0f, .presence = PersonPresence::Busy },
+                            PersonPicture { .display_name = "Alex Chen", .diameter = 44.0f, .presence = PersonPresence::Away },
+                            PersonPicture { .display_name = "KerneTile", .diameter = 36.0f, .presence = PersonPresence::Offline }
+                        }
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_text_area_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "TextArea", .font_size = 22.0f },
+            Text { .text = "WinUI 3 多行文本编辑器，支持回车换行、自动折行、多行光标上下左右定位、剪贴板、中文 IME 与内置垂直滚动条。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    TextArea {
+                        .text = Bind(app.textarea_val),
+                        .placeholder = "在此输入多行内容...",
+                        .header = "文档备注",
+                        .height = 140.0f,
+                        .on_change = [&app](const std::string& v) {
+                            app.textarea_status.set("当前字符数: " + std::to_string(v.size()) + " 字节");
+                        }
+                    },
+                    Text { .text = Bind(app.textarea_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_flip_view_page(GalleryApp& app) {
+    auto make_slide = [](const std::string& title, const std::string& desc, Color bg) -> WidgetPtr {
+        return Box {
+            .background_color = bg,
+            .padding = EdgeInsets(24.0f, 36.0f),
+            .child = VStack {
+                .align_items = AlignItems::Center,
+                .spacing = 8.0f,
+                .content = {
+                    Text { .text = title, .font_size = 20.0f, .color = Color{1.0f, 1.0f, 1.0f, 0.96f} },
+                    Text { .text = desc, .font_size = 13.0f, .color = Color{1.0f, 1.0f, 1.0f, 0.80f} }
+                }
+            }
+        };
+    };
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "FlipView", .font_size = 22.0f },
+            Text { .text = "WinUI 3 轮播视图，支持悬停左右翻页按钮、触控滑动切页与平滑位移过渡，下方与 PipsPager 双向绑定联动。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Center,
+                .spacing = 12.0f,
+                .content = {
+                    FlipView {
+                        .items = {
+                            make_slide("01 · KerneTile 16×16 瓦片渲染", "纯 C++20 零依赖 2D 计算着色器与 AVX2 软光栅双引擎", Color{0.08f, 0.34f, 0.62f, 0.85f}),
+                            make_slide("02 · WinUI 3 Fluent 2 设计体系", "40 个独立控件展厅 · 真高斯阴影 · 云母动态聚焦 · 主题涟漪", Color{0.10f, 0.45f, 0.38f, 0.85f}),
+                            make_slide("03 · 全平台原生与 WebOS Desktop", "Windows / Linux / Android / Emscripten WASM 桌面多开", Color{0.38f, 0.22f, 0.58f, 0.85f}),
+                            make_slide("04 · 100,000 行虚拟化 120 FPS", "VirtualList & DataGrid 恒定 O(1) 视口开销", Color{0.62f, 0.24f, 0.32f, 0.85f})
+                        },
+                        .selected_index = Bind(app.flip_page),
+                        .width = 520.0f,
+                        .height = 170.0f
+                    },
+                    PipsPager {
+                        .number_of_pages = 4,
+                        .selected_index = Bind(app.flip_page)
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_pips_pager_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "PipsPager", .font_size = 22.0f },
+            Text { .text = "WinUI 3 圆点分页指示器，切换时当前圆点平滑放大并显示页码数字，1 秒后数字淡出、圆点平滑缩回。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Center,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "12 页滑动窗口演示 (MaxVisiblePips = 7)", .font_size = 14.0f },
+                    PipsPager {
+                        .number_of_pages = 12,
+                        .selected_index = Bind(app.pips_page),
+                        .max_visible_pips = 7,
+                        .show_nav_buttons = true
+                    }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_segmented_control_page(GalleryApp& app) {
+    static const char* kModes[] = {"列表视图", "网格视图", "紧凑详情"};
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "SegmentedControl", .font_size = 22.0f },
+            Text { .text = "Fluent 2 分段选择器，内置 FrameClock 驱动的平滑滑动激活胶囊底板与底部主题色微指示条。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "视图切换分段栏", .font_size = 14.0f },
+                    SegmentedControl {
+                        .items = {
+                            SegmentedItem{ .label = "列表" },
+                            SegmentedItem{ .label = "网格" },
+                            SegmentedItem{ .label = "详情" }
+                        },
+                        .selected_index = Bind(app.seg_idx),
+                        .width = 280.0f,
+                        .on_selected_index_changed = [&app](int idx) {
+                            if (idx >= 0 && idx < 3) {
+                                app.seg_status.set(std::string("当前视图模式: ") + kModes[idx]);
+                            }
+                        }
+                    },
+                    Text { .text = Bind(app.seg_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
+WidgetPtr build_toggle_button_page(GalleryApp& app) {
+    auto refresh_fmt = [&app]() {
+        std::string s;
+        if (app.tb_bold.get()) s += "粗体 ";
+        if (app.tb_italic.get()) s += "斜体 ";
+        if (app.tb_underline.get()) s += "下划线 ";
+        app.tb_status.set("当前格式: " + (s.empty() ? "无" : s));
+    };
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "ToggleButton", .font_size = 22.0f },
+            Text { .text = "WinUI 3 切换按钮，可保持选中主题色高亮态，适用于富文本格式或工具栏模式开关。", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "文本格式切换组", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            ToggleButton { .checked = Bind(app.tb_bold), .text = "B 粗体", .on_change = [refresh_fmt](bool) { refresh_fmt(); } },
+                            ToggleButton { .checked = Bind(app.tb_italic), .text = "I 斜体", .on_change = [refresh_fmt](bool) { refresh_fmt(); } },
+                            ToggleButton { .checked = Bind(app.tb_underline), .text = "U 下划线", .on_change = [refresh_fmt](bool) { refresh_fmt(); } },
+                            ToggleButton { .checked = false, .text = "已禁用", .disabled = true }
+                        }
+                    },
+                    Text { .text = Bind(app.tb_status), .font_size = 12.5f, .color = Bind(app.accent_text) }
+                }
+            })
+        }
+    });
+}
+
 } // namespace gallery::pages

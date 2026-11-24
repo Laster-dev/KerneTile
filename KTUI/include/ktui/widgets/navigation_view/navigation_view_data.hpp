@@ -91,6 +91,8 @@ struct NavigationViewData {
     bool is_back_button_visible{true};
     bool is_back_enabled{false};
     bool is_settings_visible{true};
+    bool is_search_box_visible{false};
+    std::string search_placeholder{"搜索控件"};
     std::string settings_label{"设置"};
     std::string settings_id{"__settings__"};
 

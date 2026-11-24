@@ -5,6 +5,7 @@
 #include <ktui/animation/animation.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/svg_engine.hpp>
 #include <ktui/presentation/text_measure.hpp>
 #include <ktui/event/event_types.hpp>
 #include <ktui/theme/theme.hpp>
@@ -12,6 +13,7 @@
 #include <ktui/widgets/widget.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <functional>
@@ -76,6 +78,26 @@ public:
         if (m_data.icon != icon) {
             m_data.icon = std::move(icon);
             mark_needs_layout();
+        }
+    }
+
+    [[nodiscard]] const std::string& svg_path() const noexcept { return m_svg_path; }
+    void set_svg_path(std::string path) {
+        if (m_svg_path != path) {
+            m_svg_path = std::move(path);
+            mark_needs_layout();
+        }
+    }
+
+    void set_corner_radii(float tl, float tr, float br, float bl) {
+        m_custom_radii = {tl, tr, br, bl};
+        mark_needs_paint();
+    }
+
+    void set_forced_pressed(bool forced) {
+        if (m_forced_pressed != forced) {
+            m_forced_pressed = forced;
+            mark_needs_paint();
         }
     }
 
@@ -181,8 +203,10 @@ public:
 
     [[nodiscard]] ResolvedButtonStyle resolve_current_style() const {
         const Theme& theme = ThemeContext::current();
+        ButtonInteractiveState eff_state = m_state;
+        if (m_forced_pressed) eff_state.is_pressed = true;
         auto resolved = ButtonStyleResolver::resolve(
-            m_data, m_state, theme,
+            m_data, eff_state, theme,
             m_custom_bg, m_custom_hover, m_custom_active, m_custom_text, m_custom_border,
             m_custom_height, m_custom_radius, m_custom_padding, m_custom_font_size
         );
@@ -198,7 +222,9 @@ public:
         auto style = resolve_current_style();
 
         float content_w = 0.0f;
-        if (!m_data.icon.empty()) {
+        if (!m_svg_path.empty()) {
+            content_w += 15.0f;
+        } else if (!m_data.icon.empty()) {
             content_w += style.font_size + 2.0f;
         }
         if (!m_data.text.empty()) {
@@ -236,17 +262,26 @@ public:
         }
 
         auto style = resolve_current_style();
+        const float r_tl = m_custom_radii ? (*m_custom_radii)[0] : style.corner_radius;
+        const float r_tr = m_custom_radii ? (*m_custom_radii)[1] : style.corner_radius;
+        const float r_br = m_custom_radii ? (*m_custom_radii)[2] : style.corner_radius;
+        const float r_bl = m_custom_radii ? (*m_custom_radii)[3] : style.corner_radius;
+        const float clip_r = std::max({r_tl, r_tr, r_br, r_bl});
 
-        // 2. 绘制微圆角实心背景 (绝非大圆角，桌面 3px 硬朗)
+        // 2. WinUI 3 按钮背景填充
         if (style.background.a > 0.001f) {
-            context.draw_rect(bounds(), style.background, style.corner_radius, 0.0f);
+            if (m_custom_radii) {
+                context.draw_rounded_rect(bounds(), style.background, r_tl, r_tr, r_br, r_bl);
+            } else {
+                context.draw_rect(bounds(), style.background, style.corner_radius, 0.0f);
+            }
         }
 
-        // 3. 绘制 Fluent 水波纹点击反馈微动效 (局限于微圆角边界内部裁剪)
+        // 3. 点击涟漪微动效 (裁剪于圆角边界内)
         if (m_ripple_active && m_ripple_opacity > 0.001f) {
-            context.push_clip(bounds(), style.corner_radius);
+            context.push_clip(bounds(), clip_r);
             Color ripple_col = style.ripple;
-            ripple_col.a = m_ripple_opacity; // 纯半透明动态衰减，杜绝白色硬块
+            ripple_col.a = m_ripple_opacity;
             Rect ripple_rect = Rect::from_xywh(
                 m_ripple_center.x - m_ripple_radius,
                 m_ripple_center.y - m_ripple_radius,
@@ -257,23 +292,42 @@ public:
             context.pop_clip();
         }
 
-        // 4. 绘制 1px 精致微光描边
+        // 4. WinUI 3 1px 轮廓描边 + 立体高光/底边 (ControlElevationBorder)
         if (style.border_width > 0.0f && style.border.a > 0.001f) {
-            context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
+            if (m_custom_radii) {
+                context.draw_rounded_rect(bounds(), style.border, r_tl, r_tr, r_br, r_bl, 0.0f, Vec2{0.0f, 0.0f}, style.border_width);
+            } else {
+                context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
+            }
+        }
+        if (style.elevation_edge.a > 0.001f && style.border_width > 0.0f) {
+            float ey = style.elevation_on_top ? 0.0f : (bounds().height() - 1.0f);
+            float inset_l = (r_tl > 0.0f || r_bl > 0.0f) ? 3.0f : 0.0f;
+            float inset_r = (r_tr > 0.0f || r_br > 0.0f) ? 3.0f : 0.0f;
+            float ew = std::max(0.0f, bounds().width() - inset_l - inset_r);
+            if (ew > 0.0f) {
+                context.draw_rect(Rect::from_xywh(inset_l, ey, ew, 1.0f), style.elevation_edge, 0.0f, 0.0f);
+            }
         }
 
-        // 5. 居中绘制图标与文本 (硬件视口裁剪，防止极端溢出)
-        if (!m_data.text.empty() || !m_data.icon.empty()) {
-            context.push_clip(bounds(), style.corner_radius);
+        // 5. 居中绘制 SVG/文本图标与文字 (在内容区 padding 内居中，支持外部预留右侧箭头区)
+        if (!m_data.text.empty() || !m_data.icon.empty() || !m_svg_path.empty()) {
+            context.push_clip(bounds(), clip_r);
 
-            float icon_size = m_data.icon.empty() ? 0.0f : (style.font_size + 2.0f);
+            float icon_size = !m_svg_path.empty() ? 15.0f : (m_data.icon.empty() ? 0.0f : (style.font_size + 2.0f));
             float text_w = m_data.text.empty() ? 0.0f : TextMeasure::measure_width(m_data.text, style.font_size);
-            float gap = (!m_data.icon.empty() && !m_data.text.empty()) ? style.icon_gap : 0.0f;
+            float gap = ((!m_svg_path.empty() || !m_data.icon.empty()) && !m_data.text.empty()) ? style.icon_gap : 0.0f;
             float total_w = icon_size + gap + text_w;
 
-            float start_x = std::max(style.padding.left, (m_size.x - total_w) * 0.5f);
+            float avail_left = style.padding.left;
+            float avail_w = std::max(0.0f, m_size.x - style.padding.horizontal());
+            float start_x = avail_left + std::max(0.0f, (avail_w - total_w) * 0.5f);
 
-            if (!m_data.icon.empty()) {
+            if (!m_svg_path.empty()) {
+                Rect ir = Rect::from_xywh(std::round(start_x), std::round((m_size.y - icon_size) * 0.5f), icon_size, icon_size);
+                SvgEngine::draw_svg_path(context, m_svg_path, 24.0f, 24.0f, ir, style.text);
+                start_x += icon_size + gap;
+            } else if (!m_data.icon.empty()) {
                 float icon_y = std::max(0.0f, (m_size.y - icon_size) * 0.5f);
                 context.draw_text(m_data.icon, PointF{start_x, icon_y}, style.font_size, style.text);
                 start_x += icon_size + gap;
@@ -281,8 +335,8 @@ public:
 
             if (!m_data.text.empty()) {
                 Vec2 measured = TextMeasure::measure(m_data.text, style.font_size);
-                float text_y = std::max(0.0f, (m_size.y - measured.y) * 0.5f);
-                context.draw_text(m_data.text, PointF{start_x, text_y}, style.font_size, style.text);
+                float text_y = std::round((m_size.y - measured.y) * 0.5f);
+                context.draw_text(m_data.text, PointF{std::round(start_x), text_y}, style.font_size, style.text);
             }
 
             context.pop_clip();
@@ -409,6 +463,9 @@ private:
     std::optional<float> m_custom_radius;
     std::optional<EdgeInsets> m_custom_padding;
     std::optional<float> m_custom_font_size;
+    std::string m_svg_path;
+    std::optional<std::array<float, 4>> m_custom_radii;
+    bool m_forced_pressed{false};
     float m_border_width{1.0f};
     bool m_border_width_explicit{false};
 

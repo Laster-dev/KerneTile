@@ -20,7 +20,8 @@ struct ResolvedTextBoxStyle {
     Color text{Color{0.95f, 0.95f, 0.98f, 1.0f}};
     Color placeholder{Color{0.50f, 0.50f, 0.55f, 1.0f}};
     Color caret{Color{0.0f, 0.525f, 0.941f, 1.0f}};
-    Color selection{Color{0.0f, 0.525f, 0.941f, 0.35f}};
+    Color selection{Color{0.0f, 120.0f / 255.0f, 212.0f / 255.0f, 1.0f}};
+    Color selection_text{Color{1.0f, 1.0f, 1.0f, 1.0f}};
     Color focus_indicator{Color{0.0f, 0.525f, 0.941f, 1.0f}}; // 底部 2px 扩展高光线 (:after)
 
     float height{28.0f};            // 恢复原基准高度 28px
@@ -80,7 +81,8 @@ public:
             style.placeholder = Color{0.50f, 0.50f, 0.55f, 1.0f};
 
             style.caret            = Color{0.0f, 0.525f, 0.941f, 1.0f};
-            style.selection        = Color{0.0f, 0.525f, 0.941f, 0.35f};
+            style.selection        = Color{0.0f, 120.0f / 255.0f, 212.0f / 255.0f, 1.0f}; // WinUI 3 Dark #0078D4
+            style.selection_text   = Color{1.0f, 1.0f, 1.0f, 1.0f};
         } else {
             // 浅色模式 (半透明通透底色)
             idle_bg         = Color{0.0f, 0.0f, 0.0f, 0.04f};
@@ -97,7 +99,8 @@ public:
             style.placeholder = Color{0.52f, 0.52f, 0.56f, 1.0f};
 
             style.caret            = Color{0.0f, 0.47f, 0.84f, 1.0f};
-            style.selection        = Color{0.0f, 0.47f, 0.84f, 0.28f};
+            style.selection        = Color{0.0f, 95.0f / 255.0f, 184.0f / 255.0f, 1.0f};  // WinUI 3 Light #005FB8
+            style.selection_text   = Color{1.0f, 1.0f, 1.0f, 1.0f};
         }
 
         // 覆盖自定义显式参数 (若外部显式传入边框，才启用四周描边)

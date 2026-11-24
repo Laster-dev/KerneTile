@@ -2,6 +2,8 @@
 
 #include "navigation_view_data.hpp"
 #include "navigation_view_style.hpp"
+#include <ktui/widgets/auto_suggest_box.hpp>
+#include <ktui/widgets/common/fluent_icons.hpp>
 #include <ktui/app/window.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
@@ -200,6 +202,23 @@ public:
 
     ~RenderNavigationView() override {
         close_submenu_flyout();
+        if (m_search_box && m_search_box->parent() == this) {
+            remove_child(m_search_box.get());
+        }
+    }
+
+    void set_search_options(bool visible, std::string placeholder) {
+        m_data.is_search_box_visible = visible;
+        m_data.search_placeholder = std::move(placeholder);
+        if (visible && !m_search_box) {
+            m_search_box = std::make_shared<RenderAutoSuggestBox>();
+            append_child(m_search_box.get());
+        } else if (!visible && m_search_box) {
+            if (m_search_box->parent() == this) remove_child(m_search_box.get());
+            m_search_box.reset();
+        }
+        rebuild_search_items();
+        mark_needs_layout();
     }
 
     [[nodiscard]] const std::string& selected_id() const noexcept { return m_data.selected_id; }
@@ -223,12 +242,14 @@ public:
             }
         }
         rebuild_flat_items();
+        rebuild_search_items();
         mark_needs_layout();
     }
 
     void set_footer_items(std::vector<NavigationViewItem> items) {
         m_data.footer_items = std::move(items);
         rebuild_flat_items();
+        rebuild_search_items();
         mark_needs_layout();
     }
 
@@ -291,6 +312,12 @@ public:
     void set_pane_open(bool open, bool notify = false) {
         if (m_data.is_pane_open != open) {
             close_submenu_flyout();
+            if (!open) {
+                m_saved_expanded_scroll_y = m_menu_scroll.offset();
+                m_restore_expanded_scroll = false;
+            } else {
+                m_restore_expanded_scroll = true;
+            }
             m_data.is_pane_open = open;
             m_last_anim_time = std::chrono::steady_clock::now();
             if (notify && m_data.on_pane_toggled) {
@@ -321,6 +348,7 @@ public:
         if (compact_thresh > 0.0f) m_data.compact_mode_threshold_width = compact_thresh;
         if (expanded_thresh > 0.0f) m_data.expanded_mode_threshold_width = expanded_thresh;
         rebuild_flat_items();
+        rebuild_search_items();
         mark_needs_layout();
     }
 
@@ -375,7 +403,13 @@ public:
         }
 
         if (eff != NavigationPaneDisplayMode::Top) {
-            Rect menu_vp = compute_left_menu_viewport(h, current_pane_width(eff));
+            float pw = current_pane_width(eff);
+            if (m_search_box && m_data.is_search_box_visible) {
+                float sy = compute_left_search_top();
+                m_search_box->layout(BoxConstraints::tight(Vec2{std::max(60.0f, pw - 20.0f), 32.0f}), false);
+                m_search_box->set_offset(Vec2{10.0f, sy});
+            }
+            Rect menu_vp = compute_left_menu_viewport(h, pw);
             float total_menu_h = compute_left_menu_total_height();
             m_menu_scroll.set_max_scroll(std::max(0.0f, total_menu_h - menu_vp.height()));
         }
@@ -407,6 +441,13 @@ public:
                 return true;
             }
         } else {
+            if (m_search_box && m_data.is_search_box_visible && m_pane_open_anim > 0.5f && local_position.x <= pane_w) {
+                Vec2 soff = m_search_box->offset();
+                PointF spos{local_position.x - soff.x, local_position.y - soff.y};
+                if (m_search_box->hit_test(result, spos)) {
+                    return true;
+                }
+            }
             if (local_position.x <= pane_w || overlay_active) {
                 result.add(this, local_position);
                 return true;
@@ -547,14 +588,77 @@ private:
         }
     }
 
-    // WinUI 3 官方左侧顶部按钮布局: Back 在上 (4, 4), Hamburger 在下 (4, 44)，折叠展开位置绝对稳定
+    [[nodiscard]] bool has_left_top_row() const noexcept {
+        return m_data.is_back_button_visible || m_data.is_pane_toggle_button_visible || !m_data.pane_title.empty();
+    }
+
+    [[nodiscard]] float compute_left_search_top() const noexcept {
+        return has_left_top_row() ? 46.0f : 10.0f;
+    }
+
+    // 紧凑单行顶部操作栏: Back + Hamburger + PaneTitle 合并为同一行 (44px)；
+    // 侧边折叠后搜索行平滑收起至 0px，不占用空间
     [[nodiscard]] float compute_left_chrome_height() const noexcept {
-        int rows = 0;
-        if (m_data.is_back_button_visible) rows++;
-        if (m_data.is_pane_toggle_button_visible) rows++;
-        if (rows == 2) return 84.0f;
-        if (rows == 1) return 44.0f;
-        return 8.0f;
+        float base = has_left_top_row() ? 44.0f : 8.0f;
+        if (m_data.is_search_box_visible) {
+            base += 44.0f * m_pane_open_anim;
+        }
+        return base;
+    }
+
+    void collect_searchable(const std::vector<NavigationViewItem>& items,
+                            std::vector<std::string>& labels,
+                            std::vector<std::pair<std::string, std::string>>& pairs) const {
+        for (const auto& it : items) {
+            if (it.kind == NavigationItemKind::Item && !it.disabled) {
+                if (it.children.empty()) {
+                    labels.push_back(it.label);
+                    pairs.emplace_back(it.label, it.effective_id());
+                } else {
+                    collect_searchable(it.children, labels, pairs);
+                }
+            }
+        }
+    }
+
+    void rebuild_search_items() {
+        if (!m_search_box || !m_data.is_search_box_visible) return;
+        std::vector<std::string> labels;
+        m_search_map.clear();
+        collect_searchable(m_data.menu_items, labels, m_search_map);
+        collect_searchable(m_data.footer_items, labels, m_search_map);
+
+        auto navigate_by_label = [this](const std::string& chosen) {
+            std::string target_id;
+            for (const auto& kv : m_search_map) {
+                if (kv.first == chosen) { target_id = kv.second; break; }
+            }
+            if (target_id.empty() && !chosen.empty()) {
+                // 子串回退匹配首项
+                std::string q = chosen;
+                for (char& c : q) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                for (const auto& kv : m_search_map) {
+                    std::string low = kv.first;
+                    for (char& c : low) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                    if (low.find(q) != std::string::npos) { target_id = kv.second; break; }
+                }
+            }
+            if (!target_id.empty()) {
+                set_selected_id(target_id, true, true);
+                if (m_search_box) m_search_box->set_text_value("");
+            }
+        };
+
+        m_search_box->set_properties(
+            m_search_box->text(),
+            m_data.search_placeholder,
+            "",
+            std::move(labels),
+            std::max(80.0f, m_data.open_pane_length - 20.0f),
+            false,
+            nullptr,
+            navigate_by_label,
+            navigate_by_label);
     }
 
     [[nodiscard]] float compute_left_footer_height() const noexcept {
@@ -757,33 +861,79 @@ private:
             ctx.draw_rect(Rect::from_xywh(pane_w - 1.0f, 0.0f, 1.0f, size().y), style.pane_overlay_border, 0.0f, 0.0f);
         }
 
-        // 1. 顶部操作区 (WinUI 3 纵向堆叠: Back 在 (4, 4)，Toggle 在 (4, 44)，pane_title 在 Toggle 右侧)
-        float cy = 4.0f;
-        if (m_data.is_back_button_visible) {
-            paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Back, style, can_go_back());
-            cy += 40.0f;
-        }
-        if (m_data.is_pane_toggle_button_visible) {
-            paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Toggle, style, true);
-            if (!m_data.pane_title.empty() && m_pane_open_anim > 0.4f) {
-                float ta = std::clamp((m_pane_open_anim - 0.4f) / 0.6f, 0.0f, 1.0f);
+        // 1. 紧凑单行顶部操作区: Back + Hamburger + PaneTitle 合并为同一行 (y = 4, h = 36)
+        //    折叠态仅保留单个 40px 按钮 (优先 Toggle)，展开态 Back(4..40) + Toggle(42..78) + Title(84..)
+        {
+            const float cy = 4.0f;
+            float title_x = 12.0f;
+            if (m_data.is_back_button_visible && m_data.is_pane_toggle_button_visible) {
+                if (m_pane_open_anim > 0.35f) {
+                    paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 36.0f, 36.0f), ChromeButton::Back, style, can_go_back());
+                }
+                float tx = 4.0f + 38.0f * m_pane_open_anim;
+                float tw = 40.0f - 4.0f * m_pane_open_anim;
+                paint_chrome_button(ctx, Rect::from_xywh(tx, cy, tw, 36.0f), ChromeButton::Toggle, style, true);
+                title_x = 84.0f;
+            } else if (m_data.is_back_button_visible) {
+                paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Back, style, can_go_back());
+                title_x = 48.0f;
+            } else if (m_data.is_pane_toggle_button_visible) {
+                paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Toggle, style, true);
+                title_x = 48.0f;
+            }
+
+            if (!m_data.pane_title.empty() && m_pane_open_anim > 0.45f) {
+                float ta = std::clamp((m_pane_open_anim - 0.45f) / 0.55f, 0.0f, 1.0f);
                 Color tc = style.item_selected_text; tc.a *= ta;
                 Vec2 ts = TextMeasure::measure(m_data.pane_title, 13.5f);
-                ctx.push_clip(Rect::from_xywh(48.0f, cy, std::max(0.0f, pane_w - 56.0f), 36.0f), 0.0f);
-                ctx.draw_text(m_data.pane_title, PointF{50.0f, std::round(cy + (36.0f - ts.y) * 0.5f)}, 13.5f, tc);
-                ctx.pop_clip();
+                float clip_w = std::max(0.0f, pane_w - title_x - 8.0f);
+                if (clip_w > 2.0f) {
+                    ctx.push_clip(Rect::from_xywh(title_x, cy, clip_w, 36.0f), 0.0f);
+                    ctx.draw_text(m_data.pane_title, PointF{title_x, std::round(cy + (36.0f - ts.y) * 0.5f)}, 13.5f, tc);
+                    ctx.pop_clip();
+                }
             }
+        }
+
+        // 1.5 内置左侧搜索框 (仅在展开态渲染；侧边折叠后自动隐藏且不占任何高度空间)
+        if (m_data.is_search_box_visible && m_pane_open_anim > 0.55f && m_search_box) {
+            float sy = compute_left_search_top();
+            float sw = std::max(80.0f, pane_w - 20.0f);
+            m_search_box->layout(BoxConstraints::tight(Vec2{sw, 32.0f}), false);
+            m_search_box->set_offset(Vec2{10.0f, sy});
+            PaintContext::OffsetScope scope(ctx, m_search_box->offset());
+            m_search_box->paint(ctx);
         }
 
         // 2. 可滚动主菜单区域
         Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
         const float total_menu_h = compute_left_menu_total_height();
         m_menu_scroll.set_max_scroll(std::max(0.0f, total_menu_h - menu_vp.height()));
+        if (m_restore_expanded_scroll && m_pane_open_anim >= 0.35f) {
+            m_menu_scroll.jump_to(m_saved_expanded_scroll_y);
+            m_pill_last_scroll_y = m_menu_scroll.offset();
+            m_pill_initialized = false;
+            m_restore_expanded_scroll = false;
+        } else if (m_data.is_pane_open && m_pane_open_anim >= 0.99f) {
+            m_saved_expanded_scroll_y = m_menu_scroll.offset();
+        }
         const float scroll_y = m_menu_scroll.offset();
         const float label_alpha = std::clamp((m_pane_open_anim - 0.35f) / 0.65f, 0.0f, 1.0f);
         const bool is_compact = (m_pane_open_anim < 0.25f);
 
+        // 同步菜单顶部偏移变化 (如搜索行展开/收起)，防止小蓝条出现滞后拖尾
+        if (m_pill_initialized && m_pill_in_menu) {
+            float dtop = menu_vp.min_y - m_pill_last_menu_top;
+            if (std::abs(dtop) > 0.001f) {
+                m_pill_head += dtop;
+                m_pill_tail += dtop;
+                m_pill_target_pos += dtop;
+            }
+        }
+        m_pill_last_menu_top = menu_vp.min_y;
+
         float target_pill_y = -1.0f;
+        bool target_pill_in_menu = false;
         std::string tooltip_label;
         float tooltip_cy = 0.0f;
 
@@ -796,15 +946,17 @@ private:
                 continue;
             }
 
+            bool children_vis = (label_alpha > 0.01f && row.item->expanded);
+            bool is_sel = is_item_or_child_selected(*row.item, children_vis);
+            if (is_sel) {
+                target_pill_y = y + (row.height - 16.0f) * 0.5f;
+                target_pill_in_menu = true;
+            }
+
             Rect row_rect = Rect::from_xywh(4.0f, y, std::max(0.0f, pane_w - 8.0f), row.height);
             if (y + row.height >= menu_vp.min_y && y <= menu_vp.max_y) {
-                bool children_vis = (label_alpha > 0.01f && row.item->expanded);
-                bool is_sel = is_item_or_child_selected(*row.item, children_vis);
                 bool is_hov = (m_hovered_row == i && !m_hovered_in_footer);
                 bool is_prs = (m_pressed_row == i && !m_pressed_in_footer);
-                if (is_sel) {
-                    target_pill_y = y + (row.height - 16.0f) * 0.5f;
-                }
                 if (is_compact && is_hov && row.item->kind == NavigationItemKind::Item && m_submenu_overlay_id == 0) {
                     tooltip_label = row.item->label;
                     tooltip_cy = y + row.height * 0.5f;
@@ -833,6 +985,7 @@ private:
                 bool is_prs = (m_pressed_row == i && m_pressed_in_footer);
                 if (is_sel) {
                     target_pill_y = fy + (row.height - 16.0f) * 0.5f;
+                    target_pill_in_menu = false;
                 }
                 if (is_compact && is_hov && row.item->kind == NavigationItemKind::Item && m_submenu_overlay_id == 0) {
                     tooltip_label = row.item->label;
@@ -843,19 +996,27 @@ private:
             }
         }
 
-        // 4. WinUI 3 弹性拉伸滑动强调条 (head 先行、tail 追赶，形成原生拉伸收缩轨迹)
-        if (target_pill_y >= 0.0f) {
+        // 4. WinUI 3 弹性拉伸滑动强调条: 切换选中项时弹性动画，滚动列表时严格同步不拖尾
+        if (target_pill_y >= -2000.0f) {
             if (!m_pill_initialized) {
                 m_pill_head = m_pill_tail = target_pill_y;
                 m_pill_size = 16.0f;
                 m_pill_initialized = true;
             }
+            m_pill_in_menu = target_pill_in_menu;
             m_pill_target_pos = target_pill_y;
             m_pill_target_size = 16.0f;
             float pill_top = std::min(m_pill_head, m_pill_tail);
             float pill_bot = std::max(m_pill_head, m_pill_tail) + m_pill_size;
-            ctx.draw_rect(Rect::from_xywh(4.0f, pill_top, 3.0f, std::max(16.0f, pill_bot - pill_top)),
-                          style.accent_pill, 1.5f, 0.0f);
+            if (target_pill_in_menu) {
+                ctx.push_clip(menu_vp, 0.0f);
+                ctx.draw_rect(Rect::from_xywh(4.0f, pill_top, 3.0f, std::max(16.0f, pill_bot - pill_top)),
+                              style.accent_pill, 1.5f, 0.0f);
+                ctx.pop_clip();
+            } else {
+                ctx.draw_rect(Rect::from_xywh(4.0f, pill_top, 3.0f, std::max(16.0f, pill_bot - pill_top)),
+                              style.accent_pill, 1.5f, 0.0f);
+            }
         }
 
         // 5. Compact 模式悬停 Tooltip (悬浮在内容区左侧上方)
@@ -1078,13 +1239,22 @@ private:
             }
             return ChromeButton::None;
         }
-        float cy = 4.0f;
-        if (m_data.is_back_button_visible) {
-            if (Rect::from_xywh(4.0f, cy, 40.0f, 36.0f).contains(p)) return ChromeButton::Back;
-            cy += 40.0f;
+        if (m_data.is_back_button_visible && m_data.is_pane_toggle_button_visible) {
+            if (m_pane_open_anim > 0.35f && Rect::from_xywh(4.0f, 4.0f, 36.0f, 36.0f).contains(p)) {
+                return ChromeButton::Back;
+            }
+            float tx = 4.0f + 38.0f * m_pane_open_anim;
+            float tw = 40.0f - 4.0f * m_pane_open_anim;
+            if (Rect::from_xywh(tx, 4.0f, tw, 36.0f).contains(p)) {
+                return ChromeButton::Toggle;
+            }
+            return ChromeButton::None;
         }
-        if (m_data.is_pane_toggle_button_visible) {
-            if (Rect::from_xywh(4.0f, cy, 40.0f, 36.0f).contains(p)) return ChromeButton::Toggle;
+        if (m_data.is_back_button_visible && Rect::from_xywh(4.0f, 4.0f, 40.0f, 36.0f).contains(p)) {
+            return ChromeButton::Back;
+        }
+        if (m_data.is_pane_toggle_button_visible && Rect::from_xywh(4.0f, 4.0f, 40.0f, 36.0f).contains(p)) {
+            return ChromeButton::Toggle;
         }
         return ChromeButton::None;
     }
@@ -1498,7 +1668,21 @@ private:
             m_pane_open_anim = target_open;
         }
 
-        // 2. WinUI 3 弹性拉伸滑动强调条 (head 30x 先行、tail 15x 追赶)
+        // 1.5 先推进菜单列表滚动并将滚动位移直接同步至小蓝条，确保滚动时零拖尾、零延迟
+        if (m_menu_scroll.update()) animating = true;
+        if (m_menu_scrollbar.update_animations(m_hovered_row >= 0)) animating = true;
+        {
+            float cur_scroll = m_menu_scroll.offset();
+            float dscroll = cur_scroll - m_pill_last_scroll_y;
+            if (m_pill_initialized && m_pill_in_menu && std::abs(dscroll) > 0.0001f) {
+                m_pill_head -= dscroll;
+                m_pill_tail -= dscroll;
+                m_pill_target_pos -= dscroll;
+            }
+            m_pill_last_scroll_y = cur_scroll;
+        }
+
+        // 2. WinUI 3 弹性拉伸滑动强调条 (仅在切换选中项时生效: head 30x 先行、tail 15x 追赶)
         if (m_pill_initialized) {
             if (std::abs(m_pill_head - m_pill_target_pos) > 0.25f) {
                 m_pill_head += (m_pill_target_pos - m_pill_head) * std::min(1.0f, dt * 30.0f);
@@ -1535,10 +1719,6 @@ private:
             animating = true;
         }
 
-        // 5. 菜单列表滚动与滚动条动画
-        if (m_menu_scroll.update()) animating = true;
-        if (m_menu_scrollbar.update_animations(m_hovered_row >= 0)) animating = true;
-
         if (animating) {
             mark_needs_paint();
         }
@@ -1571,6 +1751,11 @@ private:
 
     float m_pane_open_anim{1.0f};
     bool m_pill_initialized{false};
+    bool m_pill_in_menu{true};
+    float m_pill_last_scroll_y{0.0f};
+    float m_pill_last_menu_top{0.0f};
+    float m_saved_expanded_scroll_y{0.0f};
+    bool m_restore_expanded_scroll{false};
     float m_pill_head{0.0f};
     float m_pill_tail{0.0f};
     float m_pill_size{16.0f};
@@ -1588,6 +1773,8 @@ private:
 
     SmoothScrollPhysics m_menu_scroll;
     WinUIScrollBar m_menu_scrollbar;
+    std::shared_ptr<RenderAutoSuggestBox> m_search_box;
+    std::vector<std::pair<std::string, std::string>> m_search_map;
     std::chrono::steady_clock::time_point m_last_anim_time;
 };
 
@@ -1606,6 +1793,8 @@ struct NavigationView {
     bool is_back_button_visible{true};
     bool is_back_enabled{false};
     bool is_settings_visible{true};
+    bool is_search_box_visible{false};
+    std::string search_placeholder{"搜索控件"};
     std::string settings_label{"设置"};
 
     float open_pane_length{240.0f};
@@ -1653,6 +1842,7 @@ private:
         node->set_pane_open(m_desc.is_pane_open.get(), false);
         node->set_menu_items(m_desc.menu_items);
         node->set_footer_items(m_desc.footer_items);
+        node->set_search_options(m_desc.is_search_box_visible, m_desc.search_placeholder);
 
         node->set_callbacks(
             [this](const std::string& id) {

@@ -15,6 +15,7 @@
 #include <ktui/theme/theme.hpp>
 #include <ktui/theme/theme_scope.hpp>
 #include <ktui/pal/clipboard.hpp>
+#include <ktui/widgets/common/text_context_menu.hpp>
 #include <ktui/widgets/widget.hpp>
 
 #include <algorithm>
@@ -400,24 +401,31 @@ public:
         float text_y = content_rect.min_y + (content_rect.height() - line_height) * 0.5f;
         float start_x = content_rect.min_x - m_scroll_offset_x;
 
-        // 6. 绘制选区高亮色块
-        if (m_state.is_focused && has_selection() && m_ime_preedit.empty() && !display_text.empty()) {
-            size_t sel_s = selection_start();
-            size_t sel_e = selection_end();
-            float sel_x1 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_s));
-            float sel_x2 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_e));
-            Rect sel_rect = Rect::from_xywh(
-                std::min(sel_x1, sel_x2),
-                content_rect.min_y,
-                std::abs(sel_x2 - sel_x1),
-                content_rect.height()
-            );
-            context.draw_rect(sel_rect, style.selection, 0.0f, 0.0f);
-        }
-
-        // 7. 绘制主体文字或占位符 (聚焦时占位符 250ms 平滑淡出至 opacity: 0)
+        // 6. 绘制主体文字或占位符 (聚焦时占位符 250ms 平滑淡出至 opacity: 0)
         if (!display_text.empty()) {
             context.draw_text(display_text, PointF{start_x, text_y}, font_sz, style.text);
+
+            // 7. WinUI 3 原生选中样式：实心强调色选区底块 + 裁剪反白前景文字 (#FFFFFF)
+            if (m_state.is_focused && has_selection() && m_ime_preedit.empty()) {
+                size_t sel_s = selection_start();
+                size_t sel_e = selection_end();
+                float sel_x1 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_s));
+                float sel_x2 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_e));
+                float sel_h = std::min(content_rect.height(), std::max(line_height + 2.0f, font_sz + 4.0f));
+                float sel_y = content_rect.min_y + (content_rect.height() - sel_h) * 0.5f;
+                Rect sel_rect = Rect::from_xywh(
+                    std::min(sel_x1, sel_x2),
+                    sel_y,
+                    std::abs(sel_x2 - sel_x1),
+                    sel_h
+                );
+                if (sel_rect.width() > 0.0f) {
+                    context.draw_rect(sel_rect, style.selection, 0.0f, 0.0f);
+                    context.push_clip(sel_rect, 0.0f);
+                    context.draw_text(display_text, PointF{start_x, text_y}, font_sz, style.selection_text);
+                    context.pop_clip();
+                }
+            }
         } else if (!m_data.placeholder.empty() && m_ime_preedit.empty() && m_placeholder_opacity > 0.005f) {
             Color ph_col = style.placeholder;
             ph_col.a *= m_placeholder_opacity;
@@ -515,12 +523,12 @@ public:
                     select_all();
                     return;
                 } else if (kc == 'C' || kc == 'c') {
-                    if (has_selection()) {
+                    if (has_selection() && (!m_data.is_password || m_data.is_password_revealed)) {
                         Clipboard::set_text(selected_text());
                     }
                     return;
                 } else if (kc == 'X' || kc == 'x') {
-                    if (has_selection() && !m_state.is_read_only) {
+                    if (has_selection() && !m_state.is_read_only && (!m_data.is_password || m_data.is_password_revealed)) {
                         push_undo_snapshot();
                         Clipboard::set_text(selected_text());
                         delete_selection_internal();
@@ -669,7 +677,57 @@ private:
         };
 
         on_pointer_down = [this](PointerEvent& ev) {
-            if (m_state.is_disabled || ev.button != PointerButton::Primary) return;
+            if (m_state.is_disabled) return;
+            if (ev.button == PointerButton::Secondary) {
+                const bool allow_copy_secret = (!m_data.is_password || m_data.is_password_revealed);
+                TextContextMenuActions actions;
+                actions.can_undo = can_undo() && !m_state.is_read_only;
+                actions.can_redo = can_redo() && !m_state.is_read_only;
+                actions.can_cut = has_selection() && !m_state.is_read_only && allow_copy_secret;
+                actions.can_copy = has_selection() && allow_copy_secret;
+                actions.can_paste = !m_state.is_read_only && !Clipboard::get_text().empty();
+                actions.can_delete = has_selection() && !m_state.is_read_only;
+                actions.can_select_all = !m_data.text.empty();
+                actions.on_undo = [this]() { undo(); };
+                actions.on_redo = [this]() { redo(); };
+                actions.on_cut = [this]() {
+                    if (has_selection() && !m_state.is_read_only) {
+                        push_undo_snapshot();
+                        Clipboard::set_text(selected_text());
+                        delete_selection_internal();
+                        notify_changed();
+                        ensure_cursor_visible();
+                        mark_needs_paint();
+                    }
+                };
+                actions.on_copy = [this]() {
+                    if (has_selection()) Clipboard::set_text(selected_text());
+                };
+                actions.on_paste = [this]() {
+                    if (!m_state.is_read_only) {
+                        std::string clip = Clipboard::get_text();
+                        std::string filtered;
+                        for (char c : clip) {
+                            if (c != '\r' && c != '\n') filtered += c;
+                        }
+                        if (!filtered.empty()) insert_text_internal(filtered);
+                    }
+                };
+                actions.on_delete = [this]() {
+                    if (has_selection() && !m_state.is_read_only) {
+                        push_undo_snapshot();
+                        delete_selection_internal();
+                        notify_changed();
+                        ensure_cursor_visible();
+                        mark_needs_paint();
+                    }
+                };
+                actions.on_select_all = [this]() { select_all(); };
+                show_winui_text_context_menu(ev.position, actions);
+                ev.stop_propagation();
+                return;
+            }
+            if (ev.button != PointerButton::Primary) return;
 
             auto now = std::chrono::steady_clock::now();
             float dt_ms = std::chrono::duration<float, std::milli>(now - m_last_click_time).count();

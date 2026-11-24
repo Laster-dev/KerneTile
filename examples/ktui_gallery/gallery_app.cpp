@@ -132,9 +132,11 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "11", .expanded = true,
+                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "14", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "button",               .label = "Button" },
+                    NavigationViewItem{ .id = "toggle_button",        .label = "ToggleButton",       .badge = "New" },
+                    NavigationViewItem{ .id = "segmented_control",    .label = "SegmentedControl",   .badge = "New" },
                     NavigationViewItem{ .id = "dropdown_button",      .label = "DropDownButton" },
                     NavigationViewItem{ .id = "checkbox",             .label = "CheckBox" },
                     NavigationViewItem{ .id = "toggle_switch",        .label = "ToggleSwitch" },
@@ -143,29 +145,34 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                     NavigationViewItem{ .id = "combobox",             .label = "ComboBox" },
                     NavigationViewItem{ .id = "slider",               .label = "Slider" },
                     NavigationViewItem{ .id = "calendar_date_picker", .label = "CalendarDatePicker" },
-                    NavigationViewItem{ .id = "color_picker",         .label = "ColorPicker",        .badge = "New" },
-                    NavigationViewItem{ .id = "rating_control",       .label = "RatingControl",      .badge = "New" }
+                    NavigationViewItem{ .id = "time_picker",          .label = "TimePicker" },
+                    NavigationViewItem{ .id = "color_picker",         .label = "ColorPicker" },
+                    NavigationViewItem{ .id = "rating_control",       .label = "RatingControl" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "5", .expanded = true,
+                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "6", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "label",            .label = "Label" },
                     NavigationViewItem{ .id = "textbox",          .label = "TextBox" },
-                    NavigationViewItem{ .id = "auto_suggest_box", .label = "AutoSuggestBox", .badge = "New" },
+                    NavigationViewItem{ .id = "text_area",        .label = "TextArea",       .badge = "New" },
+                    NavigationViewItem{ .id = "auto_suggest_box", .label = "AutoSuggestBox" },
                     NavigationViewItem{ .id = "password_box",     .label = "PasswordBox" },
                     NavigationViewItem{ .id = "number_box",       .label = "NumberBox" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_nav", .label = "导航与容器", .icon = NavigationIcon::Layout, .badge = "6", .expanded = true,
+                .id = "cat_nav", .label = "导航与容器", .icon = NavigationIcon::Layout, .badge = "9", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "navigation_view", .label = "NavigationView" },
                     NavigationViewItem{ .id = "tab_view",        .label = "TabView" },
                     NavigationViewItem{ .id = "breadcrumb_bar",  .label = "BreadcrumbBar" },
                     NavigationViewItem{ .id = "expander",        .label = "Expander" },
                     NavigationViewItem{ .id = "tree_view",       .label = "TreeView" },
-                    NavigationViewItem{ .id = "virtual_list",    .label = "VirtualList",    .badge = "New" }
+                    NavigationViewItem{ .id = "virtual_list",    .label = "VirtualList" },
+                    NavigationViewItem{ .id = "data_grid",       .label = "DataGrid" },
+                    NavigationViewItem{ .id = "flip_view",       .label = "FlipView",       .badge = "New" },
+                    NavigationViewItem{ .id = "pips_pager",      .label = "PipsPager",      .badge = "New" }
                 }
             },
             NavigationViewItem{
@@ -176,11 +183,13 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "6", .expanded = false,
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "8", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
-                    NavigationViewItem{ .id = "teaching_tip",   .label = "TeachingTip",   .badge = "New" },
+                    NavigationViewItem{ .id = "teaching_tip",   .label = "TeachingTip" },
                     NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
+                    NavigationViewItem{ .id = "info_badge",     .label = "InfoBadge",     .badge = "New" },
+                    NavigationViewItem{ .id = "person_picture", .label = "PersonPicture", .badge = "New" },
                     NavigationViewItem{ .id = "toast",          .label = "Toast" },
                     NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar" },
                     NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing" }
@@ -203,10 +212,14 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .is_pane_toggle_button_visible = true,
         .is_back_button_visible = true,
         .is_settings_visible = true,
+        .is_search_box_visible = true,
+        .search_placeholder = "搜索控件",
         .open_pane_length = 236.0f,
         .page_builder = [this](const std::string& page_id) -> WidgetPtr {
-            if (page_id == "button")          return pages::build_button_page(*this);
-            if (page_id == "dropdown_button") return pages::build_dropdown_button_page(*this);
+            if (page_id == "button")               return pages::build_button_page(*this);
+            if (page_id == "toggle_button")        return pages::build_toggle_button_page(*this);
+            if (page_id == "segmented_control")    return pages::build_segmented_control_page(*this);
+            if (page_id == "dropdown_button")      return pages::build_dropdown_button_page(*this);
             if (page_id == "checkbox")        return pages::build_checkbox_page(*this);
             if (page_id == "toggle_switch")   return pages::build_toggle_switch_page(*this);
             if (page_id == "radio_button")    return pages::build_radio_button_page(*this);
@@ -214,10 +227,12 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "combobox")             return pages::build_combobox_page(*this);
             if (page_id == "slider")               return pages::build_slider_page(*this);
             if (page_id == "calendar_date_picker") return pages::build_calendar_date_picker_page(*this);
+            if (page_id == "time_picker")          return pages::build_time_picker_page(*this);
             if (page_id == "color_picker")         return pages::build_color_picker_page(*this);
             if (page_id == "rating_control")       return pages::build_rating_control_page(*this);
             if (page_id == "label")                return pages::build_label_page(*this);
             if (page_id == "textbox")              return pages::build_textbox_page(*this);
+            if (page_id == "text_area")            return pages::build_text_area_page(*this);
             if (page_id == "auto_suggest_box")     return pages::build_auto_suggest_box_page(*this);
             if (page_id == "password_box")         return pages::build_password_box_page(*this);
             if (page_id == "number_box")           return pages::build_number_box_page(*this);
@@ -227,11 +242,16 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "expander")             return pages::build_expander_page(*this);
             if (page_id == "tree_view")            return pages::build_tree_view_page(*this);
             if (page_id == "virtual_list")         return pages::build_virtual_list_page(*this);
+            if (page_id == "data_grid")            return pages::build_data_grid_page(*this);
+            if (page_id == "flip_view")            return pages::build_flip_view_page(*this);
+            if (page_id == "pips_pager")           return pages::build_pips_pager_page(*this);
             if (page_id == "command_bar")     return pages::build_command_bar_page(*this);
             if (page_id == "menu_flyout")     return pages::build_menu_flyout_page(*this);
             if (page_id == "content_dialog")       return pages::build_content_dialog_page(*this);
             if (page_id == "teaching_tip")         return pages::build_teaching_tip_page(*this);
             if (page_id == "info_bar")        return pages::build_info_bar_page(*this);
+            if (page_id == "info_badge")      return pages::build_info_badge_page(*this);
+            if (page_id == "person_picture")  return pages::build_person_picture_page(*this);
             if (page_id == "toast")           return pages::build_toast_page(*this);
             if (page_id == "progress_bar")    return pages::build_progress_bar_page(*this);
             if (page_id == "progress_ring")   return pages::build_progress_ring_page(*this);

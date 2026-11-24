@@ -49,6 +49,7 @@ public:
     }
 
     void clear_selection() noexcept { m_select_all = false; }
+    void set_select_all(bool v) noexcept { m_select_all = v; }
 
     void reset_blink() noexcept {
         m_caret_visible = true;

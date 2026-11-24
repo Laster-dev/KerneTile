@@ -27,6 +27,21 @@ struct FluentInputChrome {
         return false;
     }
 
+    // WinUI 3 / Fluent 2 文本选中背景色 (TextControlSelectionHighlightColor) 与选中前景文字色 (TextOnAccentFillColorSelectedText)
+    static Color selection_bg(const Theme& theme, bool focused = true) noexcept {
+        if (!focused) {
+            return theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.16f}
+                                 : Color{0.0f, 0.0f, 0.0f, 0.12f};
+        }
+        return theme.is_dark
+            ? Color{0.0f, 120.0f / 255.0f, 212.0f / 255.0f, 1.0f}  // WinUI 3 Dark #0078D4
+            : Color{0.0f, 95.0f / 255.0f, 184.0f / 255.0f, 1.0f};  // WinUI 3 Light #005FB8
+    }
+
+    static Color selection_text(const Theme& /*theme*/) noexcept {
+        return Color{1.0f, 1.0f, 1.0f, 1.0f}; // #FFFFFF
+    }
+
     static void paint_box(PaintContext& ctx,
                           const Theme& theme,
                           Rect box,
