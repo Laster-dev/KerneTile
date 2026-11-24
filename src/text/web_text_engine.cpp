@@ -30,7 +30,7 @@ EM_JS(void, measure, (const char* source, float size, float* values), {
     var text = UTF8ToString(source);
     var ctx = canvas && canvas.getContext('2d', {willReadFrequently: true});
     if (ctx) {
-        ctx.font = size + 'px system-ui';
+        ctx.font = size + 'px "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
         var metrics = ctx.measureText(text);
         HEAPF32[values >> 2] = metrics.width;
         HEAPF32[(values >> 2) + 1] = metrics.fontBoundingBoxAscent ?? size * 0.8;
@@ -50,7 +50,8 @@ EM_JS(int, raster, (const char* source, float size, int* box, uint8_t* dest, siz
     var text = UTF8ToString(source);
     var ctx = canvas.getContext('2d', {willReadFrequently: true});
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.font = size + 'px system-ui';
+    var fontSpec = size + 'px "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+    ctx.font = fontSpec;
     var m = ctx.measureText(text);
     var left = Math.floor(-m.actualBoundingBoxLeft);
     var top = Math.floor(-m.actualBoundingBoxAscent);
@@ -73,8 +74,10 @@ EM_JS(int, raster, (const char* source, float size, int* box, uint8_t* dest, siz
     canvas.width = sw;
     canvas.height = sh;
     ctx.setTransform(ss, 0, 0, ss, 0, 0);
-    ctx.font = size + 'px system-ui';
-    ctx.fillStyle = '#fff';
+    ctx.font = fontSpec;
+    // 使用纯黑 #000 而非 #fff：Chromium/Skia 在绘制白字时会套用白底反转 Gamma 增粗表导致 Alpha 偏厚偏黑，
+    // 而 #000 走正常线性覆盖率表，与 Windows DirectWrite CreateAlphaTexture 输出的字重几乎一致
+    ctx.fillStyle = '#000';
     ctx.fillText(text, -left, -top);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
