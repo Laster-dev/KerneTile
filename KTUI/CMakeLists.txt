@@ -5,6 +5,7 @@ set(KTUI_PAL_SOURCES
     src/pal/platform_backend.cpp
     src/pal/mica_wallpaper.cpp
     src/app/application.cpp
+    src/presentation/svg_engine.cpp
 )
 
 if (WIN32)
@@ -17,6 +18,7 @@ add_library(ktui_pal STATIC ${KTUI_PAL_SOURCES})
 target_include_directories(ktui_pal PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanosvg
     ${CMAKE_SOURCE_DIR}/include
 )
 target_link_libraries(ktui_pal PUBLIC kernetile_core kernetile_engine)

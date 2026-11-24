@@ -79,4 +79,5 @@
 #include <ktui/widgets/progress_ring.hpp>
 #include <ktui/widgets/scroll_view.hpp>
 #include <ktui/widgets/combobox.hpp>
+#include <ktui/widgets/svg.hpp>
 #include <ktui/widgets/navigation_view.hpp>

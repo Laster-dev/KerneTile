@@ -34,13 +34,6 @@ public:
         // 扣除 padding
         BoxConstraints inner_constraints = outer_constraints.deflate(m_padding);
 
-        FlexEngine::Params params{
-            .direction = direction(),
-            .justify = justify(),
-            .align_items = align_items(),
-            .gap = gap()
-        };
-
         // 临时设置约束并排版
         m_constraints = inner_constraints;
         RenderFlex::perform_layout();

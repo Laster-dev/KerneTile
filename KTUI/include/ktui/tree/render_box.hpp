@@ -15,8 +15,15 @@ class PaintContext;
 // 统一实现自顶向下传递 BoxConstraints，自底向上决定 Size，并推导 Relayout Boundary
 class RenderBox : public RenderNode {
 public:
+    using DestroyHook = void(*)(RenderBox*) noexcept;
+    inline static DestroyHook s_destroy_hook = nullptr;
+
     RenderBox() noexcept = default;
-    ~RenderBox() override = default;
+    ~RenderBox() override {
+        if (s_destroy_hook) {
+            s_destroy_hook(this);
+        }
+    }
 
     // 核心入口：执行排版布局
     // parent_uses_size 表示父节点是否依赖当前节点的最终计算尺寸

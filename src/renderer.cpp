@@ -2,6 +2,7 @@
 #include <chrono>
 #include <iostream>
 #include <cstring>
+#include <unordered_map>
 #include "compute/ui_compute.hpp"
 
 namespace kernetile {
@@ -132,6 +133,49 @@ public:
         m_text_streamer->stream_text(
             text, x, y, font_size, color,
             m_primitives, clip_idx, scale);
+    }
+
+    bool has_cached_mask(uint64_t cache_key) const noexcept override {
+        return m_mask_cache.find(cache_key) != m_mask_cache.end();
+    }
+
+    void draw_alpha_mask(
+        uint64_t cache_key,
+        math::Rect dst_rect_px,
+        uint32_t mask_width,
+        uint32_t mask_height,
+        const uint8_t* alpha_pixels,
+        math::Color tint) override
+    {
+        if (tint.a <= 0.001f || mask_width == 0 || mask_height == 0) return;
+
+        auto it = m_mask_cache.find(cache_key);
+        if (it == m_mask_cache.end()) {
+            if (!alpha_pixels) return;
+            auto reg = m_atlas.allocate_and_upload(mask_width, mask_height, alpha_pixels, mask_width);
+            if (!reg.has_value()) return;
+            it = m_mask_cache.emplace(cache_key, *reg).first;
+        }
+
+        const auto& region = it->second;
+        core::UiPrimitive prim{};
+        prim.min_x = dst_rect_px.min_x;
+        prim.min_y = dst_rect_px.min_y;
+        prim.max_x = dst_rect_px.max_x;
+        prim.max_y = dst_rect_px.max_y;
+
+        prim.color_r = tint.r * tint.a;
+        prim.color_g = tint.g * tint.a;
+        prim.color_b = tint.b * tint.a;
+        prim.color_a = tint.a;
+
+        prim.atlas_u0 = region.u0;
+        prim.atlas_v0 = region.v0;
+        prim.atlas_u1 = region.u1;
+        prim.atlas_v1 = region.v1;
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph);
+
+        push_primitive(prim);
     }
 
     void end_frame() override {
@@ -304,6 +348,7 @@ private:
     tile::DirtyTracker m_dirty_tracker;
     fx::ClipStack m_clip_stack{};
     atlas::DynamicAtlas m_atlas;
+    std::unordered_map<uint64_t, atlas::AtlasRegion> m_mask_cache{};
 
     std::unique_ptr<text::TextStreamer> m_text_streamer{};
     mutable std::unique_ptr<hal::GraphicsDevice> m_device;

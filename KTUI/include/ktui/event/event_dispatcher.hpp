@@ -29,31 +29,39 @@ public:
                 current_targets.insert(entry.target);
             }
 
-            // 处理 Exit: 存在于旧列表但不存在于新列表的节点
+            // 处理 Exit: 存在于旧列表但不存在于新列表的节点 (先拷贝防止回调期间销毁/修改集合导致迭代器失效)
+            std::vector<RenderBox*> exited_nodes;
             for (RenderBox* old_node : m_hovered_nodes) {
                 if (current_targets.find(old_node) == current_targets.end()) {
-                    old_node->is_hovered = false;
-                    if (old_node->on_pointer_exit) {
-                        PointerEvent exit_event = event;
-                        exit_event.type = PlatformEventType::PointerMove;
-                        old_node->on_pointer_exit(exit_event);
-                    }
+                    exited_nodes.push_back(old_node);
+                }
+            }
+            m_hovered_nodes = std::move(current_targets);
+
+            for (RenderBox* old_node : exited_nodes) {
+                old_node->is_hovered = false;
+                if (old_node->on_pointer_exit) {
+                    PointerEvent exit_event = event;
+                    exit_event.type = PlatformEventType::PointerMove;
+                    old_node->on_pointer_exit(exit_event);
                 }
             }
 
             // 处理 Enter: 存在于新列表但不存在于旧列表的节点
-            for (RenderBox* new_node : current_targets) {
-                if (m_hovered_nodes.find(new_node) == m_hovered_nodes.end()) {
-                    new_node->is_hovered = true;
-                    if (new_node->on_pointer_enter) {
-                        PointerEvent enter_event = event;
-                        enter_event.type = PlatformEventType::PointerMove;
-                        new_node->on_pointer_enter(enter_event);
-                    }
+            std::vector<RenderBox*> entered_nodes;
+            for (RenderBox* new_node : m_hovered_nodes) {
+                if (!new_node->is_hovered) {
+                    entered_nodes.push_back(new_node);
                 }
             }
-
-            m_hovered_nodes = std::move(current_targets);
+            for (RenderBox* new_node : entered_nodes) {
+                new_node->is_hovered = true;
+                if (new_node->on_pointer_enter) {
+                    PointerEvent enter_event = event;
+                    enter_event.type = PlatformEventType::PointerMove;
+                    new_node->on_pointer_enter(enter_event);
+                }
+            }
         }
 
         // ==================== 2. Active 捕获 ====================
@@ -136,6 +144,14 @@ public:
 
     [[nodiscard]] RenderBox* active_target() const noexcept { return m_active_target; }
     [[nodiscard]] const std::unordered_set<RenderBox*>& hovered_nodes() const noexcept { return m_hovered_nodes; }
+
+    void forget_node(RenderBox* node) noexcept {
+        if (!node) return;
+        m_hovered_nodes.erase(node);
+        if (m_active_target == node) {
+            m_active_target = nullptr;
+        }
+    }
 
     void clear() {
         m_hovered_nodes.clear();

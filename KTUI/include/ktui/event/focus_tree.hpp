@@ -41,6 +41,13 @@ public:
         }
     }
 
+    // 节点析构时安全移除悬垂焦点指针 (不触发已销毁对象的回调)
+    void forget_node(RenderBox* node) noexcept {
+        if (m_focused_node == node) {
+            m_focused_node = nullptr;
+        }
+    }
+
     // 清除焦点
     void clear_focus() {
         request_focus(nullptr);

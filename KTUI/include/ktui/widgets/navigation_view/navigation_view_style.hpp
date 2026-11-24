@@ -3,6 +3,7 @@
 #include "navigation_view_data.hpp"
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/svg_engine.hpp>
 #include <ktui/theme/theme.hpp>
 #include <cmath>
 
@@ -93,104 +94,79 @@ public:
         return s;
     }
 
-    // 绘制内置 WinUI 3 Fluent 矢量线性图标 (16x16 居中)
-    static void paint_builtin_icon(PaintContext& ctx, NavigationIcon icon, Rect r, Color col) {
-        if (icon == NavigationIcon::None || col.a <= 0.001f) return;
-        const float cx = r.min_x + r.width() * 0.5f;
-        const float cy = r.min_y + r.height() * 0.5f;
-        constexpr float sw = 1.25f;
+    // 使用 NanoSVG 渲染 WinUI 3 Fluent 24x24 设置齿轮 SVG (支持旋转角 angle_rad 与按压缩放)
+    static void paint_settings_gear(PaintContext& ctx, Rect r, Color col, float angle_rad = 0.0f, float scale = 1.0f) {
+        if (col.a <= 0.001f) return;
+        // Microsoft Fluent UI System Icons (Settings 24 Regular) SVG Path
+        static constexpr const char* kSettingsSvgPath =
+            "M12.012 2.25c.734.008 1.465.093 2.182.253a.75.75 0 0 1 .582.649l.17 1.527a1.384 1.384 0 0 0 1.927 1.116l1.401-.615a.75.75 0 0 1 .85.174 9.792 9.792 0 0 1 2.204 3.792.75.75 0 0 1-.271.825l-1.242.916a1.381 1.381 0 0 0 0 2.226l1.243.915a.75.75 0 0 1 .272.826 9.797 9.797 0 0 1-2.204 3.792.75.75 0 0 1-.848.175l-1.407-.617a1.38 1.38 0 0 0-1.926 1.114l-.169 1.526a.75.75 0 0 1-.572.647 9.518 9.518 0 0 1-4.406 0 .75.75 0 0 1-.572-.647l-.168-1.524a1.382 1.382 0 0 0-1.926-1.11l-1.406.616a.75.75 0 0 1-.849-.175 9.798 9.798 0 0 1-2.204-3.796.75.75 0 0 1 .272-.826l1.243-.916a1.38 1.38 0 0 0 0-2.226l-1.243-.914a.75.75 0 0 1-.271-.826 9.793 9.793 0 0 1 2.204-3.792.75.75 0 0 1 .85-.174l1.4.615a1.387 1.387 0 0 0 1.93-1.118l.17-1.526a.75.75 0 0 1 .583-.65c.717-.159 1.45-.243 2.201-.252Zm0 1.5a9.135 9.135 0 0 0-1.354.117l-.109.977A2.886 2.886 0 0 1 6.525 7.17l-.898-.394a8.293 8.293 0 0 0-1.348 2.317l.798.587a2.881 2.881 0 0 1 0 4.643l-.799.588c.32.842.776 1.626 1.348 2.322l.905-.397a2.882 2.882 0 0 1 4.017 2.318l.11.984c.889.15 1.798.15 2.687 0l.11-.984a2.881 2.881 0 0 1 4.018-2.322l.905.396a8.296 8.296 0 0 0 1.347-2.318l-.798-.588a2.881 2.881 0 0 1 0-4.643l.796-.587a8.293 8.293 0 0 0-1.348-2.317l-.896.393a2.884 2.884 0 0 1-4.023-2.324l-.11-.976a8.988 8.988 0 0 0-1.333-.117ZM12 8.25a3.75 3.75 0 1 1 0 7.5 3.75 3.75 0 0 1 0-7.5Zm0 1.5a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5Z";
 
+        Rect dst = r;
+        if (std::abs(scale - 1.0f) > 0.005f) {
+            float cx = r.min_x + r.width() * 0.5f;
+            float cy = r.min_y + r.height() * 0.5f;
+            float hw = r.width() * 0.5f * scale;
+            float hh = r.height() * 0.5f * scale;
+            dst = Rect::from_xywh(cx - hw, cy - hh, hw * 2.0f, hh * 2.0f);
+        }
+        SvgEngine::draw_svg_path(ctx, kSettingsSvgPath, 24.0f, 24.0f, dst, col, 0.0f, true, angle_rad);
+    }
+
+    // 使用 NanoSVG 渲染内置 Fluent UI System Icons 24x24 矢量图标
+    static void paint_builtin_icon(PaintContext& ctx, NavigationIcon icon, Rect r, Color col, float angle_rad = 0.0f) {
+        if (icon == NavigationIcon::None || col.a <= 0.001f) return;
+        if (icon == NavigationIcon::Settings) {
+            paint_settings_gear(ctx, r, col, angle_rad, 1.0f);
+            return;
+        }
+
+        const char* path_d = nullptr;
         switch (icon) {
             case NavigationIcon::Home:
-                ctx.draw_line(PointF{cx - 6.0f, cy - 0.5f}, PointF{cx, cy - 5.5f}, col, sw);
-                ctx.draw_line(PointF{cx, cy - 5.5f}, PointF{cx + 6.0f, cy - 0.5f}, col, sw);
-                ctx.draw_line(PointF{cx - 4.2f, cy - 1.5f}, PointF{cx - 4.2f, cy + 5.2f}, col, sw);
-                ctx.draw_line(PointF{cx + 4.2f, cy - 1.5f}, PointF{cx + 4.2f, cy + 5.2f}, col, sw);
-                ctx.draw_line(PointF{cx - 4.2f, cy + 5.2f}, PointF{cx + 4.2f, cy + 5.2f}, col, sw);
+                path_d = "M10.55 2.533a2.25 2.25 0 0 1 2.9 0l6.75 5.695c.508.427.8 1.056.8 1.72v9.802a1.75 1.75 0 0 1-1.75 1.75h-3a1.75 1.75 0 0 1-1.75-1.75v-5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0-.75.75v5a1.75 1.75 0 0 1-1.75 1.75h-3A1.75 1.75 0 0 1 3 19.75V9.947c0-.663.292-1.292.8-1.72l6.75-5.694Zm1.933 1.147a.75.75 0 0 0-.966 0l-6.75 5.695a.75.75 0 0 0-.267.573v9.802c0 .138.112.25.25.25h3a.25.25 0 0 0 .25-.25v-5a2.25 2.25 0 0 1 2.25-2.25h3.5a2.25 2.25 0 0 1 2.25 2.25v5c0 .138.112.25.25.25h3a.25.25 0 0 0 .25-.25V9.948a.75.75 0 0 0-.267-.573l-6.75-5.695Z";
                 break;
             case NavigationIcon::Controls:
-                ctx.draw_rect(Rect::from_xywh(cx - 5.5f, cy - 5.5f, 4.8f, 4.8f), col, 1.2f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx + 0.7f, cy - 5.5f, 4.8f, 4.8f), col, 1.2f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 5.5f, cy + 0.7f, 4.8f, 4.8f), col, 1.2f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx + 0.7f, cy + 0.7f, 4.8f, 4.8f), col, 1.2f, sw);
+                path_d = "M5.25 3A2.25 2.25 0 0 0 3 5.25v4.5A2.25 2.25 0 0 0 5.25 12h4.5A2.25 2.25 0 0 0 12 9.75v-4.5A2.25 2.25 0 0 0 9.75 3h-4.5Zm-.75 2.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5ZM14.25 3A2.25 2.25 0 0 0 12 5.25v4.5A2.25 2.25 0 0 0 14.25 12h4.5A2.25 2.25 0 0 0 21 9.75v-4.5A2.25 2.25 0 0 0 18.75 3h-4.5Zm-.75 2.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5ZM5.25 12A2.25 2.25 0 0 0 3 14.25v4.5A2.25 2.25 0 0 0 5.25 21h4.5A2.25 2.25 0 0 0 12 18.75v-4.5A2.25 2.25 0 0 0 9.75 12h-4.5Zm-.75 2.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5ZM14.25 12A2.25 2.25 0 0 0 12 14.25v4.5A2.25 2.25 0 0 0 14.25 21h4.5A2.25 2.25 0 0 0 21 18.75v-4.5A2.25 2.25 0 0 0 18.75 12h-4.5Zm-.75 2.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5Z";
                 break;
             case NavigationIcon::Inputs:
-                ctx.draw_rect(Rect::from_xywh(cx - 6.0f, cy - 4.2f, 12.0f, 8.4f), col, 2.0f, sw);
-                ctx.draw_line(PointF{cx - 3.2f, cy}, PointF{cx + 1.2f, cy}, col, sw);
-                ctx.draw_line(PointF{cx + 2.8f, cy - 2.0f}, PointF{cx + 2.8f, cy + 2.0f}, col, sw);
+                path_d = "M4.75 5A2.75 2.75 0 0 0 2 7.75v8.5A2.75 2.75 0 0 0 4.75 19h14.5A2.75 2.75 0 0 0 22 16.25v-8.5A2.75 2.75 0 0 0 19.25 5H4.75ZM3.5 7.75c0-.69.56-1.25 1.25-1.25h14.5c.69 0 1.25.56 1.25 1.25v8.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-8.5ZM6.75 9a.75.75 0 0 0 0 1.5h6.5a.75.75 0 0 0 0-1.5h-6.5Zm0 4.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-4.5ZM16.5 9a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 16.5 9Z";
                 break;
             case NavigationIcon::Progress:
-                ctx.draw_line(PointF{cx - 6.0f, cy - 2.8f}, PointF{cx + 6.0f, cy - 2.8f}, col, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 1.0f, cy - 4.8f, 4.0f, 4.0f), col, 2.0f, 0.0f);
-                ctx.draw_line(PointF{cx - 6.0f, cy + 3.0f}, PointF{cx + 6.0f, cy + 3.0f}, col, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 4.0f, cy + 1.0f, 4.0f, 4.0f), col, 2.0f, 0.0f);
+                path_d = "M3 8a.75.75 0 0 1 .75-.75h5.34a3.251 3.251 0 0 1 5.82 0h5.34a.75.75 0 0 1 0 1.5h-5.34a3.251 3.251 0 0 1-5.82 0H3.75A.75.75 0 0 1 3 8Zm9 1.75a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM3.75 15.25a.75.75 0 0 0 0 1.5h2.34a3.251 3.251 0 0 0 5.82 0h8.34a.75.75 0 0 0 0-1.5h-8.34a3.251 3.251 0 0 0-5.82 0H3.75ZM9 17.75a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5Z";
                 break;
             case NavigationIcon::ComboBox:
-                ctx.draw_rect(Rect::from_xywh(cx - 6.0f, cy - 4.8f, 12.0f, 9.6f), col, 2.0f, sw);
-                ctx.draw_line(PointF{cx - 3.5f, cy - 1.2f}, PointF{cx + 0.5f, cy - 1.2f}, col, sw);
-                ctx.draw_line(PointF{cx + 1.8f, cy - 1.2f}, PointF{cx + 3.5f, cy + 0.8f}, col, sw);
-                ctx.draw_line(PointF{cx + 3.5f, cy + 0.8f}, PointF{cx + 5.0f, cy - 1.2f}, col, sw);
+                path_d = "M5.25 4A2.25 2.25 0 0 0 3 6.25v11.5A2.25 2.25 0 0 0 5.25 20h13.5A2.25 2.25 0 0 0 21 17.75V6.25A2.25 2.25 0 0 0 18.75 4H5.25Zm-.75 2.25a.75.75 0 0 1 .75-.75h13.5a.75.75 0 0 1 .75.75v11.5a.75.75 0 0 1-.75.75H5.25a.75.75 0 0 1-.75-.75V6.25Zm3.25 3a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5Zm0 4a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5Zm8.03-2.53a.75.75 0 0 1 1.06 0l.97.97a.75.75 0 0 1 0 1.06l-.97.97a.75.75 0 1 1-1.06-1.06l.44-.44-.44-.44a.75.75 0 0 1 0-1.06Z";
                 break;
             case NavigationIcon::Layout:
-                ctx.draw_rect(Rect::from_xywh(cx - 6.0f, cy - 5.2f, 12.0f, 10.4f), col, 1.8f, sw);
-                ctx.draw_line(PointF{cx - 2.0f, cy - 5.2f}, PointF{cx - 2.0f, cy + 5.2f}, col, sw);
+                path_d = "M5.25 4A2.25 2.25 0 0 0 3 6.25v11.5A2.25 2.25 0 0 0 5.25 20h13.5A2.25 2.25 0 0 0 21 17.75V6.25A2.25 2.25 0 0 0 18.75 4H5.25Zm-.75 2.25a.75.75 0 0 1 .75-.75H8.5v13H5.25a.75.75 0 0 1-.75-.75V6.25Zm5.5 12.25v-13h8.75a.75.75 0 0 1 .75.75v11.5a.75.75 0 0 1-.75.75H10Z";
                 break;
             case NavigationIcon::Palette:
-                ctx.draw_rect(Rect::from_xywh(cx - 5.5f, cy - 5.5f, 11.0f, 11.0f), col, 5.5f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 2.5f, cy - 2.5f, 2.2f, 2.2f), col, 1.1f, 0.0f);
-                ctx.draw_rect(Rect::from_xywh(cx + 0.8f, cy - 2.5f, 2.2f, 2.2f), col, 1.1f, 0.0f);
-                ctx.draw_rect(Rect::from_xywh(cx - 2.5f, cy + 0.8f, 2.2f, 2.2f), col, 1.1f, 0.0f);
+                path_d = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c1.38 0 2.5-1.12 2.5-2.5 0-.61-.23-1.17-.6-1.6-.36-.42-.58-.96-.58-1.55 0-1.24 1.01-2.25 2.25-2.25H17c2.76 0 5-2.24 5-5 0-3.87-4.48-7.1-10-7.1Zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z";
                 break;
-            case NavigationIcon::Settings: {
-                // WinUI 3 齿轮外圈 + 内孔 + 6 齿
-                ctx.draw_rect(Rect::from_xywh(cx - 4.2f, cy - 4.2f, 8.4f, 8.4f), col, 4.2f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 1.8f, cy - 1.8f, 3.6f, 3.6f), col, 1.8f, sw);
-                for (int i = 0; i < 6; ++i) {
-                    float a = static_cast<float>(i) * (3.14159265f / 3.0f);
-                    float x1 = cx + std::cos(a) * 4.2f;
-                    float y1 = cy + std::sin(a) * 4.2f;
-                    float x2 = cx + std::cos(a) * 6.0f;
-                    float y2 = cy + std::sin(a) * 6.0f;
-                    ctx.draw_line(PointF{x1, y1}, PointF{x2, y2}, col, 1.4f);
-                }
-                break;
-            }
             case NavigationIcon::Info:
-                ctx.draw_rect(Rect::from_xywh(cx - 5.5f, cy - 5.5f, 11.0f, 11.0f), col, 5.5f, sw);
-                ctx.draw_rect(Rect::from_xywh(cx - 0.8f, cy - 3.2f, 1.6f, 1.6f), col, 0.8f, 0.0f);
-                ctx.draw_line(PointF{cx, cy - 0.6f}, PointF{cx, cy + 3.2f}, col, 1.4f);
+                path_d = "M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm0 1.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Zm0 6.75a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V11a.75.75 0 0 1 .75-.75Zm0-3.25a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z";
                 break;
             case NavigationIcon::Star:
-                ctx.draw_line(PointF{cx, cy - 5.5f}, PointF{cx + 3.5f, cy + 4.8f}, col, sw);
-                ctx.draw_line(PointF{cx + 3.5f, cy + 4.8f}, PointF{cx - 5.5f, cy - 1.4f}, col, sw);
-                ctx.draw_line(PointF{cx - 5.5f, cy - 1.4f}, PointF{cx + 5.5f, cy - 1.4f}, col, sw);
-                ctx.draw_line(PointF{cx + 5.5f, cy - 1.4f}, PointF{cx - 3.5f, cy + 4.8f}, col, sw);
-                ctx.draw_line(PointF{cx - 3.5f, cy + 4.8f}, PointF{cx, cy - 5.5f}, col, sw);
+                path_d = "M10.788 3.103c.495-1.004 1.926-1.004 2.421 0l2.358 4.777 5.273.766c1.107.161 1.549 1.522.748 2.303l-3.816 3.72.901 5.25c.19 1.103-.968 1.944-1.959 1.424l-4.716-2.48-4.715 2.48c-.99.52-2.148-.32-1.96-1.424l.901-5.25-3.815-3.72c-.801-.78-.359-2.142.748-2.303L8.43 7.88l2.358-4.777Z";
                 break;
             case NavigationIcon::Search:
-                ctx.draw_rect(Rect::from_xywh(cx - 5.2f, cy - 5.2f, 8.0f, 8.0f), col, 4.0f, sw);
-                ctx.draw_line(PointF{cx + 1.6f, cy + 1.6f}, PointF{cx + 5.5f, cy + 5.5f}, col, 1.4f);
+                path_d = "M10 2.5a7.5 7.5 0 0 1 5.964 12.05l4.743 4.743a.75.75 0 0 1-1.06 1.06l-4.743-4.742A7.5 7.5 0 1 1 10 2.5Zm0 1.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z";
                 break;
             case NavigationIcon::Folder:
-                ctx.draw_rect(Rect::from_xywh(cx - 6.0f, cy - 3.2f, 12.0f, 8.2f), col, 1.5f, sw);
-                ctx.draw_line(PointF{cx - 5.8f, cy - 3.2f}, PointF{cx - 4.5f, cy - 5.0f}, col, sw);
-                ctx.draw_line(PointF{cx - 4.5f, cy - 5.0f}, PointF{cx - 0.5f, cy - 5.0f}, col, sw);
-                ctx.draw_line(PointF{cx - 0.5f, cy - 5.0f}, PointF{cx + 0.8f, cy - 3.2f}, col, sw);
+                path_d = "M4.25 4A2.25 2.25 0 0 0 2 6.25v11.5A2.25 2.25 0 0 0 4.25 20h15.5A2.25 2.25 0 0 0 22 17.75V8.75A2.25 2.25 0 0 0 19.75 6.5h-7.03l-1.9-1.9A2.25 2.25 0 0 0 9.23 4H4.25Zm-.75 2.25a.75.75 0 0 1 .75-.75h4.98c.2 0 .39.08.53.22L12.1 8h7.65a.75.75 0 0 1 .75.75v9a.75.75 0 0 1-.75.75H4.25a.75.75 0 0 1-.75-.75V6.25Z";
                 break;
             case NavigationIcon::Code:
-                ctx.draw_line(PointF{cx - 2.2f, cy - 3.5f}, PointF{cx - 5.6f, cy}, col, sw);
-                ctx.draw_line(PointF{cx - 5.6f, cy}, PointF{cx - 2.2f, cy + 3.5f}, col, sw);
-                ctx.draw_line(PointF{cx + 2.2f, cy - 3.5f}, PointF{cx + 5.6f, cy}, col, sw);
-                ctx.draw_line(PointF{cx + 5.6f, cy}, PointF{cx + 2.2f, cy + 3.5f}, col, sw);
+                path_d = "M8.03 7.47a.75.75 0 0 1 0 1.06L4.56 12l3.47 3.47a.75.75 0 1 1-1.06 1.06l-4-4a.75.75 0 0 1 0-1.06l4-4a.75.75 0 0 1 1.06 0Zm7.94 0a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1 0 1.06l-4 4a.75.75 0 1 1-1.06-1.06L19.44 12l-3.47-3.47a.75.75 0 0 1 0-1.06Zm-2.55-2.2a.75.75 0 0 1 .55.9l-2.5 10a.75.75 0 1 1-1.45-.36l2.5-10a.75.75 0 0 1 .9-.54Z";
                 break;
             case NavigationIcon::Sparkles:
-                ctx.draw_line(PointF{cx, cy - 5.8f}, PointF{cx, cy + 5.8f}, col, sw);
-                ctx.draw_line(PointF{cx - 5.8f, cy}, PointF{cx + 5.8f, cy}, col, sw);
-                ctx.draw_line(PointF{cx - 3.2f, cy - 3.2f}, PointF{cx + 3.2f, cy + 3.2f}, col, 1.0f);
-                ctx.draw_line(PointF{cx + 3.2f, cy - 3.2f}, PointF{cx - 3.2f, cy + 3.2f}, col, 1.0f);
+                path_d = "M12 2.5a.75.75 0 0 1 .71.51l1.62 4.86 4.86 1.62a.75.75 0 0 1 0 1.42l-4.86 1.62-1.62 4.86a.75.75 0 0 1-1.42 0l-1.62-4.86-4.86-1.62a.75.75 0 0 1 0-1.42l4.86-1.62 1.62-4.86A.75.75 0 0 1 12 2.5Zm0 3.12-1.06 3.18a.75.75 0 0 1-.47.47L7.29 10.33l3.18 1.06a.75.75 0 0 1 .47.47L12 15.04l1.06-3.18a.75.75 0 0 1 .47-.47l3.18-1.06-3.18-1.06a.75.75 0 0 1-.47-.47L12 5.62Z";
                 break;
             default:
                 break;
+        }
+
+        if (path_d) {
+            SvgEngine::draw_svg_path(ctx, path_d, 24.0f, 24.0f, r, col, 0.0f, true, angle_rad);
         }
     }
 };

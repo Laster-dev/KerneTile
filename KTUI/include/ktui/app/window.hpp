@@ -29,10 +29,19 @@ public:
         : m_id(id),
           m_platform_window(std::move(platform_window)),
           m_show_titlebar(show_titlebar) {
+        s_live_windows.push_back(this);
+        RenderBox::s_destroy_hook = &Window::on_render_box_destroyed;
         init_internal_hooks();
     }
 
     virtual ~Window() {
+        auto it = std::find(s_live_windows.begin(), s_live_windows.end(), this);
+        if (it != s_live_windows.end()) {
+            s_live_windows.erase(it);
+        }
+        if (s_active_window == this) {
+            s_active_window = s_live_windows.empty() ? nullptr : s_live_windows.back();
+        }
         close();
     }
 
@@ -800,7 +809,17 @@ private:
     FocusManager m_focus_manager;
     OverlayManager m_overlay_manager;
 
+    static void on_render_box_destroyed(RenderBox* box) noexcept {
+        for (Window* w : s_live_windows) {
+            if (w) {
+                w->m_event_dispatcher.forget_node(box);
+                w->m_focus_manager.forget_node(box);
+            }
+        }
+    }
+
     inline static Window* s_active_window = nullptr;
+    inline static std::vector<Window*> s_live_windows;
 
     std::vector<std::function<void(Vec2)>> m_resize_callbacks;
     std::vector<std::function<bool()>> m_close_callbacks;

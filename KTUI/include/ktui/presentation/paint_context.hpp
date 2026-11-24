@@ -95,6 +95,22 @@ public:
         m_primitive_count++;
     }
 
+    [[nodiscard]] float render_scale() const noexcept { return m_render_scale; }
+
+    [[nodiscard]] bool has_cached_mask(uint64_t cache_key) const noexcept {
+        return m_renderer ? m_renderer->has_cached_mask(cache_key) : false;
+    }
+
+    // 绘制 R8 Alpha 蒙版 (供 NanoSVG 矢量图标与路径渲染使用)
+    void draw_alpha_mask(uint64_t cache_key, Rect dst_rect, uint32_t mask_w, uint32_t mask_h,
+                         const uint8_t* alpha_pixels, Color tint) {
+        Rect abs_rect = to_absolute_rect(dst_rect);
+        if (m_renderer) {
+            m_renderer->draw_alpha_mask(cache_key, to_pixels(abs_rect), mask_w, mask_h, alpha_pixels, tint);
+        }
+        m_primitive_count++;
+    }
+
     // 绘制线段 (支持水平/垂直轴对齐极速路径与斜向高品质圆角端点胶囊步进插值)
     void draw_line(PointF p1, PointF p2, Color color, float stroke_width = 1.0f) {
         if (color.a <= 0.001f || stroke_width <= 0.0f) return;

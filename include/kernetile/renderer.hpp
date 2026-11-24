@@ -85,6 +85,22 @@ public:
         draw_text(text, x * scale, y * scale, font_size * scale, color);
     }
 
+    // R8 Alpha 蒙版缓存绘制 (供 NanoSVG 矢量图标等光栅化至 DynamicAtlas 后单图元极速着色渲染)
+    [[nodiscard]] virtual bool has_cached_mask(uint64_t cache_key) const noexcept {
+        (void)cache_key;
+        return false;
+    }
+
+    virtual void draw_alpha_mask(
+        uint64_t cache_key,
+        math::Rect dst_rect_px,
+        uint32_t mask_width,
+        uint32_t mask_height,
+        const uint8_t* alpha_pixels,
+        math::Color tint) {
+        (void)cache_key; (void)dst_rect_px; (void)mask_width; (void)mask_height; (void)alpha_pixels; (void)tint;
+    }
+
     // 离屏渲染呈现输出至内存缓冲 (RGBA8 格式)
     virtual void render_to_rgba8(uint8_t* dst_buffer) = 0;
 

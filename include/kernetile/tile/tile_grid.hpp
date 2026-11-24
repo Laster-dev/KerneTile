@@ -39,7 +39,7 @@ public:
     }
 
     // 将浮点坐标映射至瓦片索引区间 (半开区间 [min, max))
-    [[nodiscard]] constexpr void get_intersecting_tiles(
+    constexpr void get_intersecting_tiles(
         float min_x, float min_y, float max_x, float max_y,
         uint32_t& out_tx0, uint32_t& out_ty0, uint32_t& out_tx1, uint32_t& out_ty1) const noexcept
     {

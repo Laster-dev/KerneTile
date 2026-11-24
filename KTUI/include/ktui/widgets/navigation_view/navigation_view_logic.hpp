@@ -2,11 +2,13 @@
 
 #include "navigation_view_data.hpp"
 #include "navigation_view_style.hpp"
+#include <ktui/app/window.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/text_measure.hpp>
 #include <ktui/theme/theme_scope.hpp>
+#include <ktui/tree/overlay.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/widgets/scroll/scrollbar.hpp>
 #include <ktui/widgets/scroll/smooth_scroll_physics.hpp>
@@ -22,7 +24,178 @@
 
 namespace ktui {
 
+// WinUI 3 Compact / Top 模式子菜单浮层 (RenderNavigationSubmenuFlyout)
+// 挂载于 OverlayManager 顶层，折叠状态下点击含子项的父导航项直接弹出选择子项，无需强行展开侧边栏
+class RenderNavigationSubmenuFlyout : public RenderBox {
+public:
+    RenderNavigationSubmenuFlyout(std::vector<NavigationViewItem> children,
+                                  std::string selected_id,
+                                  std::function<void(const std::string&)> on_select)
+        : m_children(std::move(children)),
+          m_selected_id(std::move(selected_id)),
+          m_on_select(std::move(on_select)) {
+        cursor_shape = CursorShape::Arrow;
+        m_open_start = std::chrono::steady_clock::now();
+        setup_behavior();
+    }
+
+    ~RenderNavigationSubmenuFlyout() override = default;
+
+    [[nodiscard]] Vec2 compute_ideal_size() const {
+        float max_w = 160.0f;
+        for (const auto& item : m_children) {
+            Vec2 ts = TextMeasure::measure(item.label, 13.0f);
+            float icon_w = (item.icon != NavigationIcon::None || item.icon_painter) ? 26.0f : 0.0f;
+            max_w = std::max(max_w, ts.x + icon_w + 38.0f);
+        }
+        float h = static_cast<float>(std::max<size_t>(1, m_children.size())) * kItemH + 8.0f;
+        return Vec2{std::ceil(std::min(max_w, 280.0f)), h};
+    }
+
+    void perform_layout() override {
+        Vec2 ideal = compute_ideal_size();
+        float w = std::isfinite(m_constraints.max_width) ? std::min(ideal.x, m_constraints.max_width) : ideal.x;
+        float h = std::isfinite(m_constraints.max_height) ? std::min(ideal.y, m_constraints.max_height) : ideal.y;
+        set_size(Vec2{w, h});
+    }
+
+    void paint(PaintContext& ctx) override {
+        if (m_open_progress < 1.0f) {
+            auto now = std::chrono::steady_clock::now();
+            float elapsed = std::chrono::duration<float>(now - m_open_start).count();
+            m_open_progress = std::clamp(elapsed / 0.13f, 0.0f, 1.0f);
+            if (m_open_progress < 1.0f) mark_needs_paint();
+        }
+
+        const Theme& theme = ThemeContext::current();
+        const auto style = NavigationViewStyleResolver::resolve(theme);
+
+        float ease = 1.0f - std::pow(1.0f - m_open_progress, 3.0f);
+        float anim_h = std::max(16.0f, size().y * (0.76f + 0.24f * ease));
+        float alpha_mul = std::clamp(ease * 1.15f, 0.0f, 1.0f);
+
+        Rect panel = Rect::from_xywh(0.0f, 0.0f, size().x, anim_h);
+
+        // 1. 柔和圆角阴影
+        Color sh1 = style.pane_overlay_shadow;
+        sh1.a *= 0.32f * alpha_mul;
+        ctx.draw_rect(Rect::from_xywh(-2.0f, 4.0f, size().x + 4.0f, anim_h + 2.0f), sh1, 10.0f, 0.0f);
+        Color sh2 = style.pane_overlay_shadow;
+        sh2.a *= 0.55f * alpha_mul;
+        ctx.draw_rect(Rect::from_xywh(-0.5f, 2.0f, size().x + 1.0f, anim_h + 0.5f), sh2, 8.5f, 0.0f);
+
+        // 2. 8px 圆角浮层底板与 1px 描边
+        Color bg = style.pane_overlay_bg;
+        bg.a *= alpha_mul;
+        Color bd = style.pane_overlay_border;
+        bd.a *= alpha_mul;
+        ctx.draw_rect(panel, bg, 8.0f, 0.0f);
+        ctx.draw_rect(panel, bd, 8.0f, 1.0f);
+
+        // 3. 子项列表
+        ctx.push_clip(Rect::from_xywh(4.0f, 4.0f, std::max(0.0f, size().x - 8.0f), std::max(0.0f, anim_h - 8.0f)), 4.0f);
+        for (int i = 0; i < static_cast<int>(m_children.size()); ++i) {
+            const auto& item = m_children[static_cast<size_t>(i)];
+            float iy = 4.0f + static_cast<float>(i) * kItemH;
+            Rect r = Rect::from_xywh(4.0f, iy + 1.0f, std::max(0.0f, size().x - 8.0f), kItemH - 2.0f);
+
+            bool is_sel = (item.effective_id() == m_selected_id);
+            bool is_hov = (i == m_hovered_index && !item.disabled);
+            bool is_prs = (i == m_pressed_index && !item.disabled);
+
+            if (is_prs) {
+                Color c = style.item_pressed_bg; c.a *= alpha_mul;
+                ctx.draw_rect(r, c, 4.0f, 0.0f);
+            } else if (is_hov) {
+                Color c = style.item_hover_bg; c.a *= alpha_mul;
+                ctx.draw_rect(r, c, 4.0f, 0.0f);
+            } else if (is_sel) {
+                Color c = style.item_selected_bg; c.a *= alpha_mul;
+                ctx.draw_rect(r, c, 4.0f, 0.0f);
+            }
+
+            if (is_sel) {
+                Color pill = style.accent_pill; pill.a *= alpha_mul;
+                ctx.draw_rect(Rect::from_xywh(5.0f, iy + (kItemH - 16.0f) * 0.5f, 3.0f, 16.0f), pill, 1.5f, 0.0f);
+            }
+
+            float tx = r.min_x + 12.0f;
+            Color ic = item.disabled ? style.item_disabled_text : (is_sel ? style.icon_selected_color : style.icon_color);
+            ic.a *= alpha_mul;
+            if (item.icon != NavigationIcon::None || item.icon_painter) {
+                Rect ir = Rect::from_xywh(tx, std::round(iy + (kItemH - 16.0f) * 0.5f), 16.0f, 16.0f);
+                if (item.icon_painter) item.icon_painter(ctx, ir, ic);
+                else NavigationViewStyleResolver::paint_builtin_icon(ctx, item.icon, ir, ic);
+                tx += 26.0f;
+            }
+
+            Color tc = item.disabled ? style.item_disabled_text : (is_sel ? style.item_selected_text : style.item_text);
+            tc.a *= alpha_mul;
+            Vec2 ts = TextMeasure::measure(item.label, 13.0f);
+            ctx.draw_text(item.label, PointF{std::round(tx), std::round(iy + (kItemH - ts.y) * 0.5f)}, 13.0f, tc);
+        }
+        ctx.pop_clip();
+    }
+
+private:
+    static constexpr float kItemH = 34.0f;
+
+    int hit_index(float ly) const noexcept {
+        float y = ly - 4.0f;
+        if (y < 0.0f) return -1;
+        int idx = static_cast<int>(std::floor(y / kItemH));
+        if (idx < 0 || idx >= static_cast<int>(m_children.size())) return -1;
+        return idx;
+    }
+
+    void setup_behavior() {
+        on_pointer_move = [this](PointerEvent& e) {
+            int idx = hit_index(e.local_position.y);
+            if (idx != m_hovered_index) {
+                m_hovered_index = idx;
+                mark_needs_paint();
+            }
+            e.stop_propagation();
+        };
+        on_pointer_exit = [this](PointerEvent&) {
+            if (m_hovered_index != -1 || m_pressed_index != -1) {
+                m_hovered_index = -1;
+                m_pressed_index = -1;
+                mark_needs_paint();
+            }
+        };
+        on_pointer_down = [this](PointerEvent& e) {
+            int idx = hit_index(e.local_position.y);
+            if (idx >= 0 && !m_children[static_cast<size_t>(idx)].disabled) {
+                m_pressed_index = idx;
+                mark_needs_paint();
+            }
+            e.stop_propagation();
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            int idx = hit_index(e.local_position.y);
+            int pressed = m_pressed_index;
+            m_pressed_index = -1;
+            if (idx >= 0 && idx == pressed && !m_children[static_cast<size_t>(idx)].disabled) {
+                if (m_on_select) m_on_select(m_children[static_cast<size_t>(idx)].effective_id());
+            }
+            mark_needs_paint();
+            e.stop_propagation();
+        };
+    }
+
+    std::vector<NavigationViewItem> m_children;
+    std::string m_selected_id;
+    std::function<void(const std::string&)> m_on_select;
+    int m_hovered_index{-1};
+    int m_pressed_index{-1};
+    float m_open_progress{0.0f};
+    std::chrono::steady_clock::time_point m_open_start;
+};
+
+// =============================================================================
 // WinUI 3 NavigationView 核心渲染与交互盒
+// =============================================================================
 class RenderNavigationView : public RenderBox {
 public:
     RenderNavigationView() noexcept {
@@ -30,7 +203,9 @@ public:
         setup_behavior();
     }
 
-    ~RenderNavigationView() override = default;
+    ~RenderNavigationView() override {
+        close_submenu_flyout();
+    }
 
     [[nodiscard]] const std::string& selected_id() const noexcept { return m_data.selected_id; }
     [[nodiscard]] bool is_pane_open() const noexcept { return m_data.is_pane_open; }
@@ -38,6 +213,7 @@ public:
     [[nodiscard]] NavigationPaneDisplayMode effective_display_mode() const noexcept { return compute_effective_mode(size().x); }
     [[nodiscard]] bool can_go_back() const noexcept { return m_data.is_back_enabled || m_history.size() > 1; }
     [[nodiscard]] const std::shared_ptr<RenderBox>& content_box() const noexcept { return m_content_box; }
+    [[nodiscard]] bool is_submenu_open() const noexcept { return m_submenu_overlay_id != 0; }
 
     void set_menu_items(std::vector<NavigationViewItem> items) {
         m_data.menu_items = std::move(items);
@@ -101,9 +277,9 @@ public:
 
     void set_pane_display_mode(NavigationPaneDisplayMode mode) {
         if (m_data.pane_display_mode != mode) {
+            close_submenu_flyout();
             m_data.pane_display_mode = mode;
             m_last_auto_mode = NavigationPaneDisplayMode::Auto;
-            // 切换到 Compact / Minimal 时默认收起浮层，切换到 Left 时默认展开
             if (mode == NavigationPaneDisplayMode::LeftCompact || mode == NavigationPaneDisplayMode::LeftMinimal) {
                 m_data.is_pane_open = false;
                 m_pane_open_anim = 0.0f;
@@ -119,6 +295,7 @@ public:
 
     void set_pane_open(bool open, bool notify = false) {
         if (m_data.is_pane_open != open) {
+            close_submenu_flyout();
             m_data.is_pane_open = open;
             m_last_anim_time = std::chrono::steady_clock::now();
             if (notify && m_data.on_pane_toggled) {
@@ -168,7 +345,6 @@ public:
         }
     }
 
-    // 持久化持有当前页面 Widget 树，保证页面内控件的 BindingGroup 与回调生命周期与页面一致
     void set_content_widget(WidgetPtr widget) {
         m_content_widget = std::move(widget);
         if (m_content_widget) {
@@ -195,7 +371,6 @@ public:
         float h = std::isfinite(m_constraints.max_height) ? m_constraints.max_height : 600.0f;
         set_size(Vec2{w, h});
 
-        // 响应式 Auto 断点自动调整面板默认开合状态
         NavigationPaneDisplayMode eff = compute_effective_mode(w);
         if (m_data.pane_display_mode == NavigationPaneDisplayMode::Auto && eff != m_last_auto_mode) {
             m_last_auto_mode = eff;
@@ -204,14 +379,12 @@ public:
             m_pane_open_anim = should_open ? 1.0f : 0.0f;
         }
 
-        // 更新左侧菜单滚动上限
         if (eff != NavigationPaneDisplayMode::Top) {
             Rect menu_vp = compute_left_menu_viewport(h, current_pane_width(eff));
             float total_menu_h = compute_left_menu_total_height();
             m_menu_scroll.set_max_scroll(std::max(0.0f, total_menu_h - menu_vp.height()));
         }
 
-        // 布局右侧/下方内容区域
         Rect content_rect = compute_content_body_rect(w, h, eff);
         if (m_content_box) {
             BoxConstraints cc = BoxConstraints::tight(Vec2{
@@ -233,7 +406,6 @@ public:
         const bool overlay_active = is_overlay_pane(eff) && m_pane_open_anim > 0.05f;
         const float pane_w = current_pane_width(eff);
 
-        // 若点在导航栏或浮层面板区域内，直接由 NavigationView 拦截
         if (eff == NavigationPaneDisplayMode::Top) {
             if (local_position.y <= 44.0f) {
                 result.add(this, local_position);
@@ -250,7 +422,6 @@ public:
             }
         }
 
-        // 否则转发命中测试到内容页
         if (m_content_box) {
             Vec2 off = m_content_box->offset();
             PointF child_pos{local_position.x - off.x, local_position.y - off.y};
@@ -269,10 +440,10 @@ public:
         const ResolvedNavigationViewStyle style = NavigationViewStyleResolver::resolve(theme);
         const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
 
-        // 1. 先绘制内容区卡片表面与当前页面内容
+        // 1. 内容区卡片表面与页面内容
         paint_content_area(ctx, style, eff);
 
-        // 2. 再绘制导航栏 (使浮层模式下的侧边栏自然盖在内容区上方)
+        // 2. 导航栏 (盖在内容区上方)
         if (eff == NavigationPaneDisplayMode::Top) {
             paint_top_nav(ctx, style);
         } else {
@@ -320,10 +491,8 @@ private:
     }
 
     [[nodiscard]] float inline_reserved_left(NavigationPaneDisplayMode eff) const noexcept {
-        if (eff == NavigationPaneDisplayMode::Top) return 0.0f;
-        if (eff == NavigationPaneDisplayMode::LeftMinimal) return 0.0f;
+        if (eff == NavigationPaneDisplayMode::Top || eff == NavigationPaneDisplayMode::LeftMinimal) return 0.0f;
         if (eff == NavigationPaneDisplayMode::LeftCompact) return m_data.compact_pane_length;
-        // Left 模式平滑推动内容区
         return current_pane_width(eff);
     }
 
@@ -341,6 +510,18 @@ private:
         float header_h = m_data.header.empty() ? 0.0f : 48.0f;
         return Rect::from_xywh(surf.min_x, surf.min_y + header_h,
                                surf.width(), std::max(0.0f, surf.height() - header_h));
+    }
+
+    // 检查某导航项或其任意子项是否处于选中态 (折叠态父项继承选中高亮与 3px 强调条)
+    [[nodiscard]] bool is_item_or_child_selected(const NavigationViewItem& item, bool children_visible) const noexcept {
+        if (item.kind != NavigationItemKind::Item) return false;
+        if (item.effective_id() == m_data.selected_id) return true;
+        if (!children_visible && !item.children.empty()) {
+            for (const auto& c : item.children) {
+                if (c.effective_id() == m_data.selected_id) return true;
+            }
+        }
+        return false;
     }
 
     void rebuild_flat_items() {
@@ -371,14 +552,19 @@ private:
         }
     }
 
+    // WinUI 3 官方左侧顶部按钮布局: Back 在上 (4, 4), Hamburger 在下 (4, 44)，折叠展开位置绝对稳定
     [[nodiscard]] float compute_left_chrome_height() const noexcept {
-        bool has_top_btn = m_data.is_back_button_visible || m_data.is_pane_toggle_button_visible;
-        return has_top_btn ? 44.0f : 8.0f;
+        int rows = 0;
+        if (m_data.is_back_button_visible) rows++;
+        if (m_data.is_pane_toggle_button_visible) rows++;
+        if (rows == 2) return 84.0f;
+        if (rows == 1) return 44.0f;
+        return 8.0f;
     }
 
     [[nodiscard]] float compute_left_footer_height() const noexcept {
         if (m_footer_rows.empty()) return 8.0f;
-        float h = 13.0f; // 顶部分割线 + 留白
+        float h = 13.0f;
         for (const auto& r : m_footer_rows) h += r.height + 2.0f;
         return h + 6.0f;
     }
@@ -391,12 +577,9 @@ private:
 
     [[nodiscard]] float compute_left_menu_total_height() const noexcept {
         float y = 2.0f;
-        const bool compact_hide_headers = (m_pane_open_anim < 0.35f);
+        const bool compact_hide = (m_pane_open_anim < 0.35f);
         for (const auto& r : m_main_rows) {
-            if (compact_hide_headers && r.item && r.item->kind == NavigationItemKind::Header) {
-                continue;
-            }
-            if (compact_hide_headers && r.depth > 0) {
+            if (compact_hide && (r.depth > 0 || (r.item && r.item->kind == NavigationItemKind::Header))) {
                 continue;
             }
             y += r.height + 2.0f;
@@ -404,15 +587,77 @@ private:
         return y + 4.0f;
     }
 
+    void close_submenu_flyout() {
+        if (m_submenu_overlay_id != 0) {
+            uint64_t id = m_submenu_overlay_id;
+            m_submenu_overlay_id = 0;
+            m_submenu_parent_id.clear();
+            if (Window* win = Window::active_window()) {
+                win->hide_overlay(id);
+            }
+        }
+    }
+
+    void open_submenu_flyout(const NavigationViewItem& parent, PointF anchor_local, bool below_anchor) {
+        if (parent.children.empty()) return;
+        std::string pid = parent.effective_id();
+        if (m_submenu_overlay_id != 0 && m_submenu_parent_id == pid) {
+            close_submenu_flyout();
+            return;
+        }
+        close_submenu_flyout();
+
+        Window* win = Window::active_window();
+        if (!win) return;
+
+        auto flyout = std::make_shared<RenderNavigationSubmenuFlyout>(
+            parent.children,
+            m_data.selected_id,
+            [this](const std::string& chosen_id) {
+                set_selected_id(chosen_id, true, true);
+                close_submenu_flyout();
+            });
+
+        Vec2 fsz = flyout->compute_ideal_size();
+        Vec2 base = global_offset();
+        base.y += win->titlebar_height();
+        Vec2 win_sz = win->size();
+
+        float gx = base.x + anchor_local.x;
+        float gy = base.y + anchor_local.y;
+        if (!below_anchor) {
+            // Compact 模式: 弹在 48px 图标栏右侧
+            gx = std::clamp(gx, 4.0f, std::max(4.0f, win_sz.x - fsz.x - 4.0f));
+            gy = std::clamp(gy, win->titlebar_height() + 4.0f, std::max(win->titlebar_height() + 4.0f, win_sz.y - fsz.y - 4.0f));
+        } else {
+            // Top 模式: 弹在顶部导航项正下方
+            gx = std::clamp(gx, 4.0f, std::max(4.0f, win_sz.x - fsz.x - 4.0f));
+            gy = std::clamp(gy, win->titlebar_height() + 4.0f, std::max(win->titlebar_height() + 4.0f, win_sz.y - fsz.y - 4.0f));
+        }
+
+        OverlayEntry entry;
+        entry.content = flyout;
+        entry.global_pos = Vec2{gx, gy};
+        entry.size = fsz;
+        entry.dismiss_on_outside_click = true;
+        entry.is_modal = false;
+        entry.on_dismiss = [this]() {
+            m_submenu_overlay_id = 0;
+            m_submenu_parent_id.clear();
+            m_last_submenu_dismiss = std::chrono::steady_clock::now();
+            mark_needs_paint();
+        };
+
+        m_submenu_parent_id = pid;
+        m_submenu_overlay_id = win->show_overlay(std::move(entry));
+    }
+
     void paint_content_area(PaintContext& ctx, const ResolvedNavigationViewStyle& style, NavigationPaneDisplayMode eff) {
         Rect surf = compute_content_surface_rect(size().x, size().y, eff);
-
-        // WinUI 3 右侧内容区 LayerFillColorDefault 圆角卡片 (左上角 8px 圆角)
         float tl_rad = (eff == NavigationPaneDisplayMode::Top || eff == NavigationPaneDisplayMode::LeftMinimal)
             ? 0.0f : style.content_radius;
         ctx.draw_rounded_rect(surf, style.content_surface_bg, tl_rad, 0.0f, 0.0f, 0.0f);
 
-        // 顶部与左侧 1px 细腻边框
         if (style.content_surface_border.a > 0.001f) {
             ctx.draw_rect(Rect::from_xywh(surf.min_x + tl_rad, surf.min_y, std::max(0.0f, surf.width() - tl_rad), 1.0f),
                           style.content_surface_border, 0.0f, 0.0f);
@@ -422,17 +667,15 @@ private:
             }
         }
 
-        // 页面大标题 (Header)
         if (!m_data.header.empty()) {
-            ctx.draw_text(m_data.header, PointF{surf.min_x + 24.0f, surf.min_y + 14.0f},
+            ctx.draw_text(m_data.header, PointF{std::round(surf.min_x + 24.0f), std::round(surf.min_y + 14.0f)},
                           style.page_header_font_size, style.page_header_text);
         }
 
-        // 页面内容 (附带 WinUI 3 EntranceNavigationTransition 10px 柔和上滑进场)
         if (m_content_box) {
             Rect body = compute_content_body_rect(size().x, size().y, eff);
             float ease = 1.0f - std::pow(1.0f - m_page_enter_progress, 3.0f);
-            float slide_y = (1.0f - ease) * 10.0f;
+            float slide_y = std::round((1.0f - ease) * 10.0f);
 
             ctx.push_clip(body, 0.0f);
             PaintContext::OffsetScope scope(ctx, Vec2{m_content_box->offset().x, m_content_box->offset().y + slide_y});
@@ -451,72 +694,84 @@ private:
             ctx.draw_rect(r, style.item_hover_bg, style.item_radius, 0.0f);
         }
         Color col = enabled ? style.icon_color : style.item_disabled_text;
-        float cx = r.min_x + r.width() * 0.5f;
-        float cy = r.min_y + r.height() * 0.5f;
+        float cx = std::round(r.min_x + r.width() * 0.5f);
+        float cy = std::round(r.min_y + r.height() * 0.5f);
 
         if (btn == ChromeButton::Back) {
-            // WinUI 3 左箭头 (←)
-            ctx.draw_line(PointF{cx - 5.5f, cy}, PointF{cx + 5.5f, cy}, col, 1.3f);
-            ctx.draw_line(PointF{cx - 5.5f, cy}, PointF{cx - 1.2f, cy - 4.2f}, col, 1.3f);
-            ctx.draw_line(PointF{cx - 5.5f, cy}, PointF{cx - 1.2f, cy + 4.2f}, col, 1.3f);
+            // WinUI 3 AnimatedBackVisualSource: 按下轻推向左 -2px
+            float ox = prs ? -2.0f : 0.0f;
+            ctx.draw_line(PointF{cx - 5.5f + ox, cy}, PointF{cx + 5.5f + ox, cy}, col, 1.3f);
+            ctx.draw_line(PointF{cx - 5.5f + ox, cy}, PointF{cx - 1.2f + ox, cy - 4.2f}, col, 1.3f);
+            ctx.draw_line(PointF{cx - 5.5f + ox, cy}, PointF{cx - 1.2f + ox, cy + 4.2f}, col, 1.3f);
         } else if (btn == ChromeButton::Toggle) {
-            // WinUI 3 汉堡三横线 (☰)
-            ctx.draw_line(PointF{cx - 6.0f, cy - 4.0f}, PointF{cx + 6.0f, cy - 4.0f}, col, 1.25f);
-            ctx.draw_line(PointF{cx - 6.0f, cy},        PointF{cx + 6.0f, cy},        col, 1.25f);
-            ctx.draw_line(PointF{cx - 6.0f, cy + 4.0f}, PointF{cx + 6.0f, cy + 4.0f}, col, 1.25f);
+            // WinUI 3 AnimatedGlobalNavigationButtonVisualSource: 按下微缩收紧
+            float hw = prs ? 4.8f : 6.0f;
+            ctx.draw_line(PointF{cx - hw, cy - 4.0f}, PointF{cx + hw, cy - 4.0f}, col, 1.25f);
+            ctx.draw_line(PointF{cx - hw, cy},        PointF{cx + hw, cy},        col, 1.25f);
+            ctx.draw_line(PointF{cx - hw, cy + 4.0f}, PointF{cx + hw, cy + 4.0f}, col, 1.25f);
         }
+    }
+
+    void paint_compact_tooltip(PaintContext& ctx, float pane_w, float item_cy,
+                               const std::string& label, const ResolvedNavigationViewStyle& style) const {
+        if (label.empty()) return;
+        Vec2 ts = TextMeasure::measure(label, 12.0f);
+        float tw = std::ceil(ts.x + 18.0f);
+        float th = 28.0f;
+        float tx = pane_w + 6.0f;
+        float ty = std::round(item_cy - th * 0.5f);
+        Rect tr = Rect::from_xywh(tx, ty, tw, th);
+
+        Color sh = style.pane_overlay_shadow;
+        sh.a *= 0.35f;
+        ctx.draw_rect(Rect::from_xywh(tx - 1.0f, ty + 2.0f, tw + 2.0f, th + 1.0f), sh, 5.0f, 0.0f);
+        ctx.draw_rect(tr, style.pane_overlay_bg, 4.0f, 0.0f);
+        ctx.draw_rect(tr, style.pane_overlay_border, 4.0f, 1.0f);
+        ctx.draw_text(label, PointF{std::round(tx + 9.0f), std::round(ty + (th - ts.y) * 0.5f)}, 12.0f, style.item_selected_text);
     }
 
     void paint_left_pane(PaintContext& ctx, const ResolvedNavigationViewStyle& style, NavigationPaneDisplayMode eff) {
         const float pane_w = current_pane_width(eff);
         const bool overlay = is_overlay_pane(eff) && m_pane_open_anim > 0.02f;
 
-        // Minimal 模式收起态: 仅在左上角绘制 Back + Hamburger 按钮
         if (eff == NavigationPaneDisplayMode::LeftMinimal && m_pane_open_anim <= 0.02f) {
             float bx = 4.0f;
             if (m_data.is_back_button_visible) {
-                paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f), ChromeButton::Back, style, can_go_back());
-                bx += 40.0f;
+                paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 40.0f, 36.0f), ChromeButton::Back, style, can_go_back());
+                bx += 42.0f;
             }
             if (m_data.is_pane_toggle_button_visible) {
-                paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f), ChromeButton::Toggle, style, true);
+                paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 40.0f, 36.0f), ChromeButton::Toggle, style, true);
             }
             return;
         }
 
         Rect pane_rect = Rect::from_xywh(0.0f, 0.0f, pane_w, size().y);
 
-        // 浮层滑出态: 绘制柔和投影 + 亚克力实色面板 + 右侧圆角边框
         if (overlay) {
             Color sh = style.pane_overlay_shadow;
             sh.a *= m_pane_open_anim * 0.45f;
-            ctx.draw_rect(Rect::from_xywh(pane_w, 0.0f, 8.0f, size().y), sh, 0.0f, 0.0f);
+            ctx.draw_rect(Rect::from_xywh(pane_w, 0.0f, 10.0f, size().y), sh, 0.0f, 0.0f);
             ctx.draw_rounded_rect(pane_rect, style.pane_overlay_bg, 0.0f, 8.0f, 8.0f, 0.0f);
             ctx.draw_rect(Rect::from_xywh(pane_w - 1.0f, 0.0f, 1.0f, size().y), style.pane_overlay_border, 0.0f, 0.0f);
         }
 
-        // 1. 顶部操作区 (Back + Toggle + PaneTitle)
-        float bx = 4.0f;
-        if (m_data.is_pane_toggle_button_visible) {
-            if (m_data.is_back_button_visible && m_pane_open_anim > 0.5f) {
-                paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f), ChromeButton::Back, style, can_go_back());
-                bx += 40.0f;
-            }
-            paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f), ChromeButton::Toggle, style, true);
-            bx += 42.0f;
-        } else if (m_data.is_back_button_visible) {
-            paint_chrome_button(ctx, Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f), ChromeButton::Back, style, can_go_back());
-            bx += 42.0f;
+        // 1. 顶部操作区 (WinUI 3 纵向堆叠: Back 在 (4, 4)，Toggle 在 (4, 44)，pane_title 在 Toggle 右侧)
+        float cy = 4.0f;
+        if (m_data.is_back_button_visible) {
+            paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Back, style, can_go_back());
+            cy += 40.0f;
         }
-
-        if (!m_data.pane_title.empty() && m_pane_open_anim > 0.4f) {
-            float label_alpha = std::clamp((m_pane_open_anim - 0.4f) / 0.6f, 0.0f, 1.0f);
-            Color tc = style.item_selected_text;
-            tc.a *= label_alpha;
-            Vec2 ts = TextMeasure::measure(m_data.pane_title, 13.5f);
-            ctx.push_clip(Rect::from_xywh(bx, 4.0f, std::max(0.0f, pane_w - bx - 8.0f), 36.0f), 0.0f);
-            ctx.draw_text(m_data.pane_title, PointF{bx + 2.0f, 4.0f + (36.0f - ts.y) * 0.5f}, 13.5f, tc);
-            ctx.pop_clip();
+        if (m_data.is_pane_toggle_button_visible) {
+            paint_chrome_button(ctx, Rect::from_xywh(4.0f, cy, 40.0f, 36.0f), ChromeButton::Toggle, style, true);
+            if (!m_data.pane_title.empty() && m_pane_open_anim > 0.4f) {
+                float ta = std::clamp((m_pane_open_anim - 0.4f) / 0.6f, 0.0f, 1.0f);
+                Color tc = style.item_selected_text; tc.a *= ta;
+                Vec2 ts = TextMeasure::measure(m_data.pane_title, 13.5f);
+                ctx.push_clip(Rect::from_xywh(48.0f, cy, std::max(0.0f, pane_w - 56.0f), 36.0f), 0.0f);
+                ctx.draw_text(m_data.pane_title, PointF{50.0f, std::round(cy + (36.0f - ts.y) * 0.5f)}, 13.5f, tc);
+                ctx.pop_clip();
+            }
         }
 
         // 2. 可滚动主菜单区域
@@ -524,9 +779,11 @@ private:
         const float scroll_y = m_menu_scroll.offset();
         const float total_menu_h = compute_left_menu_total_height();
         const float label_alpha = std::clamp((m_pane_open_anim - 0.35f) / 0.65f, 0.0f, 1.0f);
+        const bool is_compact = (m_pane_open_anim < 0.25f);
 
         float target_pill_y = -1.0f;
-        float target_pill_h = 16.0f;
+        std::string tooltip_label;
+        float tooltip_cy = 0.0f;
 
         ctx.push_clip(menu_vp, 0.0f);
         float y = menu_vp.min_y + 2.0f - scroll_y;
@@ -539,23 +796,25 @@ private:
 
             Rect row_rect = Rect::from_xywh(4.0f, y, std::max(0.0f, pane_w - 8.0f), row.height);
             if (y + row.height >= menu_vp.min_y && y <= menu_vp.max_y) {
-                bool is_sel = (row.item->kind == NavigationItemKind::Item &&
-                               row.item->effective_id() == m_data.selected_id);
+                bool children_vis = (label_alpha > 0.01f && row.item->expanded);
+                bool is_sel = is_item_or_child_selected(*row.item, children_vis);
+                bool is_hov = (m_hovered_row == i && !m_hovered_in_footer);
+                bool is_prs = (m_pressed_row == i && !m_pressed_in_footer);
                 if (is_sel) {
                     target_pill_y = y + (row.height - 16.0f) * 0.5f;
-                    target_pill_h = 16.0f;
                 }
-                paint_left_row(ctx, row_rect, row, style, is_sel,
-                               (m_hovered_row == i && !m_hovered_in_footer),
-                               (m_pressed_row == i && !m_pressed_in_footer),
-                               label_alpha);
+                if (is_compact && is_hov && row.item->kind == NavigationItemKind::Item && m_submenu_overlay_id == 0) {
+                    tooltip_label = row.item->label;
+                    tooltip_cy = y + row.height * 0.5f;
+                }
+                paint_left_row(ctx, row_rect, row, style, is_sel, is_hov, is_prs, label_alpha);
             }
             y += row.height + 2.0f;
         }
         m_menu_scrollbar.paint(ctx, menu_vp, total_menu_h, scroll_y, ThemeContext::current());
         ctx.pop_clip();
 
-        // 3. 底部固定 Footer 区域 (分割线 + footer_items + Settings)
+        // 3. 底部固定 Footer 区域 (分割线 + footer_items + Settings 旋转齿轮)
         if (!m_footer_rows.empty()) {
             float fy = menu_vp.max_y + 4.0f;
             ctx.draw_rect(Rect::from_xywh(12.0f, fy, std::max(0.0f, pane_w - 24.0f), 1.0f),
@@ -568,29 +827,38 @@ private:
                 Rect row_rect = Rect::from_xywh(4.0f, fy, std::max(0.0f, pane_w - 8.0f), row.height);
                 bool is_sel = (row.item->kind == NavigationItemKind::Item &&
                                row.item->effective_id() == m_data.selected_id);
+                bool is_hov = (m_hovered_row == i && m_hovered_in_footer);
+                bool is_prs = (m_pressed_row == i && m_pressed_in_footer);
                 if (is_sel) {
                     target_pill_y = fy + (row.height - 16.0f) * 0.5f;
-                    target_pill_h = 16.0f;
                 }
-                paint_left_row(ctx, row_rect, row, style, is_sel,
-                               (m_hovered_row == i && m_hovered_in_footer),
-                               (m_pressed_row == i && m_pressed_in_footer),
-                               label_alpha);
+                if (is_compact && is_hov && row.item->kind == NavigationItemKind::Item && m_submenu_overlay_id == 0) {
+                    tooltip_label = row.item->label;
+                    tooltip_cy = fy + row.height * 0.5f;
+                }
+                paint_left_row(ctx, row_rect, row, style, is_sel, is_hov, is_prs, label_alpha);
                 fy += row.height + 2.0f;
             }
         }
 
-        // 4. WinUI 3 标志性 3px x 16px 滑动强调色选中指示条 (跨菜单与 Footer 丝滑跟随)
+        // 4. WinUI 3 弹性拉伸滑动强调条 (head 先行、tail 追赶，形成原生拉伸收缩轨迹)
         if (target_pill_y >= 0.0f) {
             if (!m_pill_initialized) {
-                m_pill_pos = target_pill_y;
-                m_pill_size = target_pill_h;
+                m_pill_head = m_pill_tail = target_pill_y;
+                m_pill_size = 16.0f;
                 m_pill_initialized = true;
             }
             m_pill_target_pos = target_pill_y;
-            m_pill_target_size = target_pill_h;
-            ctx.draw_rect(Rect::from_xywh(4.0f, m_pill_pos, 3.0f, m_pill_size),
+            m_pill_target_size = 16.0f;
+            float pill_top = std::min(m_pill_head, m_pill_tail);
+            float pill_bot = std::max(m_pill_head, m_pill_tail) + m_pill_size;
+            ctx.draw_rect(Rect::from_xywh(4.0f, pill_top, 3.0f, std::max(16.0f, pill_bot - pill_top)),
                           style.accent_pill, 1.5f, 0.0f);
+        }
+
+        // 5. Compact 模式悬停 Tooltip (悬浮在内容区左侧上方)
+        if (!tooltip_label.empty()) {
+            paint_compact_tooltip(ctx, pane_w, tooltip_cy, tooltip_label, style);
         }
     }
 
@@ -599,7 +867,7 @@ private:
                         bool is_selected, bool is_hov, bool is_prs, float label_alpha) const {
         const auto& item = *row.item;
         if (item.kind == NavigationItemKind::Separator) {
-            ctx.draw_rect(Rect::from_xywh(r.min_x + 8.0f, r.min_y + r.height() * 0.5f,
+            ctx.draw_rect(Rect::from_xywh(r.min_x + 8.0f, std::round(r.min_y + r.height() * 0.5f),
                                           std::max(0.0f, r.width() - 16.0f), 1.0f),
                           style.separator_color, 0.0f, 0.0f);
             return;
@@ -608,47 +876,52 @@ private:
             Color hc = style.header_text;
             hc.a *= label_alpha;
             Vec2 ts = TextMeasure::measure(item.label, style.header_font_size);
-            ctx.draw_text(item.label, PointF{r.min_x + 12.0f, r.min_y + (r.height() - ts.y) * 0.5f + 3.0f},
+            ctx.draw_text(item.label, PointF{r.min_x + 12.0f, std::round(r.min_y + (r.height() - ts.y) * 0.5f + 3.0f)},
                           style.header_font_size, hc);
             return;
         }
 
-        // Item 背景
         if (!item.disabled) {
-            if (is_prs) {
-                ctx.draw_rect(r, style.item_pressed_bg, style.item_radius, 0.0f);
-            } else if (is_hov) {
-                ctx.draw_rect(r, style.item_hover_bg, style.item_radius, 0.0f);
-            } else if (is_selected) {
-                ctx.draw_rect(r, style.item_selected_bg, style.item_radius, 0.0f);
-            }
+            if (is_prs) ctx.draw_rect(r, style.item_pressed_bg, style.item_radius, 0.0f);
+            else if (is_hov) ctx.draw_rect(r, style.item_hover_bg, style.item_radius, 0.0f);
+            else if (is_selected) ctx.draw_rect(r, style.item_selected_bg, style.item_radius, 0.0f);
         }
 
         const float indent = static_cast<float>(row.depth) * 24.0f;
-        const float icon_cx = r.min_x + 20.0f + indent;
-        const float icon_cy = r.min_y + r.height() * 0.5f;
+        const float icon_cx = std::round(r.min_x + 20.0f + indent);
+        const float icon_cy = std::round(r.min_y + r.height() * 0.5f);
         Rect icon_rect = Rect::from_xywh(icon_cx - 8.0f, icon_cy - 8.0f, 16.0f, 16.0f);
         Color ic = item.disabled ? style.item_disabled_text
                  : (is_selected ? style.icon_selected_color : style.icon_color);
 
-        if (item.icon_painter) {
+        if (row.is_settings) {
+            // WinUI 3 AnimatedSettingsVisualSource: 悬停微转 + 点击顺滑旋转 90° + 按下微缩
+            float gear_scale = is_prs ? 0.90f : 1.0f;
+            NavigationViewStyleResolver::paint_settings_gear(ctx, icon_rect, ic, m_settings_gear_angle, gear_scale);
+        } else if (item.icon_painter) {
             item.icon_painter(ctx, icon_rect, ic);
         } else if (item.icon != NavigationIcon::None) {
             NavigationViewStyleResolver::paint_builtin_icon(ctx, item.icon, icon_rect, ic);
         }
 
-        // Compact 模式下徽标以精致小圆点提示在图标右上角
-        if (!item.badge.empty() && label_alpha < 0.3f) {
-            ctx.draw_rect(Rect::from_xywh(icon_cx + 4.0f, icon_cy - 8.0f, 6.0f, 6.0f),
-                          style.badge_bg, 3.0f, 0.0f);
+        // Compact 模式下: 有子项时在右下角绘制精致小指示箭头，有徽标时在右上角绘制小圆点
+        if (label_alpha < 0.3f) {
+            if (!item.badge.empty()) {
+                ctx.draw_rect(Rect::from_xywh(icon_cx + 4.0f, icon_cy - 8.0f, 6.0f, 6.0f),
+                              style.badge_bg, 3.0f, 0.0f);
+            }
+            if (!item.children.empty()) {
+                Color dot_c = ic; dot_c.a *= 0.6f;
+                ctx.draw_line(PointF{r.max_x - 6.0f, icon_cy - 2.0f}, PointF{r.max_x - 4.0f, icon_cy}, dot_c, 1.1f);
+                ctx.draw_line(PointF{r.max_x - 4.0f, icon_cy}, PointF{r.max_x - 6.0f, icon_cy + 2.0f}, dot_c, 1.1f);
+            }
         }
 
         if (label_alpha > 0.01f) {
             float right_reserve = 8.0f;
-            // 子项展开/收起箭头
             if (!item.children.empty()) {
                 float cx = r.max_x - 14.0f;
-                float cy = r.min_y + r.height() * 0.5f;
+                float cy = std::round(r.min_y + r.height() * 0.5f);
                 float dir = item.expanded ? -1.0f : 1.0f;
                 Color ch_col = ic;
                 ch_col.a *= label_alpha * 0.75f;
@@ -657,24 +930,20 @@ private:
                 right_reserve += 20.0f;
             }
 
-            // WinUI 3 InfoBadge 徽标胶囊
             if (!item.badge.empty()) {
                 Vec2 bsz = TextMeasure::measure(item.badge, 10.5f);
-                float bw = std::max(18.0f, bsz.x + 10.0f);
+                float bw = std::max(18.0f, std::ceil(bsz.x + 10.0f));
                 float bh = 16.0f;
-                float bx = r.max_x - right_reserve - bw;
-                float by = r.min_y + (r.height() - bh) * 0.5f;
-                Color bg = style.badge_bg;
-                bg.a *= label_alpha;
-                Color bt = style.badge_text;
-                bt.a *= label_alpha;
+                float bx = std::round(r.max_x - right_reserve - bw);
+                float by = std::round(r.min_y + (r.height() - bh) * 0.5f);
+                Color bg = style.badge_bg; bg.a *= label_alpha;
+                Color bt = style.badge_text; bt.a *= label_alpha;
                 ctx.draw_rect(Rect::from_xywh(bx, by, bw, bh), bg, bh * 0.5f, 0.0f);
-                ctx.draw_text(item.badge, PointF{bx + (bw - bsz.x) * 0.5f, by + (bh - bsz.y) * 0.5f}, 10.5f, bt);
+                ctx.draw_text(item.badge, PointF{std::round(bx + (bw - bsz.x) * 0.5f), std::round(by + (bh - bsz.y) * 0.5f)}, 10.5f, bt);
                 right_reserve += bw + 6.0f;
             }
 
-            // 文本标签
-            float text_x = (item.icon != NavigationIcon::None || item.icon_painter)
+            float text_x = (item.icon != NavigationIcon::None || item.icon_painter || row.is_settings)
                 ? (r.min_x + 40.0f + indent) : (r.min_x + 14.0f + indent);
             float clip_w = std::max(0.0f, r.max_x - right_reserve - text_x);
             if (clip_w > 2.0f) {
@@ -683,16 +952,16 @@ private:
                 tc.a *= label_alpha;
                 Vec2 ts = TextMeasure::measure(item.label, style.font_size);
                 ctx.push_clip(Rect::from_xywh(text_x, r.min_y, clip_w, r.height()), 0.0f);
-                ctx.draw_text(item.label, PointF{text_x, r.min_y + (r.height() - ts.y) * 0.5f}, style.font_size, tc);
+                ctx.draw_text(item.label, PointF{std::round(text_x), std::round(r.min_y + (r.height() - ts.y) * 0.5f)}, style.font_size, tc);
                 ctx.pop_clip();
             }
         }
     }
 
-    // Top 水平导航栏布局与绘制
     struct TopItemLayout {
         const NavigationViewItem* item{nullptr};
         Rect rect;
+        bool is_settings{false};
     };
 
     std::vector<TopItemLayout> compute_top_layouts() const {
@@ -704,17 +973,17 @@ private:
             if (item.kind != NavigationItemKind::Item) continue;
             Vec2 ts = TextMeasure::measure(item.label, 13.0f);
             float icon_w = (item.icon != NavigationIcon::None || item.icon_painter) ? 22.0f : 0.0f;
-            float w = ts.x + icon_w + 24.0f;
-            out.push_back(TopItemLayout{&item, Rect::from_xywh(x, 4.0f, w, 36.0f)});
+            float chev_w = !item.children.empty() ? 14.0f : 0.0f;
+            float w = std::ceil(ts.x + icon_w + chev_w + 24.0f);
+            out.push_back(TopItemLayout{&item, Rect::from_xywh(x, 4.0f, w, 36.0f), false});
             x += w + 4.0f;
         }
 
-        // 右对齐 Settings / Footer
         float rx = size().x - 8.0f;
         if (m_data.is_settings_visible) {
             float w = 38.0f;
             rx -= w;
-            out.push_back(TopItemLayout{&m_settings_item, Rect::from_xywh(rx, 4.0f, w, 36.0f)});
+            out.push_back(TopItemLayout{&m_settings_item, Rect::from_xywh(rx, 4.0f, w, 36.0f), true});
             rx -= 4.0f;
         }
         return out;
@@ -732,15 +1001,12 @@ private:
         for (int i = 0; i < static_cast<int>(layouts.size()); ++i) {
             const auto& tl = layouts[static_cast<size_t>(i)];
             const auto& item = *tl.item;
-            bool is_sel = (item.effective_id() == m_data.selected_id);
+            bool is_sel = is_item_or_child_selected(item, false);
             bool is_hov = (m_hovered_top == i && !item.disabled);
             bool is_prs = (m_pressed_top == i && !item.disabled);
 
-            if (is_prs) {
-                ctx.draw_rect(tl.rect, style.item_pressed_bg, style.item_radius, 0.0f);
-            } else if (is_hov) {
-                ctx.draw_rect(tl.rect, style.item_hover_bg, style.item_radius, 0.0f);
-            }
+            if (is_prs) ctx.draw_rect(tl.rect, style.item_pressed_bg, style.item_radius, 0.0f);
+            else if (is_hov) ctx.draw_rect(tl.rect, style.item_hover_bg, style.item_radius, 0.0f);
 
             if (is_sel) {
                 target_pill_w = std::max(16.0f, tl.rect.width() - 24.0f);
@@ -749,15 +1015,14 @@ private:
 
             Color ic = item.disabled ? style.item_disabled_text
                      : (is_sel ? style.icon_selected_color : style.icon_color);
-            bool icon_only = (item.effective_id() == m_data.settings_id);
-            if (icon_only) {
-                Rect ir = Rect::from_xywh(tl.rect.min_x + (tl.rect.width() - 16.0f) * 0.5f,
-                                          tl.rect.min_y + (tl.rect.height() - 16.0f) * 0.5f, 16.0f, 16.0f);
-                NavigationViewStyleResolver::paint_builtin_icon(ctx, item.icon, ir, ic);
+            if (tl.is_settings) {
+                Rect ir = Rect::from_xywh(std::round(tl.rect.min_x + (tl.rect.width() - 16.0f) * 0.5f),
+                                          std::round(tl.rect.min_y + (tl.rect.height() - 16.0f) * 0.5f), 16.0f, 16.0f);
+                NavigationViewStyleResolver::paint_settings_gear(ctx, ir, ic, m_settings_gear_angle, is_prs ? 0.90f : 1.0f);
             } else {
                 float tx = tl.rect.min_x + 12.0f;
                 if (item.icon != NavigationIcon::None || item.icon_painter) {
-                    Rect ir = Rect::from_xywh(tx, tl.rect.min_y + (tl.rect.height() - 16.0f) * 0.5f, 16.0f, 16.0f);
+                    Rect ir = Rect::from_xywh(std::round(tx), std::round(tl.rect.min_y + (tl.rect.height() - 16.0f) * 0.5f), 16.0f, 16.0f);
                     if (item.icon_painter) item.icon_painter(ctx, ir, ic);
                     else NavigationViewStyleResolver::paint_builtin_icon(ctx, item.icon, ir, ic);
                     tx += 22.0f;
@@ -765,21 +1030,29 @@ private:
                 Color tc = item.disabled ? style.item_disabled_text
                          : (is_sel ? style.item_selected_text : style.item_text);
                 Vec2 ts = TextMeasure::measure(item.label, style.font_size);
-                ctx.draw_text(item.label, PointF{tx, tl.rect.min_y + (tl.rect.height() - ts.y) * 0.5f},
+                ctx.draw_text(item.label, PointF{std::round(tx), std::round(tl.rect.min_y + (tl.rect.height() - ts.y) * 0.5f)},
                               style.font_size, tc);
+                if (!item.children.empty()) {
+                    float cx = tl.rect.max_x - 11.0f;
+                    float cy = std::round(tl.rect.min_y + tl.rect.height() * 0.5f);
+                    ctx.draw_line(PointF{cx - 3.0f, cy - 1.5f}, PointF{cx, cy + 1.5f}, ic, 1.15f);
+                    ctx.draw_line(PointF{cx, cy + 1.5f}, PointF{cx + 3.0f, cy - 1.5f}, ic, 1.15f);
+                }
             }
         }
 
-        // Top 模式底部 3px 水平滑动强调条
+        // Top 模式底部 3px 弹性拉伸水平滑动强调条
         if (target_pill_x >= 0.0f) {
             if (!m_pill_initialized) {
-                m_pill_pos = target_pill_x;
+                m_pill_head = m_pill_tail = target_pill_x;
                 m_pill_size = target_pill_w;
                 m_pill_initialized = true;
             }
             m_pill_target_pos = target_pill_x;
             m_pill_target_size = target_pill_w;
-            ctx.draw_rect(Rect::from_xywh(m_pill_pos, 41.0f, m_pill_size, 3.0f),
+            float pill_l = std::min(m_pill_head, m_pill_tail);
+            float pill_r = std::max(m_pill_head, m_pill_tail) + m_pill_size;
+            ctx.draw_rect(Rect::from_xywh(pill_l, 41.0f, std::max(16.0f, pill_r - pill_l), 3.0f),
                           style.accent_pill, 1.5f, 0.0f);
         }
     }
@@ -791,30 +1064,29 @@ private:
             }
             return ChromeButton::None;
         }
-        float bx = 4.0f;
         if (eff == NavigationPaneDisplayMode::LeftMinimal && m_pane_open_anim <= 0.02f) {
+            float bx = 4.0f;
             if (m_data.is_back_button_visible) {
-                if (Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f).contains(p)) return ChromeButton::Back;
-                bx += 40.0f;
+                if (Rect::from_xywh(bx, 4.0f, 40.0f, 36.0f).contains(p)) return ChromeButton::Back;
+                bx += 42.0f;
             }
-            if (m_data.is_pane_toggle_button_visible && Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f).contains(p)) {
+            if (m_data.is_pane_toggle_button_visible && Rect::from_xywh(bx, 4.0f, 40.0f, 36.0f).contains(p)) {
                 return ChromeButton::Toggle;
             }
             return ChromeButton::None;
         }
+        float cy = 4.0f;
+        if (m_data.is_back_button_visible) {
+            if (Rect::from_xywh(4.0f, cy, 40.0f, 36.0f).contains(p)) return ChromeButton::Back;
+            cy += 40.0f;
+        }
         if (m_data.is_pane_toggle_button_visible) {
-            if (m_data.is_back_button_visible && m_pane_open_anim > 0.5f) {
-                if (Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f).contains(p)) return ChromeButton::Back;
-                bx += 40.0f;
-            }
-            if (Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f).contains(p)) return ChromeButton::Toggle;
-        } else if (m_data.is_back_button_visible) {
-            if (Rect::from_xywh(bx, 4.0f, 38.0f, 36.0f).contains(p)) return ChromeButton::Back;
+            if (Rect::from_xywh(4.0f, cy, 40.0f, 36.0f).contains(p)) return ChromeButton::Toggle;
         }
         return ChromeButton::None;
     }
 
-    void hit_test_left_row(PointF p, NavigationPaneDisplayMode eff, int& out_idx, bool& out_footer) const noexcept {
+    void hit_test_left_row(PointF p, NavigationPaneDisplayMode eff, int& out_idx, bool& out_footer, float* out_y = nullptr) const noexcept {
         out_idx = -1;
         out_footer = false;
         const float pane_w = current_pane_width(eff);
@@ -828,11 +1100,12 @@ private:
             for (int i = 0; i < static_cast<int>(m_main_rows.size()); ++i) {
                 const auto& row = m_main_rows[static_cast<size_t>(i)];
                 if (!row.item) continue;
-                if (compact_hide && (row.item->kind == NavigationItemKind::Header || row.depth > 0)) continue;
+                if (compact_hide && (row.depth > 0 || row.item->kind == NavigationItemKind::Header)) continue;
                 if (p.y >= y && p.y <= y + row.height) {
                     if (row.item->kind == NavigationItemKind::Item) {
                         out_idx = i;
                         out_footer = false;
+                        if (out_y) *out_y = y;
                     }
                     return;
                 }
@@ -850,6 +1123,7 @@ private:
                     if (row.item->kind == NavigationItemKind::Item) {
                         out_idx = i;
                         out_footer = true;
+                        if (out_y) *out_y = fy;
                     }
                     return;
                 }
@@ -858,13 +1132,28 @@ private:
         }
     }
 
-    void activate_item(const NavigationViewItem& item, NavigationPaneDisplayMode eff) {
+    void activate_item(const NavigationViewItem& item, NavigationPaneDisplayMode eff,
+                       bool is_settings, PointF flyout_anchor, bool flyout_below) {
         if (item.disabled || item.kind != NavigationItemKind::Item) return;
 
-        // 若含子项，先切换其展开/折叠状态 (或在紧凑模式下展开面板)
+        if (is_settings) {
+            // WinUI 3 AnimatedSettingsVisualSource: 每次点击顺滑旋转 90° (π/2 rad)
+            m_settings_spin_base += 1.5707963f;
+            m_last_anim_time = std::chrono::steady_clock::now();
+        }
+
+        // 含子项时:
+        // - Compact / Top 模式下直接弹出 WinUI 3 浮层子菜单，绝不强行展开侧边栏！
+        // - Expanded 模式下在侧边栏内就地展开/折叠子项
         if (!item.children.empty()) {
-            if (m_pane_open_anim < 0.5f) {
-                set_pane_open(true, true);
+            if (eff == NavigationPaneDisplayMode::Top || m_pane_open_anim < 0.5f) {
+                auto now = std::chrono::steady_clock::now();
+                if (m_last_submenu_dismiss.time_since_epoch().count() != 0 &&
+                    std::chrono::duration<float>(now - m_last_submenu_dismiss).count() < 0.06f) {
+                    return;
+                }
+                open_submenu_flyout(item, flyout_anchor, flyout_below);
+                return;
             }
             for (auto& mi : m_data.menu_items) {
                 if (mi.effective_id() == item.effective_id()) {
@@ -876,8 +1165,8 @@ private:
             }
         }
 
+        close_submenu_flyout();
         set_selected_id(item.effective_id(), true, true);
-        // 浮层模式下选中后自动收起侧边栏
         if (is_overlay_pane(eff) && m_data.is_pane_open) {
             set_pane_open(false, true);
         }
@@ -901,18 +1190,22 @@ private:
             if (eff == NavigationPaneDisplayMode::Top) {
                 ChromeButton cb = hit_test_chrome(e.local_position, eff);
                 int top_idx = -1;
+                bool hov_settings = false;
                 if (cb == ChromeButton::None) {
                     auto layouts = compute_top_layouts();
                     for (int i = 0; i < static_cast<int>(layouts.size()); ++i) {
                         if (layouts[static_cast<size_t>(i)].rect.contains(e.local_position)) {
                             top_idx = i;
+                            hov_settings = layouts[static_cast<size_t>(i)].is_settings;
                             break;
                         }
                     }
                 }
-                if (cb != m_hovered_chrome || top_idx != m_hovered_top) {
+                if (cb != m_hovered_chrome || top_idx != m_hovered_top || hov_settings != m_settings_hovered) {
                     m_hovered_chrome = cb;
                     m_hovered_top = top_idx;
+                    m_settings_hovered = hov_settings;
+                    m_last_anim_time = std::chrono::steady_clock::now();
                     mark_needs_paint();
                 }
                 return;
@@ -935,20 +1228,27 @@ private:
             if (cb == ChromeButton::None) {
                 hit_test_left_row(e.local_position, eff, r_idx, r_footer);
             }
-            if (cb != m_hovered_chrome || r_idx != m_hovered_row || r_footer != m_hovered_in_footer) {
+            bool hov_settings = (r_footer && r_idx >= 0 && r_idx < static_cast<int>(m_footer_rows.size()) &&
+                                 m_footer_rows[static_cast<size_t>(r_idx)].is_settings);
+            if (cb != m_hovered_chrome || r_idx != m_hovered_row ||
+                r_footer != m_hovered_in_footer || hov_settings != m_settings_hovered) {
                 m_hovered_chrome = cb;
                 m_hovered_row = r_idx;
                 m_hovered_in_footer = r_footer;
+                m_settings_hovered = hov_settings;
+                m_last_anim_time = std::chrono::steady_clock::now();
                 mark_needs_paint();
             }
         };
 
         on_pointer_exit = [this](PointerEvent&) {
             m_menu_scrollbar.handle_pointer_exit();
-            if (m_hovered_chrome != ChromeButton::None || m_hovered_row != -1 || m_hovered_top != -1) {
+            if (m_hovered_chrome != ChromeButton::None || m_hovered_row != -1 || m_hovered_top != -1 || m_settings_hovered) {
                 m_hovered_chrome = ChromeButton::None;
                 m_hovered_row = -1;
                 m_hovered_top = -1;
+                m_settings_hovered = false;
+                m_last_anim_time = std::chrono::steady_clock::now();
                 mark_needs_paint();
             }
         };
@@ -977,7 +1277,6 @@ private:
             }
 
             const float pane_w = current_pane_width(eff);
-            // 浮层展开状态下点击面板外部直接收起
             if (is_overlay_pane(eff) && m_data.is_pane_open && e.local_position.x > pane_w) {
                 set_pane_open(false, true);
                 e.stop_propagation();
@@ -1041,7 +1340,9 @@ private:
                 auto layouts = compute_top_layouts();
                 if (pressed < static_cast<int>(layouts.size()) &&
                     layouts[static_cast<size_t>(pressed)].rect.contains(e.local_position)) {
-                    activate_item(*layouts[static_cast<size_t>(pressed)].item, eff);
+                    const auto& tl = layouts[static_cast<size_t>(pressed)];
+                    activate_item(*tl.item, eff, tl.is_settings,
+                                  PointF{tl.rect.min_x, tl.rect.max_y + 4.0f}, true);
                 }
                 mark_needs_paint();
                 e.stop_propagation();
@@ -1054,15 +1355,29 @@ private:
                 m_pressed_row = -1;
                 int hr = -1;
                 bool hf = false;
-                hit_test_left_row(e.local_position, eff, hr, hf);
+                float row_y = 0.0f;
+                hit_test_left_row(e.local_position, eff, hr, hf, &row_y);
                 if (hr == pr && hf == pf) {
                     const auto& list = pf ? m_footer_rows : m_main_rows;
                     if (pr >= 0 && pr < static_cast<int>(list.size()) && list[static_cast<size_t>(pr)].item) {
-                        activate_item(*list[static_cast<size_t>(pr)].item, eff);
+                        const auto& row = list[static_cast<size_t>(pr)];
+                        activate_item(*row.item, eff, row.is_settings,
+                                      PointF{current_pane_width(eff) + 4.0f, row_y}, false);
                     }
                 }
                 mark_needs_paint();
                 e.stop_propagation();
+            }
+        };
+
+        on_key = [this](KeyEvent& e) {
+            if (e.type != PlatformEventType::KeyDown) return;
+            const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
+            if (e.key_code == 27) { // Esc 收起浮层面板
+                if (is_overlay_pane(eff) && m_data.is_pane_open) {
+                    set_pane_open(false, true);
+                    e.stop_propagation();
+                }
             }
         };
     }
@@ -1084,7 +1399,6 @@ private:
             if (std::abs(m_pane_open_anim - target_open) <= 0.004f) {
                 m_pane_open_anim = target_open;
             }
-            // Left 嵌入模式宽度变化时同步刷新内容区布局
             NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
             if (eff == NavigationPaneDisplayMode::Left && m_content_box) {
                 Rect body = compute_content_body_rect(size().x, size().y, eff);
@@ -1096,13 +1410,19 @@ private:
             m_pane_open_anim = target_open;
         }
 
-        // 2. WinUI 3 强调色选中条滑动跟随动画
+        // 2. WinUI 3 弹性拉伸滑动强调条 (head 30x 先行、tail 15x 追赶)
         if (m_pill_initialized) {
-            if (std::abs(m_pill_pos - m_pill_target_pos) > 0.25f) {
-                m_pill_pos += (m_pill_target_pos - m_pill_pos) * std::min(1.0f, dt * 22.0f);
+            if (std::abs(m_pill_head - m_pill_target_pos) > 0.25f) {
+                m_pill_head += (m_pill_target_pos - m_pill_head) * std::min(1.0f, dt * 30.0f);
                 animating = true;
             } else {
-                m_pill_pos = m_pill_target_pos;
+                m_pill_head = m_pill_target_pos;
+            }
+            if (std::abs(m_pill_tail - m_pill_target_pos) > 0.25f) {
+                m_pill_tail += (m_pill_target_pos - m_pill_tail) * std::min(1.0f, dt * 15.0f);
+                animating = true;
+            } else {
+                m_pill_tail = m_pill_target_pos;
             }
             if (std::abs(m_pill_size - m_pill_target_size) > 0.25f) {
                 m_pill_size += (m_pill_target_size - m_pill_size) * std::min(1.0f, dt * 22.0f);
@@ -1112,13 +1432,22 @@ private:
             }
         }
 
-        // 3. 页面切换进场动画 (140ms)
+        // 3. WinUI 3 设置齿轮旋转动效 (悬停微转 +18°, 点击顺滑旋转 +90°)
+        float gear_target = m_settings_spin_base + (m_settings_hovered ? 0.314f : 0.0f);
+        if (std::abs(m_settings_gear_angle - gear_target) > 0.005f) {
+            m_settings_gear_angle += (gear_target - m_settings_gear_angle) * std::min(1.0f, dt * 12.0f);
+            animating = true;
+        } else {
+            m_settings_gear_angle = gear_target;
+        }
+
+        // 4. 页面切换进场动画 (140ms)
         if (m_page_enter_progress < 1.0f) {
             m_page_enter_progress = std::min(1.0f, m_page_enter_progress + dt / 0.14f);
             animating = true;
         }
 
-        // 4. 菜单列表滚动与滚动条动画
+        // 5. 菜单列表滚动与滚动条动画
         if (m_menu_scroll.update()) animating = true;
         if (m_menu_scrollbar.update_animations(m_hovered_row >= 0)) animating = true;
 
@@ -1146,13 +1475,21 @@ private:
     bool m_pressed_in_footer{false};
     int m_hovered_top{-1};
     int m_pressed_top{-1};
+    bool m_settings_hovered{false};
+
+    uint64_t m_submenu_overlay_id{0};
+    std::string m_submenu_parent_id;
+    std::chrono::steady_clock::time_point m_last_submenu_dismiss;
 
     float m_pane_open_anim{1.0f};
     bool m_pill_initialized{false};
-    float m_pill_pos{0.0f};
+    float m_pill_head{0.0f};
+    float m_pill_tail{0.0f};
     float m_pill_size{16.0f};
     float m_pill_target_pos{0.0f};
     float m_pill_target_size{16.0f};
+    float m_settings_spin_base{0.0f};
+    float m_settings_gear_angle{0.0f};
     float m_page_enter_progress{1.0f};
 
     SmoothScrollPhysics m_menu_scroll;
