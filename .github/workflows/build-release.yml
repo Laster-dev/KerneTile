@@ -1,0 +1,276 @@
+name: Build Multi-Platform Minimal Binaries (Windows / Linux / Android)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================================================
+  # Windows: x64 / x86 / arm64 (Clang-CL -Oz -flto=thin + lld-link + Hybrid CRT)
+  # ============================================================================
+  build-windows:
+    name: Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            vcvars: amd64
+            target: x86_64-pc-windows-msvc
+            cmake_proc: AMD64
+          - arch: x86
+            vcvars: amd64_x86
+            target: i686-pc-windows-msvc
+            cmake_proc: x86
+          - arch: arm64
+            vcvars: amd64_arm64
+            target: aarch64-pc-windows-msvc
+            cmake_proc: ARM64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Developer Environment (${{ matrix.vcvars }})
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.vcvars }}
+
+      - name: Locate Clang-CL / LLD / Ninja
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $llvmBin = Join-Path $vsPath "VC\Tools\Llvm\x64\bin"
+          $ninjaBin = Join-Path $vsPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+          if (-not (Test-Path (Join-Path $llvmBin "clang-cl.exe"))) {
+            throw "clang-cl.exe not found in $llvmBin"
+          }
+          "$llvmBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$ninjaBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_BIN=$($llvmBin -replace '\\','/')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure CMake (Windows ${{ matrix.arch }} Clang-CL -Oz ThinLTO)
+        shell: pwsh
+        run: |
+          cmake -B build-win-${{ matrix.arch }} -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=OFF `
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_proc }} `
+            -DCMAKE_CXX_COMPILER="${env:LLVM_BIN}/clang-cl.exe" `
+            -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target }} `
+            -DCMAKE_LINKER="${env:LLVM_BIN}/lld-link.exe" `
+            -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe" `
+            -DCMAKE_CXX_FLAGS="--target=${{ matrix.target }}"
+
+      - name: Build ktui_gallery (Windows ${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          cmake --build build-win-${{ matrix.arch }} --target ktui_gallery
+          New-Item -ItemType Directory -Force -Path dist/windows-${{ matrix.arch }} | Out-Null
+          Copy-Item build-win-${{ matrix.arch }}/ktui_gallery.exe dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
+          Get-Item dist/windows-${{ matrix.arch }}/* | Select-Object Name, Length
+
+      - name: Upload Artifact (Windows ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-windows-${{ matrix.arch }}
+          path: dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
+
+  # ============================================================================
+  # Linux Native: x64 (x86_64) & arm64 (aarch64) — Clang -Oz -flto=thin + lld
+  # ============================================================================
+  build-linux-native:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang lld pkg-config \
+            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
+            libvulkan-dev glslang-tools
+
+      - name: Configure & Build (Linux ${{ matrix.arch }} Clang -Oz ThinLTO)
+        run: |
+          cmake -B build-linux-${{ matrix.arch }} -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-linux-${{ matrix.arch }} --target ktui_gallery
+          mkdir -p dist/linux-${{ matrix.arch }}
+          cp build-linux-${{ matrix.arch }}/ktui_gallery dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+          chmod +x dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+          ls -lh dist/linux-${{ matrix.arch }}/
+
+      - name: Upload Artifact (Linux ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-linux-${{ matrix.arch }}
+          path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+
+  # ============================================================================
+  # Linux 32-bit: x86 (i686) & arm32 (armv7 / armhf) via Debian containers
+  # ============================================================================
+  build-linux-32bit:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            platform: linux/386
+            image: i386/debian:bookworm
+          - arch: armhf
+            platform: linux/arm/v7
+            image: arm32v7/debian:bookworm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU (for armhf)
+        if: matrix.arch == 'armhf'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Build inside ${{ matrix.image }} (Clang -Oz ThinLTO)
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "${{ github.workspace }}:/src" \
+            -w /src \
+            ${{ matrix.image }} \
+            bash -exc '
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                cmake ninja-build clang lld pkg-config \
+                libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
+                libvulkan-dev glslang-tools
+              cmake -B /tmp/build-linux -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_TESTING=OFF \
+                -DCMAKE_CXX_COMPILER=clang++
+              cmake --build /tmp/build-linux --target ktui_gallery
+              mkdir -p /src/dist/linux-${{ matrix.arch }}
+              cp /tmp/build-linux/ktui_gallery /src/dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+              chmod +x /src/dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+              ls -lh /src/dist/linux-${{ matrix.arch }}/
+            '
+
+      - name: Upload Artifact (Linux ${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-linux-${{ matrix.arch }}
+          path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
+
+  # ============================================================================
+  # Android: 按 ABI 拆分为 4 个独立最小体积 APK
+  #   - arm64-v8a  (64位 ARM / ARMv8，主流安卓手机)
+  #   - armeabi-v7a (32位 ARM / ARMv7，老款安卓设备)
+  #   - x86_64     (64位 x86，现代模拟器 / Chromebook)
+  #   - x86        (32位 x86，老款模拟器)
+  # ============================================================================
+  build-android:
+    name: Android (Per-ABI APKs)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android CMake 3.22.1 & NDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Build Per-ABI Release APKs
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Collect & Inspect Per-ABI APKs
+        run: |
+          mkdir -p dist/android
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            src="android/app/build/outputs/apk/release/app-${abi}-release.apk"
+            if [ ! -f "$src" ]; then
+              echo "Missing expected ABI APK: $src"
+              ls -la android/app/build/outputs/apk/release/
+              exit 1
+            fi
+            cp "$src" "dist/android/ktui_gallery-android-${abi}.apk"
+          done
+          ls -lh dist/android/
+
+      - name: Upload Android arm64-v8a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-android-arm64-v8a
+          path: dist/android/ktui_gallery-android-arm64-v8a.apk
+
+      - name: Upload Android armeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-android-armeabi-v7a
+          path: dist/android/ktui_gallery-android-armeabi-v7a.apk
+
+      - name: Upload Android x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-android-x86_64
+          path: dist/android/ktui_gallery-android-x86_64.apk
+
+      - name: Upload Android x86 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktui_gallery-android-x86
+          path: dist/android/ktui_gallery-android-x86.apk
+
+  # ============================================================================
+  # Tag 发布时自动归集全部架构产物到 GitHub Release
+  # ============================================================================
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-linux-native, build-linux-32bit, build-android]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*

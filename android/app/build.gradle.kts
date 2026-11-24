@@ -14,26 +14,31 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
-
         externalNativeBuild {
             cmake {
                 cppFlags += listOf(
                     "-std=c++20",
-                    "-O2",
                     "-ffunction-sections",
                     "-fdata-sections",
-                    "-fvisibility=hidden"
+                    "-fvisibility=hidden",
+                    "-fvisibility-inlines-hidden"
                 )
                 arguments += listOf(
                     "-DANDROID_STL=c++_static",
-                    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--gc-sections -Wl,--exclude-libs,ALL",
                     "-DBUILD_TESTING=OFF"
                 )
                 targets += listOf("ktui_gallery")
             }
+        }
+    }
+
+    // 按 ABI 拆分独立 APK，不将多架构打包进同一个肥大 APK
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            isUniversalApk = false
         }
     }
 
@@ -46,11 +51,6 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("debug")
-            externalNativeBuild {
-                cmake {
-                    cppFlags += listOf("-Os")
-                }
-            }
         }
     }
 

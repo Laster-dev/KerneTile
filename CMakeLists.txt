@@ -46,17 +46,46 @@ if (MSVC)
     endif()
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-missing-field-initializers -fno-exceptions -fno-rtti)
-    if (NOT EMSCRIPTEN)
-        string(REPLACE "-O3" "-Os" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    if (ANDROID)
+        # Android NDK (Clang + LLD): -Oz + ThinLTO + ICF + 隐藏非 JNI 符号 + 全剥离
+        string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
         add_compile_options(
-            $<$<CONFIG:Release>:-Os>
+            $<$<CONFIG:Release>:-Oz>
+            $<$<CONFIG:Release>:-flto=thin>
             $<$<CONFIG:Release>:-ffunction-sections>
             $<$<CONFIG:Release>:-fdata-sections>
             $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
             $<$<CONFIG:Release>:-fno-unwind-tables>
-            $<$<CONFIG:Release>:-flto=auto>
+            $<$<CONFIG:Release>:-fvisibility=hidden>
+            $<$<CONFIG:Release>:-fvisibility-inlines-hidden>
         )
-        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -flto=auto -Wl,--gc-sections -s")
+        set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} -flto=thin -Wl,--gc-sections -Wl,--icf=all -Wl,--exclude-libs,ALL -Wl,--strip-all")
+    elseif (NOT EMSCRIPTEN)
+        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+            string(REPLACE "-O2" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+            add_compile_options(
+                $<$<CONFIG:Release>:-Oz>
+                $<$<CONFIG:Release>:-ffunction-sections>
+                $<$<CONFIG:Release>:-fdata-sections>
+                $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
+                $<$<CONFIG:Release>:-fno-unwind-tables>
+                $<$<CONFIG:Release>:-flto=thin>
+            )
+            set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -flto=thin -fuse-ld=lld -Wl,--gc-sections -Wl,--icf=all -Wl,--strip-all")
+        else()
+            string(REPLACE "-O3" "-Os" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+            add_compile_options(
+                $<$<CONFIG:Release>:-Os>
+                $<$<CONFIG:Release>:-ffunction-sections>
+                $<$<CONFIG:Release>:-fdata-sections>
+                $<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>
+                $<$<CONFIG:Release>:-fno-unwind-tables>
+                $<$<CONFIG:Release>:-flto=auto>
+            )
+            set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -flto=auto -Wl,--gc-sections -s")
+        endif()
     else()
         # Emscripten / WebAssembly: -Oz + LTO + 现代 Wasm 指令集 (bulk-memory/nontrapping-fptoint/sign-ext/WASM_BIGINT) + emmalloc + 无 POSIX FS
         string(REPLACE "-O3" "-Oz" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
@@ -385,7 +414,7 @@ if (EMSCRIPTEN)
         "-sMODULARIZE=1"
         "-sEXPORT_NAME=createKtuiApp"
         "-sENVIRONMENT=web"
-        "-sEXPORTED_RUNTIME_METHODS=['stringToUTF8']"
+        "-sEXPORTED_RUNTIME_METHODS=['stringToUTF8','UTF8ToString','lengthBytesUTF8']"
     )
     add_custom_command(TARGET ktui_gallery POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
