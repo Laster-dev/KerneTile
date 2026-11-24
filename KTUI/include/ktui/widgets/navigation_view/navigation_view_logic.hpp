@@ -945,7 +945,8 @@ private:
             }
 
             float text_x = (item.icon != NavigationIcon::None || item.icon_painter || row.is_settings)
-                ? (r.min_x + 40.0f + indent) : (r.min_x + 14.0f + indent);
+                ? (r.min_x + 40.0f + indent)
+                : (row.depth > 0 ? (r.min_x + 40.0f + static_cast<float>(row.depth - 1) * 16.0f) : (r.min_x + 14.0f));
             float clip_w = std::max(0.0f, r.max_x - right_reserve - text_x);
             if (clip_w > 2.0f) {
                 Color tc = item.disabled ? style.item_disabled_text

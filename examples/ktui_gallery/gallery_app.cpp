@@ -134,44 +134,44 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{
                 .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "8", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "button",          .label = "Button",          .icon = NavigationIcon::Sparkles },
-                    NavigationViewItem{ .id = "dropdown_button", .label = "DropDownButton",  .icon = NavigationIcon::Layout },
-                    NavigationViewItem{ .id = "checkbox",        .label = "CheckBox",        .icon = NavigationIcon::Controls },
-                    NavigationViewItem{ .id = "toggle_switch",   .label = "ToggleSwitch",    .icon = NavigationIcon::Controls },
-                    NavigationViewItem{ .id = "radio_button",    .label = "RadioButton",     .icon = NavigationIcon::Controls },
-                    NavigationViewItem{ .id = "radio_card",      .label = "RadioCard",       .icon = NavigationIcon::Layout },
-                    NavigationViewItem{ .id = "combobox",        .label = "ComboBox",        .icon = NavigationIcon::ComboBox },
-                    NavigationViewItem{ .id = "slider",          .label = "Slider",          .icon = NavigationIcon::Progress }
+                    NavigationViewItem{ .id = "button",          .label = "Button" },
+                    NavigationViewItem{ .id = "dropdown_button", .label = "DropDownButton" },
+                    NavigationViewItem{ .id = "checkbox",        .label = "CheckBox" },
+                    NavigationViewItem{ .id = "toggle_switch",   .label = "ToggleSwitch" },
+                    NavigationViewItem{ .id = "radio_button",    .label = "RadioButton" },
+                    NavigationViewItem{ .id = "radio_card",      .label = "RadioCard" },
+                    NavigationViewItem{ .id = "combobox",        .label = "ComboBox" },
+                    NavigationViewItem{ .id = "slider",          .label = "Slider" }
                 }
             },
             NavigationViewItem{
                 .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "3", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "textbox",      .label = "TextBox",     .icon = NavigationIcon::Inputs },
-                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox", .icon = NavigationIcon::Inputs, .badge = "New" },
-                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox",   .icon = NavigationIcon::Inputs, .badge = "New" }
+                    NavigationViewItem{ .id = "textbox",      .label = "TextBox" },
+                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox", .badge = "New" },
+                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox",   .badge = "New" }
                 }
             },
             NavigationViewItem{
                 .id = "cat_menus", .label = "菜单与工具栏", .icon = NavigationIcon::Layout, .badge = "2", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar",  .icon = NavigationIcon::Layout, .badge = "New" },
-                    NavigationViewItem{ .id = "menu_flyout",  .label = "MenuFlyout",  .icon = NavigationIcon::Layout }
+                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar",  .badge = "New" },
+                    NavigationViewItem{ .id = "menu_flyout",  .label = "MenuFlyout" }
                 }
             },
             NavigationViewItem{
                 .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "4", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog", .icon = NavigationIcon::Layout },
-                    NavigationViewItem{ .id = "info_bar",       .label = "InfoBar",       .icon = NavigationIcon::Info },
-                    NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar",   .icon = NavigationIcon::Progress },
-                    NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing",  .icon = NavigationIcon::Progress }
+                    NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
+                    NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
+                    NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar" },
+                    NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing" }
                 }
             },
             NavigationViewItem{
                 .id = "cat_media", .label = "图形与矢量", .icon = NavigationIcon::Palette, .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "svg", .label = "NanoSVG 矢量", .icon = NavigationIcon::Palette }
+                    NavigationViewItem{ .id = "svg", .label = "NanoSVG 矢量" }
                 }
             }
         },
