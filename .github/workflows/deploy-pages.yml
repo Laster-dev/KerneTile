@@ -44,19 +44,19 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=20
 
-      - name: Build WebAssembly Demo
+      - name: Build KTUI Gallery WebAssembly
         run: |
-          cmake --build build-web --target ktui_studio_demo
+          cmake --build build-web --target ktui_gallery
 
       - name: Prepare GitHub Pages Distribution
         run: |
           mkdir -p dist
-          cp build-web/ktui_studio_demo.html dist/index.html
-          cp build-web/ktui_studio_demo.js dist/ktui_studio_demo.js
-          cp build-web/ktui_studio_demo.wasm dist/ktui_studio_demo.wasm
-          cp examples/ktui_studio/wallpaper_dark.jpg dist/wallpaper_dark.jpg
+          cp build-web/ktui_gallery.html dist/index.html
+          cp build-web/ktui_gallery.js dist/ktui_gallery.js
+          cp build-web/ktui_gallery.wasm dist/ktui_gallery.wasm
+          cp examples/ktui_gallery/wallpaper_dark.jpg dist/wallpaper_dark.jpg
           # 为 JS/WASM/壁纸资源注入提交哈希版本号，防止浏览器混用新版 index.html 与旧缓存
-          sed -i "s|ktui_studio_demo\.js|ktui_studio_demo.js?v=${{ github.sha }}|g" dist/index.html
+          sed -i "s|ktui_gallery\.js|ktui_gallery.js?v=${{ github.sha }}|g" dist/index.html
           sed -i "s|__KTUI_ASSET_VER__|${{ github.sha }}|g" dist/index.html
           sed -i "s|wallpaper_dark\.jpg|wallpaper_dark.jpg?v=${{ github.sha }}|g" dist/index.html
           touch dist/.nojekyll

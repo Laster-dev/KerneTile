@@ -259,18 +259,18 @@ target_link_libraries(kernetile_engine PUBLIC
 # ==================== KTUI 跨平台现代 C++20 声明式 UI 框架 ====================
 add_subdirectory(KTUI)
 
-# KTUI 桌面 / Web / Android 成品 Demo 应用程序
+# KTUI Gallery 桌面 / Web / Android 官方控件陈列室应用程序
 if (ANDROID)
-    add_library(ktui_studio_demo SHARED examples/ktui_studio/main.cpp)
+    add_library(ktui_gallery SHARED examples/ktui_gallery/main.cpp)
 else()
-    add_executable(ktui_studio_demo examples/ktui_studio/main.cpp)
+    add_executable(ktui_gallery examples/ktui_gallery/main.cpp)
 endif()
-target_include_directories(ktui_studio_demo PRIVATE
+target_include_directories(ktui_gallery PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
     ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(ktui_studio_demo PRIVATE
+target_link_libraries(ktui_gallery PRIVATE
     ktui_pal
     kernetile_engine
     kernetile_hal
@@ -283,23 +283,23 @@ target_link_libraries(ktui_studio_demo PRIVATE
     kernetile_core
 )
 if (ANDROID)
-    target_link_libraries(ktui_studio_demo PRIVATE android log)
+    target_link_libraries(ktui_gallery PRIVATE android log)
 endif()
 if (EMSCRIPTEN)
-    set_target_properties(ktui_studio_demo PROPERTIES
+    set_target_properties(ktui_gallery PROPERTIES
         SUFFIX ".html"
-        LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/shell.html"
+        LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
     )
-    target_link_options(ktui_studio_demo PRIVATE
+    target_link_options(ktui_gallery PRIVATE
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNO_EXIT_RUNTIME=1"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8']"
-        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/shell.html"
+        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
     )
-    add_custom_command(TARGET ktui_studio_demo POST_BUILD
+    add_custom_command(TARGET ktui_gallery POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_studio/wallpaper_dark.jpg"
-            "$<TARGET_FILE_DIR:ktui_studio_demo>/wallpaper_dark.jpg"
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/wallpaper_dark.jpg"
+            "$<TARGET_FILE_DIR:ktui_gallery>/wallpaper_dark.jpg"
     )
 endif()
 
@@ -572,6 +572,27 @@ if (BUILD_TESTING)
         kernetile_core
     )
     add_test(NAME test_ktui_combobox COMMAND test_ktui_combobox WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    # KTUI WinUI 3 NavigationView 单元测试
+    add_executable(test_ktui_navigation_view tests/test_ktui_navigation_view.cpp)
+    target_include_directories(test_ktui_navigation_view PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_ktui_navigation_view PRIVATE
+        ktui_pal
+        kernetile_engine
+        kernetile_hal
+        kernetile_tile
+        kernetile_text
+        kernetile_input
+        kernetile_platform
+        kernetile_cpu
+        kernetile_fx
+        kernetile_core
+    )
+    add_test(NAME test_ktui_navigation_view COMMAND test_ktui_navigation_view WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
 

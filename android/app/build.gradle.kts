@@ -32,7 +32,7 @@ android {
                     "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--gc-sections -Wl,--exclude-libs,ALL",
                     "-DBUILD_TESTING=OFF"
                 )
-                targets += listOf("ktui_studio_demo")
+                targets += listOf("ktui_gallery")
             }
         }
     }

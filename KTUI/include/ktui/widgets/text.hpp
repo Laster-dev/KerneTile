@@ -6,6 +6,7 @@
 #include <ktui/binding/binding.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/text_measure.hpp>
+#include <ktui/theme/theme_scope.hpp>
 #include <optional>
 #include <string>
 
@@ -22,7 +23,7 @@ enum class TextOverflow : uint8_t {
 class RenderText : public RenderBox {
 public:
     RenderText(std::string text = "", float font_size = 13.0f,
-               Color color = Color{0.9f, 0.9f, 0.9f, 1.0f},
+               Color color = Color{0.0f, 0.0f, 0.0f, -1.0f},
                FontWeight weight = FontWeight::Regular,
                TextOverflow overflow = TextOverflow::Ellipsis) noexcept
         : m_text(std::move(text)), m_font_size(font_size), m_color(color),
@@ -123,7 +124,9 @@ public:
     }
 
     void paint(PaintContext& context) override {
-        if (m_text.empty() || m_color.a <= 0.001f) return;
+        // alpha < 0 表示自动跟随当前深浅色主题的 text_primary，彻底消除浅色模式下白字问题
+        const Color draw_col = (m_color.a < 0.0f) ? ThemeContext::current().colors.text_primary : m_color;
+        if (m_text.empty() || draw_col.a <= 0.001f) return;
 
         // 强制硬件视口裁剪，绝不允许文本溢出自身包围盒
         context.push_clip(bounds(), 0.0f);
@@ -132,13 +135,13 @@ public:
             float y = 0.0f;
             for (const auto& line : m_wrapped_lines) {
                 if (!line.empty()) {
-                    context.draw_text(line, PointF{0.0f, y}, m_font_size, m_color);
+                    context.draw_text(line, PointF{0.0f, y}, m_font_size, draw_col);
                 }
                 y += line_h;
             }
         } else {
             const std::string& to_draw = m_elided_text.empty() ? m_text : m_elided_text;
-            context.draw_text(to_draw, PointF{0.0f, 0.0f}, m_font_size, m_color);
+            context.draw_text(to_draw, PointF{0.0f, 0.0f}, m_font_size, draw_col);
         }
         context.pop_clip();
     }
@@ -148,7 +151,7 @@ private:
     std::string m_elided_text;
     std::vector<std::string> m_wrapped_lines;
     float m_font_size{13.0f}; // 桌面基准 13px
-    Color m_color{0.9f, 0.9f, 0.9f, 1.0f};
+    Color m_color{0.0f, 0.0f, 0.0f, -1.0f};
     FontWeight m_font_weight{FontWeight::Regular};
     TextOverflow m_overflow{TextOverflow::Ellipsis};
 };
@@ -156,11 +159,11 @@ private:
 class TextWidget;
 
 // C++20 指定初始化器文本控件 (Text)
-// 桌面专业标准：默认 13px 紧凑字阶，支持 Clip / Ellipsis / Wrap 防溢出与全属性 Bind(...)
+// 桌面专业标准：默认 13px 紧凑字阶，颜色默认跟随当前主题，支持 Clip / Ellipsis / Wrap 防溢出与全属性 Bind(...)
 struct Text {
     Bindable<std::string> text{""};
     Bindable<float> font_size{13.0f}; // 桌面 IDE 基准字阶 (13px)
-    Bindable<Color> color{Color{0.90f, 0.90f, 0.92f, 1.0f}};
+    Bindable<Color> color{Color{0.0f, 0.0f, 0.0f, -1.0f}};
     Bindable<FontWeight> font_weight{FontWeight::Regular};
     Bindable<TextOverflow> overflow{TextOverflow::Ellipsis};
 

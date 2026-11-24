@@ -7,9 +7,9 @@ def main():
     os.chdir(root_dir)
 
     build_dir = os.path.join(root_dir, "build-web")
-    html_src = os.path.join(build_dir, "ktui_studio_demo.html")
-    js_src = os.path.join(build_dir, "ktui_studio_demo.js")
-    wasm_src = os.path.join(build_dir, "ktui_studio_demo.wasm")
+    html_src = os.path.join(build_dir, "ktui_gallery.html")
+    js_src = os.path.join(build_dir, "ktui_gallery.js")
+    wasm_src = os.path.join(build_dir, "ktui_gallery.wasm")
 
     if not (os.path.exists(html_src) and os.path.exists(js_src) and os.path.exists(wasm_src)):
         print("[Error] Web build artifacts not found in build-web/! Please run scripts/build_web.bat first.")
@@ -25,8 +25,8 @@ def main():
 
     files = {
         "index.html": html_src,
-        "ktui_studio_demo.js": js_src,
-        "ktui_studio_demo.wasm": wasm_src,
+        "ktui_gallery.js": js_src,
+        "ktui_gallery.wasm": wasm_src,
         ".nojekyll": nojekyll_path,
         "README.md": readme_path
     }

@@ -5,7 +5,7 @@ echo "==========================================================================
 echo " KerneTile / KTUI Web (WebAssembly) Build & Package Script"
 echo "=============================================================================="
 
-# 1. 检查 emcc 编译器
+# 1. 检�?emcc 编译�?
 if ! command -v emcc >/dev/null 2>&1; then
     if [ -n "$EMSDK" ] && [ -f "$EMSDK/emsdk_env.sh" ]; then
         source "$EMSDK/emsdk_env.sh"
@@ -26,15 +26,15 @@ emcmake cmake -B build-web -G Ninja \
     -DCMAKE_CXX_STANDARD=20
 
 echo "[2/3] Compiling WebAssembly artifacts..."
-cmake --build build-web --target ktui_studio_demo --parallel $(nproc 2>/dev/null || echo 4)
+cmake --build build-web --target ktui_gallery --parallel $(nproc 2>/dev/null || echo 4)
 
 echo "[3/3] Executing Node.js Headless Smoke Test..."
 cd build-web
-node ktui_studio_demo.js --capture-only
+node ktui_gallery.js --capture-only
 cd "$ROOT_DIR"
 
 echo "=============================================================================="
 echo " KerneTile KTUI Web Build Complete!"
-echo " Artifacts: build-web/ktui_studio_demo.html, .js, .wasm"
+echo " Artifacts: build-web/ktui_gallery.html, .js, .wasm"
 echo " Run: python3 -m http.server 8080 --directory build-web"
 echo "=============================================================================="

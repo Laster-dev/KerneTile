@@ -43,7 +43,7 @@ if errorlevel 1 (
 )
 
 echo [2/3] Compiling KerneTile and KTUI WebAssembly artifacts...
-cmake --build build-web --target ktui_studio_demo
+cmake --build build-web --target ktui_gallery
 if errorlevel 1 (
     echo [ERROR] Build failed.
     exit /b 1
@@ -51,17 +51,17 @@ if errorlevel 1 (
 
 echo [3/3] Verification: running smoke test via Node.js...
 cd build-web
-node ktui_studio_demo.js --capture-only
+node ktui_gallery.js --capture-only
 cd /d "%ROOT_DIR%"
 
 echo ==============================================================================
 echo  KerneTile KTUI Web Build Complete.
 echo  Artifacts generated:
-echo    - build-web/ktui_studio_demo.html
-echo    - build-web/ktui_studio_demo.js
-echo    - build-web/ktui_studio_demo.wasm
+echo    - build-web/ktui_gallery.html
+echo    - build-web/ktui_gallery.js
+echo    - build-web/ktui_gallery.wasm
 echo.
 echo  To preview in browser, run:
 echo    python -m http.server 8080 --directory build-web
-echo  Then navigate to: http://localhost:8080/ktui_studio_demo.html
+echo  Then navigate to: http://localhost:8080/ktui_gallery.html
 echo ==============================================================================
