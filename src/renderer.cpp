@@ -150,6 +150,7 @@ public:
             (!clips.empty() && std::memcmp(clips.data(), m_previous_clips.data(),
                 clips.size() * sizeof(core::ClipRect)) != 0)) {
             m_dirty_tracker.reset();
+            m_gpu_full_frame = true;
             m_previous_clips = clips;
         }
 

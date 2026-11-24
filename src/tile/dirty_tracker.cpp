@@ -60,8 +60,8 @@ const DirtyTrackingResult& DirtyTracker::update(
             }
         }
 
-        // 与上一帧签名比对
-        if (current_hash != m_prev_signatures[t]) {
+        // 与上一帧签名比对 (若触发了 reset/全量失效，空背景瓦片 count==0 也必须标脏重绘以清除残影)
+        if (m_force_all_dirty || current_hash != m_prev_signatures[t]) {
             auto coord = grid.get_tile_coord(t);
             m_result.dirty_coords.push_back(coord);
             m_result.dirty_tiles.push_back(DirtyTileInfo{
@@ -73,6 +73,8 @@ const DirtyTrackingResult& DirtyTracker::update(
             m_prev_signatures[t] = current_hash;
         }
     }
+
+    m_force_all_dirty = false;
 
     m_result.dirty_count = static_cast<uint32_t>(m_result.dirty_coords.size());
     m_result.culling_ratio = 1.0 - (static_cast<double>(m_result.dirty_count) / static_cast<double>(total_tiles));

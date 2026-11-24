@@ -27,7 +27,8 @@ struct ComboBoxData {
     float height{32.0f};               // WinUI 3 ComboBoxMinHeight = 32px
     float item_height{32.0f};          // WinUI 3 ComboBoxItem 高度 = 32px
     float font_size{13.0f};
-    int max_visible_items{8};          // 下拉面板最大可见条数 (超出自动滚轮滚动)
+    int max_visible_items{8};          // 下拉面板最大可见条数 (默认 8 项)
+    float max_dropdown_height{280.0f}; // WinUI 3 下拉最大高度上限 (并自动受窗口可用空间约束，绝不溢出窗口)
     bool disabled{false};
 
     std::function<void(int, const std::string&)> on_change{nullptr};

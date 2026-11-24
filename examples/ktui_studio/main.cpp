@@ -150,10 +150,11 @@ struct StudioApp {
         window->titlebar().add_action("+", "新建工具窗口", spawn_child_window);
 #endif
 
-        window->set_content(Box {
-            .background_color = Bind(window_bg),
-            .padding = EdgeInsets(16.0f, 18.0f),
-            .child = VStack {
+        window->set_content(ScrollView {
+            .child = Box {
+                .background_color = Bind(window_bg),
+                .padding = EdgeInsets(16.0f, 18.0f),
+                .child = VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
                 .content = {
@@ -226,11 +227,23 @@ struct StudioApp {
                                     "Vulkan Compute",
                                     "WebGPU (WASM)",
                                     "CPU SIMD Rasterizer",
-                                    ComboBoxItem{"Software WARP (已禁用)", true}
+                                    ComboBoxItem{"Software WARP (已禁用)", true},
+                                    "Metal (macOS / iOS)",
+                                    "OpenGL ES 3.1 Compute",
+                                    "D3D12 + Mica Backdrop",
+                                    "Vulkan + Subpass Tile",
+                                    "Headless Offscreen",
+                                    "4K HiDPI 200% Scale",
+                                    "8K Ultra Tile Grid",
+                                    "Low-Power Integrated",
+                                    "High-Performance Discrete",
+                                    "Custom Render Graph"
                                 },
                                 .selected_index = Bind(combo_idx),
                                 .placeholder = "选择渲染后端...",
-                                .width = 196.0f,
+                                .width = 200.0f,
+                                .max_visible_items = 6,
+                                .max_dropdown_height = 200.0f,
                                 .on_change = [this](int, const std::string& label) {
                                     combo_preview.set("已选后端: " + label);
                                 }
@@ -372,6 +385,7 @@ struct StudioApp {
                         }
                     })
                 }
+            }
             }
         });
     }

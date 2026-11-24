@@ -51,7 +51,7 @@ int main() {
     assert(cb.selected_index() == 0);
 
     // 键盘向下键应自动跳过禁用项 "Beta" 选中 "Gamma"
-    KeyEvent down_key(PlatformEventType::KeyDown, 40, "", 0);
+    KeyEvent down_key(PlatformEventType::KeyDown, 40, "", KeyModifiers{});
     cb.on_key(down_key);
     assert(cb.selected_index() == 2);
     assert(cb.selected_label() == "Gamma");
@@ -63,7 +63,40 @@ int main() {
     cb.close_popup();
     assert(!cb.is_open());
 
-    // 3. C++20 声明式 DSL 与双向绑定测试
+    // 3. Chromium 原版 ScrollOffsetAnimationCurve (Impulse) 测试 (单格 100px, 200ms~500ms)
+    SmoothScrollPhysics physics;
+    physics.set_max_scroll(400.0f);
+    physics.add_wheel_delta(36.0f); // PAL 向下滚 1 格 (+36) -> Chromium 100.0px
+    assert(physics.is_animating());
+    assert(std::abs(physics.target() - 100.0f) < 0.05f);
+    physics.step_for_test(0.08f);
+    float mid_pos = physics.offset();
+    (void)mid_pos;
+    assert(mid_pos > 0.0f && mid_pos < 100.0f);
+    physics.step_for_test(0.25f); // 200ms 结束后精准收敛至 100.0px
+    assert(!physics.is_animating());
+    assert(std::abs(physics.offset() - 100.0f) < 0.05f);
+
+    // 4. WinUI 3 滚动条度量与拖拽测试 (12px 槽位，收起 2px -> 展开 6px，最小高 24px)
+    WinUIScrollBar sb;
+    Rect vp = Rect::from_xywh(0.0f, 0.0f, 200.0f, 200.0f);
+    auto metrics = sb.compute_metrics(vp, 600.0f, 0.0f);
+    assert(metrics.visible);
+    assert(metrics.track_rect.width() == 12.0f);
+    assert(std::abs(metrics.thumb_rect.width() - 2.0f) < 0.01f); // 静止收起态 2px
+    assert(metrics.thumb_rect.height() >= 24.0f);
+
+    bool consumed = false;
+    PointF thumb_pt{metrics.track_rect.min_x + 6.0f, metrics.thumb_rect.min_y + 10.0f};
+    assert(sb.handle_pointer_down(thumb_pt, vp, 600.0f, physics, 32.0f));
+    assert(sb.is_dragging());
+    sb.handle_pointer_move(PointF{thumb_pt.x, thumb_pt.y + 40.0f}, vp, 600.0f, physics, consumed);
+    assert(consumed);
+    assert(physics.offset() > 96.0f);
+    assert(sb.handle_pointer_up());
+    assert(!sb.is_dragging());
+
+    // 5. C++20 声明式 DSL 与双向绑定测试
     Property<int> bound_idx{1};
     ComboBox dsl{
         .items = {"One", "Two", "Three"},

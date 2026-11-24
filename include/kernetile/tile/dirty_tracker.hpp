@@ -46,12 +46,14 @@ public:
 
     void reset() {
         std::fill(m_prev_signatures.begin(), m_prev_signatures.end(), 0);
+        m_force_all_dirty = true;
     }
 
 private:
     std::vector<uint64_t> m_prev_signatures;
     std::vector<uint64_t> m_prim_signatures;
     DirtyTrackingResult m_result;
+    bool m_force_all_dirty{false};
 };
 
 } // namespace kernetile::tile

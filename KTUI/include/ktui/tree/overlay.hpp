@@ -45,6 +45,9 @@ public:
 
     // 按 ID 关闭指定浮层
     void hide(uint64_t id) {
+        if (m_captured_id == id) {
+            m_captured_id = 0;
+        }
         auto it = std::find_if(m_entries.begin(), m_entries.end(), [id](const OverlayEntry& e) {
             return e.id == id;
         });
@@ -147,6 +150,7 @@ public:
             Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
 
             if (entry_rect.contains(pos)) {
+                m_captured_id = entry.id;
                 // 点击在浮层内部：进行命中测试并派发事件
                 HitTestResult hit_res;
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
@@ -181,6 +185,18 @@ public:
     // 处理鼠标移动事件
     bool handle_pointer_move(Vec2 pos) {
         if (m_entries.empty()) return false;
+
+        // 若当前存在拖拽捕获浮层（如拖拽浮层内的滚动条滑块），即使指针移出浮层边界仍持续转发 Move
+        if (m_captured_id != 0) {
+            for (auto& entry : m_entries) {
+                if (entry.id == m_captured_id && entry.content && entry.content->on_pointer_move) {
+                    PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                    ev.local_position = PointF{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
+                    entry.content->on_pointer_move(ev);
+                    return true;
+                }
+            }
+        }
 
         for (size_t i = m_entries.size(); i > 0; --i) {
             auto& entry = m_entries[i - 1];
@@ -250,6 +266,9 @@ public:
     bool handle_pointer_up(Vec2 pos, PointerButton button) {
         if (m_entries.empty()) return false;
 
+        uint64_t captured = m_captured_id;
+        m_captured_id = 0;
+
         for (size_t i = m_entries.size(); i > 0; --i) {
             auto& entry = m_entries[i - 1];
             if (!entry.content) continue;
@@ -257,10 +276,10 @@ public:
             Vec2 sz = (entry.size.x > 0.0f && entry.size.y > 0.0f) ? entry.size : entry.content->size();
             Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
 
-            if (entry_rect.contains(pos)) {
-                HitTestResult hit_res;
+            if (entry_rect.contains(pos) || entry.id == captured) {
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                if (entry.content->hit_test(hit_res, local_p)) {
+                HitTestResult hit_res;
+                if (entry_rect.contains(pos) && entry.content->hit_test(hit_res, local_p)) {
                     PointerEvent ev(PlatformEventType::PointerUp, pos, button);
                     for (const auto& h : hit_res.path()) {
                         if (h.target && h.target->on_pointer_up) {
@@ -270,6 +289,10 @@ public:
                             if (tev.is_propagation_stopped()) break;
                         }
                     }
+                } else if (entry.content->on_pointer_up) {
+                    PointerEvent ev(PlatformEventType::PointerUp, pos, button);
+                    ev.local_position = local_p;
+                    entry.content->on_pointer_up(ev);
                 }
                 return true;
             }
@@ -281,6 +304,7 @@ public:
 private:
     std::vector<OverlayEntry> m_entries;
     uint64_t m_next_id{1};
+    uint64_t m_captured_id{0};
 };
 
 } // namespace ktui

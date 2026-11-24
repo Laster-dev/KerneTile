@@ -10,6 +10,8 @@
 #include <ktui/theme/theme_scope.hpp>
 #include <ktui/tree/overlay.hpp>
 #include <ktui/tree/render_box.hpp>
+#include <ktui/widgets/scroll/scrollbar.hpp>
+#include <ktui/widgets/scroll/smooth_scroll_physics.hpp>
 #include <ktui/widgets/widget.hpp>
 
 #include <algorithm>
@@ -41,14 +43,14 @@ public:
           m_on_select(std::move(on_select)) {
         cursor_shape = CursorShape::Arrow;
         m_open_start = std::chrono::steady_clock::now();
-        ensure_selected_visible();
+        m_scrollbar.notify_activity();
         setup_behavior();
     }
 
     ~RenderComboBoxPopup() override = default;
 
     [[nodiscard]] int hovered_index() const noexcept { return m_hovered_index; }
-    [[nodiscard]] float scroll_offset() const noexcept { return m_scroll_offset; }
+    [[nodiscard]] float scroll_offset() const noexcept { return m_scroll.offset(); }
 
     void perform_layout() override {
         float w = m_constraints.max_width;
@@ -56,6 +58,13 @@ public:
         if (!std::isfinite(w)) w = 180.0f;
         if (!std::isfinite(h)) h = compute_ideal_height();
         set_size(Vec2{w, h});
+        float view_h = std::max(1.0f, h - 8.0f);
+        float total_h = static_cast<float>(m_items.size()) * m_item_height;
+        m_scroll.set_max_scroll(std::max(0.0f, total_h - view_h));
+        if (!m_initialized_scroll) {
+            m_initialized_scroll = true;
+            ensure_selected_visible(view_h);
+        }
     }
 
     [[nodiscard]] float compute_ideal_height() const noexcept {
@@ -66,6 +75,11 @@ public:
 
     void paint(PaintContext& ctx) override {
         update_open_animation();
+        bool anim_scroll = m_scroll.update();
+        bool anim_bar = m_scrollbar.update_animations(m_popup_hovered);
+        if (anim_scroll || anim_bar) {
+            mark_needs_paint();
+        }
 
         const Theme& theme = ThemeContext::current();
         ComboBoxData dummy;
@@ -116,38 +130,39 @@ public:
         const float total_content_h = static_cast<float>(m_items.size()) * m_item_height;
         const float view_h = std::max(1.0f, size().y - pad * 2.0f);
         const bool scrollable = total_content_h > view_h + 0.5f;
-        const float item_w = scrollable ? std::max(0.0f, content_w - 6.0f) : content_w;
+        const float item_w = scrollable ? std::max(0.0f, content_w - 10.0f) : content_w;
+        const float cur_scroll = m_scroll.offset();
 
         for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
-            float iy = anim_y + pad + static_cast<float>(i) * m_item_height - m_scroll_offset;
+            float iy = anim_y + pad + static_cast<float>(i) * m_item_height - cur_scroll;
             if (iy + m_item_height < anim_y || iy > anim_y + anim_h) {
                 continue;
             }
 
             const auto& item = m_items[static_cast<size_t>(i)];
-            const bool is_selected = (i == m_selected_index);
-            const bool is_hovered = (i == m_hovered_index && !item.disabled);
-            const bool is_pressed = (i == m_pressed_index && !item.disabled);
+            const bool item_selected = (i == m_selected_index);
+            const bool item_hovered = (i == m_hovered_index && !item.disabled && !m_scrollbar.is_hovered() && !m_scrollbar.is_dragging());
+            const bool item_pressed = (i == m_pressed_index && !item.disabled);
 
             Rect item_rect = Rect::from_xywh(pad, iy + 1.0f, item_w, std::max(0.0f, m_item_height - 2.0f));
 
             // 悬停 / 选中 / 按下底色
-            if (is_pressed) {
+            if (item_pressed) {
                 Color c = style.item_pressed_bg;
                 c.a *= alpha_mul;
                 ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
-            } else if (is_hovered) {
+            } else if (item_hovered) {
                 Color c = style.item_hover_bg;
                 c.a *= alpha_mul;
                 ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
-            } else if (is_selected) {
+            } else if (item_selected) {
                 Color c = style.item_selected_bg;
                 c.a *= alpha_mul;
                 ctx.draw_rect(item_rect, c, style.item_corner_radius, 0.0f);
             }
 
             // WinUI 3 标志性左侧 3px x 16px 强调色圆角选中指示竖条
-            if (is_selected) {
+            if (item_selected) {
                 float pill_h = std::min(16.0f, std::max(8.0f, m_item_height * 0.5f));
                 float pill_y = iy + (m_item_height - pill_h) * 0.5f;
                 Color pill_col = style.accent_pill;
@@ -164,38 +179,35 @@ public:
             ctx.draw_text(item.label, PointF{tx, ty}, style.font_size, text_col);
         }
 
-        // 4. 超长列表右侧极细滚动条指示器
-        if (scrollable) {
-            float max_scroll = std::max(1.0f, total_content_h - view_h);
-            float ratio = std::clamp(view_h / total_content_h, 0.12f, 1.0f);
-            float thumb_h = std::max(18.0f, view_h * ratio);
-            float scroll_frac = std::clamp(m_scroll_offset / max_scroll, 0.0f, 1.0f);
-            float thumb_y = anim_y + pad + scroll_frac * (view_h - thumb_h);
-            Color sb = style.scrollbar_thumb;
-            sb.a *= alpha_mul;
-            ctx.draw_rect(Rect::from_xywh(size().x - pad - 3.0f, thumb_y, 3.0f, thumb_h), sb, 1.5f, 0.0f);
-        }
-
         ctx.pop_clip();
+
+        // 4. WinUI 3 像素级对齐垂直滚动条 (自动收起 2px -> 悬停/拖拽平滑展开 12px + 6px 滑块 + 上下箭头)
+        if (scrollable) {
+            Rect sb_vp = Rect::from_xywh(0.0f, anim_y + pad, size().x, std::max(1.0f, anim_h - pad * 2.0f));
+            m_scrollbar.paint(ctx, sb_vp, total_content_h, cur_scroll, theme, alpha_mul);
+        }
     }
 
 private:
-    void ensure_selected_visible() {
-        int count = static_cast<int>(m_items.size());
-        if (count <= m_max_visible_items || m_selected_index < 0) {
-            m_scroll_offset = 0.0f;
+    void ensure_selected_visible(float view_h) {
+        float total_h = static_cast<float>(m_items.size()) * m_item_height;
+        if (total_h <= view_h + 0.5f || m_selected_index < 0) {
+            m_scroll.jump_to(0.0f);
             return;
         }
-        float view_h = static_cast<float>(m_max_visible_items) * m_item_height;
-        float total_h = static_cast<float>(count) * m_item_height;
         float item_top = static_cast<float>(m_selected_index) * m_item_height;
         float target = item_top - (view_h - m_item_height) * 0.5f;
-        m_scroll_offset = std::clamp(target, 0.0f, std::max(0.0f, total_h - view_h));
+        m_scroll.jump_to(target);
+    }
+
+    [[nodiscard]] Rect scrollbar_viewport() const noexcept {
+        constexpr float kPad = 4.0f;
+        return Rect::from_xywh(0.0f, kPad, size().x, std::max(1.0f, size().y - kPad * 2.0f));
     }
 
     int hit_test_item_index(float local_y) const noexcept {
         constexpr float kPad = 4.0f;
-        float y = local_y - kPad + m_scroll_offset;
+        float y = local_y - kPad + m_scroll.offset();
         if (y < 0.0f) return -1;
         int idx = static_cast<int>(std::floor(y / m_item_height));
         if (idx < 0 || idx >= static_cast<int>(m_items.size())) return -1;
@@ -204,18 +216,34 @@ private:
 
     void setup_behavior() {
         on_pointer_move = [this](PointerEvent& e) {
+            m_popup_hovered = true;
+            float total_h = static_cast<float>(m_items.size()) * m_item_height;
+            Rect sb_vp = scrollbar_viewport();
+
             if (e.type == PlatformEventType::PointerScroll) {
-                float view_h = std::max(1.0f, size().y - 8.0f);
-                float total_h = static_cast<float>(m_items.size()) * m_item_height;
-                float max_scroll = std::max(0.0f, total_h - view_h);
-                if (max_scroll > 0.0f) {
-                    m_scroll_offset = std::clamp(m_scroll_offset - e.delta.y * 0.6f, 0.0f, max_scroll);
+                if (m_scroll.max_scroll() > 0.0f) {
+                    m_scroll.add_wheel_delta(e.delta.y);
+                    m_scrollbar.notify_activity();
                     m_hovered_index = hit_test_item_index(e.local_position.y);
                     mark_needs_paint();
                 }
                 e.stop_propagation();
                 return;
             }
+
+            bool sb_consumed = false;
+            if (m_scrollbar.handle_pointer_move(e.local_position, sb_vp, total_h, m_scroll, sb_consumed)) {
+                mark_needs_paint();
+            }
+            if (sb_consumed) {
+                if (m_hovered_index != -1) {
+                    m_hovered_index = -1;
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+                return;
+            }
+
             int idx = hit_test_item_index(e.local_position.y);
             if (idx != m_hovered_index) {
                 m_hovered_index = idx;
@@ -225,6 +253,8 @@ private:
         };
 
         on_pointer_exit = [this](PointerEvent&) {
+            m_popup_hovered = false;
+            m_scrollbar.handle_pointer_exit();
             if (m_hovered_index != -1 || m_pressed_index != -1) {
                 m_hovered_index = -1;
                 m_pressed_index = -1;
@@ -233,6 +263,13 @@ private:
         };
 
         on_pointer_down = [this](PointerEvent& e) {
+            float total_h = static_cast<float>(m_items.size()) * m_item_height;
+            Rect sb_vp = scrollbar_viewport();
+            if (m_scrollbar.handle_pointer_down(e.local_position, sb_vp, total_h, m_scroll, m_item_height)) {
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
             int idx = hit_test_item_index(e.local_position.y);
             if (idx >= 0 && !m_items[static_cast<size_t>(idx)].disabled) {
                 m_pressed_index = idx;
@@ -242,6 +279,11 @@ private:
         };
 
         on_pointer_up = [this](PointerEvent& e) {
+            if (m_scrollbar.handle_pointer_up()) {
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
             int idx = hit_test_item_index(e.local_position.y);
             int pressed = m_pressed_index;
             m_pressed_index = -1;
@@ -273,7 +315,10 @@ private:
     float m_font_size{13.0f};
     int m_max_visible_items{8};
     bool m_open_upward{false};
-    float m_scroll_offset{0.0f};
+    bool m_popup_hovered{false};
+    bool m_initialized_scroll{false};
+    SmoothScrollPhysics m_scroll;
+    WinUIScrollBar m_scrollbar;
     float m_open_progress{0.0f};
     std::chrono::steady_clock::time_point m_open_start;
     std::function<void(int)> m_on_select;
@@ -338,7 +383,7 @@ public:
         }
     }
 
-    void set_dimensions(float w, float h, float item_h, float font_sz, int max_vis) {
+    void set_dimensions(float w, float h, float item_h, float font_sz, int max_vis, float max_dd_h = 280.0f) {
         bool layout_changed = false;
         if (w > 0.0f && std::abs(m_data.width - w) > 0.001f) {
             m_data.width = w;
@@ -351,6 +396,7 @@ public:
         if (item_h > 0.0f) m_data.item_height = item_h;
         if (font_sz > 0.0f) m_data.font_size = font_sz;
         if (max_vis > 0) m_data.max_visible_items = max_vis;
+        if (max_dd_h > 0.0f) m_data.max_dropdown_height = max_dd_h;
         if (layout_changed) {
             mark_needs_layout();
         }
@@ -381,16 +427,23 @@ public:
         Window* win = Window::active_window();
         if (win) {
             int visible_count = std::min(static_cast<int>(m_data.items.size()), std::max(1, m_data.max_visible_items));
-            float popup_h = static_cast<float>(visible_count) * m_data.item_height + 8.0f;
+            float ideal_h = static_cast<float>(visible_count) * m_data.item_height + 8.0f;
+            float max_dd_h = m_data.max_dropdown_height > 0.0f ? m_data.max_dropdown_height : 280.0f;
+            float popup_h = std::min(ideal_h, max_dd_h);
             float popup_w = std::max(size().x, 120.0f);
 
             Vec2 anchor = global_offset();
             anchor.y += win->titlebar_height();
             Vec2 win_sz = win->size();
 
-            float space_below = win_sz.y - (anchor.y + size().y + 4.0f) - 8.0f;
-            float space_above = anchor.y - 4.0f - win->titlebar_height() - 8.0f;
+            float space_below = std::max(0.0f, win_sz.y - (anchor.y + size().y + 4.0f) - 8.0f);
+            float space_above = std::max(0.0f, anchor.y - 4.0f - win->titlebar_height() - 8.0f);
             bool open_upward = (space_below < popup_h && space_above > space_below);
+            float avail_space = open_upward ? space_above : space_below;
+            // 严格限制弹出面板高度绝不超过窗口可用空间，超出自动启用 WinUI 3 滚动条
+            if (avail_space >= m_data.item_height + 8.0f) {
+                popup_h = std::min(popup_h, avail_space);
+            }
 
             float popup_y = open_upward
                 ? std::max(win->titlebar_height() + 4.0f, anchor.y - popup_h - 4.0f)
@@ -651,6 +704,7 @@ struct ComboBox {
     float item_height{32.0f};
     float font_size{13.0f};
     int max_visible_items{8};
+    float max_dropdown_height{280.0f};
     Bindable<bool> disabled{false};
 
     std::function<void(int, const std::string&)> on_change{nullptr};
@@ -683,7 +737,8 @@ private:
         node->set_selected_index(m_desc.selected_index.get(), false);
         node->set_placeholder(m_desc.placeholder.get());
         node->set_dimensions(m_desc.width.get(), m_desc.height.get(),
-                             m_desc.item_height, m_desc.font_size, m_desc.max_visible_items);
+                             m_desc.item_height, m_desc.font_size,
+                             m_desc.max_visible_items, m_desc.max_dropdown_height);
         node->set_disabled(m_desc.disabled.get());
         node->set_on_change([this](int idx, const std::string& label) {
             m_is_internal_update = true;
