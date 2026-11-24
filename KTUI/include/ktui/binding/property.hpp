@@ -5,10 +5,11 @@
 #include <cstdint>
 #include <atomic>
 #include <algorithm>
+#include <memory>
 
 namespace ktui {
 
-// 响应式属性基元 (支持值无变更短路与版本追踪)
+// 响应式属性基元 (支持值无变更短路、版本追踪与安全跨生命周期退订)
 template <typename T>
 class Property {
 public:
@@ -16,6 +17,34 @@ public:
 
     Property() = default;
     explicit Property(T initial_value) : m_value(std::move(initial_value)) {}
+    ~Property() {
+        if (m_alive) {
+            *m_alive = false;
+        }
+    }
+    Property(const Property& other) : m_value(other.m_value), m_version(other.m_version) {}
+    Property& operator=(const Property& other) {
+        if (this != &other) {
+            set(other.m_value);
+        }
+        return *this;
+    }
+    Property(Property&& other) noexcept
+        : m_value(std::move(other.m_value)), m_version(other.m_version) {}
+    Property& operator=(Property&& other) noexcept {
+        if (this != &other) {
+            set(other.m_value);
+        }
+        return *this;
+    }
+
+    // 惰性存活令牌：仅在 BindingGroup 订阅时按需分配，供析构顺序倒置时安全跳过退订
+    std::weak_ptr<bool> alive_token() const {
+        if (!m_alive) {
+            m_alive = std::make_shared<bool>(true);
+        }
+        return m_alive;
+    }
 
     const T& get() const { return m_value; }
     const T& value() const { return m_value; }
@@ -72,6 +101,7 @@ private:
     T m_value{};
     uint64_t m_version = 0;
     std::vector<Entry> m_listeners;
+    mutable std::shared_ptr<bool> m_alive;
     inline static std::atomic<uint64_t> s_next_listener_id{0};
 };
 

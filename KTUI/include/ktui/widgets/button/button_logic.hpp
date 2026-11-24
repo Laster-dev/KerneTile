@@ -417,14 +417,15 @@ private:
 
         on_pointer_up = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && !m_state.is_loading && ev.button == PointerButton::Primary) {
-                if (m_state.is_pressed && m_state.is_hovered) {
-                    if (m_data.on_click) {
-                        m_data.on_click();
-                    }
-                }
+                bool should_click = (m_state.is_pressed && m_state.is_hovered);
+                auto cb = should_click ? m_data.on_click : Fn<void()>{};
                 m_state.is_pressed = false;
                 is_active = false;
                 mark_needs_paint();
+                if (cb) {
+                    ev.stop_propagation();
+                    cb();
+                }
             }
         };
 

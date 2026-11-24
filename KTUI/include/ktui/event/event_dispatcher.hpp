@@ -127,6 +127,7 @@ public:
         // ==================== 3. Bubble 阶段冒泡派发 ====================
         // 若当前存在拖拽捕获目标 (m_active_target) 且鼠标移出了目标区域，仍需向捕获目标转发 Move/Up
         bool active_hit = false;
+        m_tree_mutated = false;
         for (const auto& entry : result.path()) {
             RenderBox* target = entry.target;
             if (!target) continue;
@@ -150,8 +151,8 @@ public:
                     break;
             }
 
-            // 若回调中调用了 stop_propagation() 则立即阻断冒泡！
-            if (event.is_propagation_stopped()) {
+            // 若回调中调用了 stop_propagation() 或销毁了当前渲染树节点，立即阻断冒泡避免悬空指针！
+            if (event.is_propagation_stopped() || m_tree_mutated) {
                 break;
             }
         }
@@ -200,6 +201,7 @@ public:
 
     void forget_node(RenderBox* node) noexcept {
         if (!node) return;
+        m_tree_mutated = true;
         m_hovered_nodes.erase(node);
         if (m_active_target == node) {
             m_active_target = nullptr;
@@ -234,6 +236,7 @@ private:
     std::unordered_set<RenderBox*> m_hovered_nodes;
     RenderBox* m_active_target{nullptr};
     bool m_gesture_captured{false};
+    bool m_tree_mutated{false};
 };
 
 } // namespace ktui

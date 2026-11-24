@@ -44,10 +44,15 @@ struct BindingGroup {
     template <typename T, typename Func>
     void subscribe(const Property<T>& prop, Func&& fn) {
         Property<T>* p = &const_cast<Property<T>&>(prop);
+        auto alive = p->alive_token();
         uint64_t token = p->subscribe([f = std::forward<Func>(fn)](const T& v, uint64_t) {
             f(v);
         });
-        unbinders.push_back([p, token]() { p->unsubscribe(token); });
+        unbinders.push_back([p, token, alive = std::move(alive)]() {
+            if (auto guard = alive.lock(); guard && *guard) {
+                p->unsubscribe(token);
+            }
+        });
     }
 };
 
