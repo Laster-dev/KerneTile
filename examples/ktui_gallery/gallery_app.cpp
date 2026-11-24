@@ -129,21 +129,51 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
 
     window->set_content(NavigationView {
         .menu_items = {
-            NavigationViewItem{ .id = "home", .label = "全部控件概览", .icon = NavigationIcon::Home },
-            NavigationViewItem::header("基础与输入"),
+            NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
+            NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "controls", .label = "基础交互", .icon = NavigationIcon::Controls, .badge = "2", .expanded = true,
+                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "8", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "buttons", .label = "按钮与开关", .icon = NavigationIcon::Sparkles },
-                    NavigationViewItem{ .id = "inputs",  .label = "文本输入",   .icon = NavigationIcon::Inputs }
+                    NavigationViewItem{ .id = "button",          .label = "Button",          .icon = NavigationIcon::Sparkles },
+                    NavigationViewItem{ .id = "dropdown_button", .label = "DropDownButton",  .icon = NavigationIcon::Layout },
+                    NavigationViewItem{ .id = "checkbox",        .label = "CheckBox",        .icon = NavigationIcon::Controls },
+                    NavigationViewItem{ .id = "toggle_switch",   .label = "ToggleSwitch",    .icon = NavigationIcon::Controls },
+                    NavigationViewItem{ .id = "radio_button",    .label = "RadioButton",     .icon = NavigationIcon::Controls },
+                    NavigationViewItem{ .id = "radio_card",      .label = "RadioCard",       .icon = NavigationIcon::Layout },
+                    NavigationViewItem{ .id = "combobox",        .label = "ComboBox",        .icon = NavigationIcon::ComboBox },
+                    NavigationViewItem{ .id = "slider",          .label = "Slider",          .icon = NavigationIcon::Progress }
                 }
             },
-            NavigationViewItem{ .id = "selection", .label = "下拉与单选", .icon = NavigationIcon::ComboBox, .badge = "New" },
-            NavigationViewItem::separator(),
-            NavigationViewItem::header("图形与状态"),
-            NavigationViewItem{ .id = "progress", .label = "滑块与进度", .icon = NavigationIcon::Progress },
-            NavigationViewItem{ .id = "dialogs",  .label = "弹窗与菜单", .icon = NavigationIcon::Layout, .badge = "New" },
-            NavigationViewItem{ .id = "svg",      .label = "NanoSVG 矢量", .icon = NavigationIcon::Palette }
+            NavigationViewItem{
+                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "3", .expanded = true,
+                .children = {
+                    NavigationViewItem{ .id = "textbox",      .label = "TextBox",     .icon = NavigationIcon::Inputs },
+                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox", .icon = NavigationIcon::Inputs, .badge = "New" },
+                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox",   .icon = NavigationIcon::Inputs, .badge = "New" }
+                }
+            },
+            NavigationViewItem{
+                .id = "cat_menus", .label = "菜单与工具栏", .icon = NavigationIcon::Layout, .badge = "2", .expanded = false,
+                .children = {
+                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar",  .icon = NavigationIcon::Layout, .badge = "New" },
+                    NavigationViewItem{ .id = "menu_flyout",  .label = "MenuFlyout",  .icon = NavigationIcon::Layout }
+                }
+            },
+            NavigationViewItem{
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "4", .expanded = false,
+                .children = {
+                    NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog", .icon = NavigationIcon::Layout },
+                    NavigationViewItem{ .id = "info_bar",       .label = "InfoBar",       .icon = NavigationIcon::Info },
+                    NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar",   .icon = NavigationIcon::Progress },
+                    NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing",  .icon = NavigationIcon::Progress }
+                }
+            },
+            NavigationViewItem{
+                .id = "cat_media", .label = "图形与矢量", .icon = NavigationIcon::Palette, .expanded = false,
+                .children = {
+                    NavigationViewItem{ .id = "svg", .label = "NanoSVG 矢量", .icon = NavigationIcon::Palette }
+                }
+            }
         },
         .footer_items = {
             NavigationViewItem{ .id = "about", .label = "关于 KerneTile", .icon = NavigationIcon::Info }
@@ -155,16 +185,28 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .is_pane_toggle_button_visible = true,
         .is_back_button_visible = true,
         .is_settings_visible = true,
-        .open_pane_length = 228.0f,
+        .open_pane_length = 236.0f,
         .page_builder = [this](const std::string& page_id) -> WidgetPtr {
-            if (page_id == "buttons")      return pages::build_buttons_page(*this);
-            if (page_id == "inputs")       return pages::build_inputs_page(*this);
-            if (page_id == "selection")    return pages::build_selection_page(*this);
-            if (page_id == "progress")     return pages::build_progress_page(*this);
-            if (page_id == "dialogs")      return pages::build_dialogs_menus_page(*this);
-            if (page_id == "svg")          return pages::build_svg_page(*this);
-            if (page_id == "__settings__") return pages::build_settings_page(*this);
-            if (page_id == "about")        return pages::build_about_page(*this);
+            if (page_id == "button")          return pages::build_button_page(*this);
+            if (page_id == "dropdown_button") return pages::build_dropdown_button_page(*this);
+            if (page_id == "checkbox")        return pages::build_checkbox_page(*this);
+            if (page_id == "toggle_switch")   return pages::build_toggle_switch_page(*this);
+            if (page_id == "radio_button")    return pages::build_radio_button_page(*this);
+            if (page_id == "radio_card")      return pages::build_radio_card_page(*this);
+            if (page_id == "combobox")        return pages::build_combobox_page(*this);
+            if (page_id == "slider")          return pages::build_slider_page(*this);
+            if (page_id == "textbox")         return pages::build_textbox_page(*this);
+            if (page_id == "password_box")    return pages::build_password_box_page(*this);
+            if (page_id == "number_box")      return pages::build_number_box_page(*this);
+            if (page_id == "command_bar")     return pages::build_command_bar_page(*this);
+            if (page_id == "menu_flyout")     return pages::build_menu_flyout_page(*this);
+            if (page_id == "content_dialog")  return pages::build_content_dialog_page(*this);
+            if (page_id == "info_bar")        return pages::build_info_bar_page(*this);
+            if (page_id == "progress_bar")    return pages::build_progress_bar_page(*this);
+            if (page_id == "progress_ring")   return pages::build_progress_ring_page(*this);
+            if (page_id == "svg")             return pages::build_svg_page(*this);
+            if (page_id == "__settings__")    return pages::build_settings_page(*this);
+            if (page_id == "about")           return pages::build_about_page(*this);
             return pages::build_home_page(*this);
         }
     });

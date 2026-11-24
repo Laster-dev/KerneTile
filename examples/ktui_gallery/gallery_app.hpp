@@ -21,6 +21,12 @@ struct GalleryApp {
     ktui::Property<int> radio_card_val{1};
     ktui::Property<std::string> input_text{"KerneTile KTUI Gallery"};
     ktui::Property<std::string> input_preview{"输入预览: KerneTile KTUI Gallery"};
+    ktui::Property<std::string> password_val{"KerneTile2026"};
+    ktui::Property<std::string> password_status{"密码长度: 13 字符 (按住右侧眼睛可临时预览)"};
+    ktui::Property<double> number_int_val{42.0};
+    ktui::Property<double> number_float_val{3.14};
+    ktui::Property<std::string> number_status{"当前数值: 42 / 3.14 (支持输入 12+8*2 按 Enter 求值)"};
+    ktui::Property<std::string> commandbar_status{"CommandBar 就绪: 点击命令项或右侧 ... 查看溢出/二级菜单"};
     ktui::Property<std::string> theme_btn_text{"切换浅色主题"};
     ktui::Property<float> slider_val{45.0f};
     ktui::Property<float> progress_norm{0.45f};

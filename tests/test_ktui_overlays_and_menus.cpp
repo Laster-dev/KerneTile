@@ -2,6 +2,9 @@
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
 #include <ktui/widgets/dropdown_button.hpp>
+#include <ktui/widgets/password_box.hpp>
+#include <ktui/widgets/number_box.hpp>
+#include <ktui/widgets/command_bar.hpp>
 #include <ktui/theme/theme.hpp>
 #include <cassert>
 #include <iostream>
@@ -84,6 +87,68 @@ int main() {
     ddb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(ddb_node->size().y == 32.0f);
 
-    std::cout << "All InfoBar, ContentDialog, MenuFlyout & Split/DropDownButton tests passed!" << std::endl;
+    // 5. PasswordBox 掩码、输入、按住窥视与安全校验
+    std::string latest_pwd;
+    PasswordBox pb{
+        .password = "abc",
+        .header = "密码",
+        .reveal_mode = PasswordRevealMode::Peek,
+        .width = 220.0f,
+        .on_change = [&](const std::string& v) { latest_pwd = v; }
+    };
+    WidgetPtr pb_ptr = pb;
+    auto pb_node = std::dynamic_pointer_cast<RenderPasswordBox>(pb_ptr->create_render_node());
+    pb_node->layout(BoxConstraints::loose(Vec2{300.0f, 80.0f}));
+    assert(pb_node->size().y == 54.0f); // 22px header + 32px box
+    assert(!pb_node->is_revealing());
+    pb_node->on_ime_commit("123");
+    assert(pb_node->password() == "abc123");
+    assert(latest_pwd == "abc123");
+
+    // 6. NumberBox 步进、钳位与算术表达式求值
+    double latest_num = 0.0;
+    NumberBox nb{
+        .value = 10.0,
+        .minimum = 0.0,
+        .maximum = 100.0,
+        .small_change = 5.0,
+        .precision = 0,
+        .accepts_expression = true,
+        .on_value_changed = [&](double v) { latest_num = v; }
+    };
+    WidgetPtr nb_ptr = nb;
+    auto nb_node = std::dynamic_pointer_cast<RenderNumberBox>(nb_ptr->create_render_node());
+    nb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
+    nb_node->step(5.0);
+    assert(nb_node->value() == 15.0 && latest_num == 15.0);
+    nb_node->step(500.0);
+    assert(nb_node->value() == 100.0); // 严格钳位到 maximum
+    auto expr_val = detail::NumberBoxExprParser::evaluate("(12 + 8) * 3 - 4 / 2");
+    assert(expr_val.has_value() && std::abs(*expr_val - 58.0) < 1e-6);
+
+    // 7. CommandBar 主命令布局、窄宽度自适应溢出与 Toggle 状态
+    CommandBar cmd{
+        .content = "工具栏",
+        .primary_commands = {
+            CommandBarItem{ .label = "保存" },
+            CommandBarItem{ .label = "复制" },
+            CommandBarItem{ .label = "分享" },
+            CommandBarItem{ .label = "删除" }
+        },
+        .secondary_commands = {
+            CommandBarItem{ .label = "更多设置" }
+        },
+        .default_label_position = CommandBarDefaultLabelPosition::Right
+    };
+    WidgetPtr cmd_ptr = cmd;
+    auto cmd_node = std::dynamic_pointer_cast<RenderCommandBar>(cmd_ptr->create_render_node());
+    cmd_node->layout(BoxConstraints::tight(Vec2{520.0f, 40.0f}));
+    assert(cmd_node->visible_primary_count() == 4);
+    assert(cmd_node->overflowed_primary_count() == 0);
+    // 缩窄宽度后自动触发主命令溢出到 "..." 菜单
+    cmd_node->layout(BoxConstraints::tight(Vec2{220.0f, 40.0f}));
+    assert(cmd_node->overflowed_primary_count() > 0);
+
+    std::cout << "All InfoBar, ContentDialog, MenuFlyout, Split/DropDownButton, PasswordBox, NumberBox & CommandBar tests passed!" << std::endl;
     return 0;
 }

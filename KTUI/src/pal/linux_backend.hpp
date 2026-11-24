@@ -471,6 +471,9 @@ public:
     }
 
     void maximize() override { 
+        if (!m_maximized && m_size.x > 0.0f && m_size.y > 0.0f) {
+            m_normal_size = m_size;
+        }
         m_maximized = true; 
         m_minimized = false; 
 #if defined(KTUI_HAS_X11)
@@ -493,6 +496,54 @@ public:
         }
 #endif
     }
+
+    [[nodiscard]] TitlebarHitTest hit_test_titlebar(PointF local_pos) const {
+        if (!m_decorated && m_hit_test_cb) {
+            return m_hit_test_cb(local_pos);
+        }
+        return TitlebarHitTest::Client;
+    }
+
+#if defined(KTUI_HAS_X11)
+    // 通过 EWMH _NET_WM_MOVERESIZE 委托 X11 窗口管理器执行原生零延迟窗口拖动与八向拉伸
+    void begin_wm_move_resize(int root_x, int root_y, long direction) {
+        if (!m_display || m_xwindow == 0) return;
+        // 必须先释放 XGrabPointer，否则窗口管理器无法接管拖拽！
+        XUngrabPointer(m_display, CurrentTime);
+        Atom net_wm_moveresize = XInternAtom(m_display, "_NET_WM_MOVERESIZE", False);
+        XEvent xev{};
+        xev.xclient.type = ClientMessage;
+        xev.xclient.window = m_xwindow;
+        xev.xclient.message_type = net_wm_moveresize;
+        xev.xclient.format = 32;
+        xev.xclient.data.l[0] = root_x;
+        xev.xclient.data.l[1] = root_y;
+        xev.xclient.data.l[2] = direction; // 8=_NET_WM_MOVERESIZE_MOVE, 0..7=边缘拉伸
+        xev.xclient.data.l[3] = 1;         // Button1
+        xev.xclient.data.l[4] = 1;         // Normal application source
+        XSendEvent(m_display, DefaultRootWindow(m_display), False,
+                   SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+        XFlush(m_display);
+    }
+
+    // 最大化状态下直接拖拽标题栏：自动还原窗口尺寸并按点击比例锚定到光标下方，无缝衔接拖动 (对标 Windows)
+    void restore_and_drag(int root_x, int root_y, float ratio_x) {
+        if (!m_display || m_xwindow == 0) return;
+        float nw = (m_normal_size.x > 100.0f) ? m_normal_size.x : 960.0f;
+        float nh = (m_normal_size.y > 100.0f) ? m_normal_size.y : 640.0f;
+        float phys_w = nw * m_dpi_scale;
+        float phys_h = nh * m_dpi_scale;
+        int nx = static_cast<int>(std::round(static_cast<float>(root_x) - phys_w * std::clamp(ratio_x, 0.08f, 0.92f)));
+        int ny = std::max(0, root_y - static_cast<int>(std::round(16.0f * m_dpi_scale)));
+
+        restore();
+        XMoveResizeWindow(m_display, m_xwindow, nx, ny,
+                          static_cast<unsigned int>(std::max(1.0f, phys_w)),
+                          static_cast<unsigned int>(std::max(1.0f, phys_h)));
+        XSync(m_display, False);
+        begin_wm_move_resize(root_x, root_y, 8);
+    }
+#endif
 
     bool is_minimized() const override { return m_minimized; }
     bool is_maximized() const override { return m_maximized; }
@@ -919,6 +970,7 @@ private:
 
     std::string m_title;
     Vec2 m_size{800.0f, 600.0f};
+    Vec2 m_normal_size{960.0f, 640.0f};
     Vec2 m_min_size{0.0f, 0.0f};
     Vec2 m_max_size{10000.0f, 10000.0f};
     Vec2 m_position{100.0f, 100.0f};
@@ -1080,6 +1132,26 @@ public:
                         break;
                     }
                     case MotionNotify: {
+                        // 标题栏按住拖动 > 4px 触发原生 X11 窗口拖动 (最大化态自动还原并锚定光标继续拖动)
+                        if (m_caption_drag_pending && ev.xmotion.window == m_caption_drag_win) {
+                            float ddx = static_cast<float>(ev.xmotion.x_root - m_caption_press_root_x);
+                            float ddy = static_cast<float>(ev.xmotion.y_root - m_caption_press_root_y);
+                            if (std::hypot(ddx, ddy) > 4.0f) {
+                                m_caption_drag_pending = false;
+                                auto it = m_windows_map.find(ev.xmotion.window);
+                                if (it != m_windows_map.end() && it->second) {
+                                    if (it->second->is_maximized()) {
+                                        float cur_w = std::max(1.0f, it->second->size().x);
+                                        float ratio_x = m_caption_press_local_x / cur_w;
+                                        it->second->restore_and_drag(ev.xmotion.x_root, ev.xmotion.y_root, ratio_x);
+                                    } else {
+                                        it->second->begin_wm_move_resize(ev.xmotion.x_root, ev.xmotion.y_root, 8);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
                         if (m_event_callback) {
                             float inv_dpi = 1.0f;
                             if (auto it = m_windows_map.find(ev.xmotion.window); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
@@ -1096,8 +1168,12 @@ public:
                     case ButtonPress: {
                         if (m_event_callback) {
                             float inv_dpi = 1.0f;
-                            if (auto it = m_windows_map.find(ev.xbutton.window); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
-                                inv_dpi = 1.0f / it->second->dpi_scale();
+                            LinuxWindow* target_win = nullptr;
+                            if (auto it = m_windows_map.find(ev.xbutton.window); it != m_windows_map.end() && it->second) {
+                                target_win = it->second;
+                                if (target_win->dpi_scale() > 0.0f) {
+                                    inv_dpi = 1.0f / target_win->dpi_scale();
+                                }
                             }
                             // 滚轮事件映射 (Button 4/5 垂直, Button 6/7 水平)
                             if (ev.xbutton.button == 4 || ev.xbutton.button == 5 ||
@@ -1113,8 +1189,39 @@ public:
                                 break;
                             }
 
-                            // 鼠标捕获 (对标 Windows SetCapture)
-                            if (ev.xbutton.button == 1) {
+                            PointF local_pt{static_cast<float>(ev.xbutton.x) * inv_dpi, static_cast<float>(ev.xbutton.y) * inv_dpi};
+
+                            // 无边框自定义标题栏与八向边缘拉伸命中测试
+                            if (ev.xbutton.button == 1 && target_win && !target_win->is_decorated()) {
+                                TitlebarHitTest ht = target_win->hit_test_titlebar(local_pt);
+                                if (ht == TitlebarHitTest::Caption) {
+                                    m_caption_drag_pending = true;
+                                    m_caption_drag_win = ev.xbutton.window;
+                                    m_caption_press_root_x = ev.xbutton.x_root;
+                                    m_caption_press_root_y = ev.xbutton.y_root;
+                                    m_caption_press_local_x = local_pt.x;
+                                } else if (!target_win->is_maximized() && target_win->is_resizable()) {
+                                    long dir = -1;
+                                    switch (ht) {
+                                        case TitlebarHitTest::BorderTopLeft:     dir = 0; break;
+                                        case TitlebarHitTest::BorderTop:         dir = 1; break;
+                                        case TitlebarHitTest::BorderTopRight:    dir = 2; break;
+                                        case TitlebarHitTest::BorderRight:       dir = 3; break;
+                                        case TitlebarHitTest::BorderBottomRight: dir = 4; break;
+                                        case TitlebarHitTest::BorderBottom:      dir = 5; break;
+                                        case TitlebarHitTest::BorderBottomLeft:  dir = 6; break;
+                                        case TitlebarHitTest::BorderLeft:        dir = 7; break;
+                                        default: break;
+                                    }
+                                    if (dir >= 0) {
+                                        target_win->begin_wm_move_resize(ev.xbutton.x_root, ev.xbutton.y_root, dir);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // 鼠标捕获 (对标 Windows SetCapture；标题栏待拖动时不抢占 Grab 以便双击与拖动都丝滑)
+                            if (ev.xbutton.button == 1 && !m_caption_drag_pending) {
                                 XGrabPointer(m_display, ev.xbutton.window, True,
                                              ButtonReleaseMask | PointerMotionMask,
                                              GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
@@ -1123,7 +1230,7 @@ public:
                             PlatformEvent pe;
                             pe.type = PlatformEventType::PointerDown;
                             pe.window_handle = reinterpret_cast<void*>(ev.xbutton.window);
-                            pe.position = PointF{static_cast<float>(ev.xbutton.x) * inv_dpi, static_cast<float>(ev.xbutton.y) * inv_dpi};
+                            pe.position = local_pt;
                             pe.button = (ev.xbutton.button == 1) ? PointerButton::Primary :
                                         (ev.xbutton.button == 3) ? PointerButton::Secondary : PointerButton::Auxiliary;
                             m_event_callback(pe);
@@ -1135,8 +1242,8 @@ public:
                         if (ev.xbutton.button >= 4 && ev.xbutton.button <= 7) {
                             break;
                         }
-                        // 释放鼠标捕获 (对标 Windows ReleaseCapture)
                         if (ev.xbutton.button == 1) {
+                            m_caption_drag_pending = false;
                             XUngrabPointer(m_display, CurrentTime);
                         }
 
@@ -1466,6 +1573,11 @@ private:
     XIM m_xim{nullptr};
     Window m_clip_window{0};
     std::unordered_map<Window, LinuxWindow*> m_windows_map;
+    bool m_caption_drag_pending{false};
+    Window m_caption_drag_win{0};
+    int m_caption_press_root_x{0};
+    int m_caption_press_root_y{0};
+    float m_caption_press_local_x{0.0f};
 #endif
 
     mutable std::mutex m_clip_mutex;

@@ -56,6 +56,9 @@ extern "C" {
     void ktui_web_on_drag_resize(int win_id, float x, float y, float w, float h);
 
     EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_restore_for_drag(int win_id, float x, float y);
+
+    EMSCRIPTEN_KEEPALIVE
     void ktui_web_on_taskbar_click(int win_id);
 
     EMSCRIPTEN_KEEPALIVE
@@ -153,39 +156,59 @@ EM_JS(void, ktui_js_init_desktop, (), {
         if (showDeskBtn) {
             showDeskBtn.addEventListener('click', function() {
                 closeStartMenu();
-                _ktui_web_on_show_desktop(0);
+                (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(0); } catch (_) {} });
             });
         }
         var menuShowDesk = document.getElementById('ktui-menu-show-desktop');
         if (menuShowDesk) {
             menuShowDesk.addEventListener('click', function() {
                 closeStartMenu();
-                _ktui_web_on_show_desktop(1);
+                (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(1); } catch (_) {} });
             });
         }
         var menuRestoreAll = document.getElementById('ktui-menu-restore-all');
         if (menuRestoreAll) {
             menuRestoreAll.addEventListener('click', function() {
                 closeStartMenu();
-                _ktui_web_on_show_desktop(2);
+                (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(2); } catch (_) {} });
             });
         }
     }
 
-    // 全局拖拽 / 缩放状态
+    // 注册多实例 WASM 共享的桌面回调总线 (支持多个 WASM 应用同屏多开)
+    window._ktuiViewportCbs = window._ktuiViewportCbs || [];
+    window._ktuiViewportCbs.push(function() { _ktui_web_on_viewport_resize(); });
+    window._ktuiDesktopActionCbs = window._ktuiDesktopActionCbs || [];
+    window._ktuiDesktopActionCbs.push(function(mode) { _ktui_web_on_show_desktop(mode); });
+
+    // 全局拖拽 / 缩放状态 (每次拖拽闭包绑定各自 WASM 实例的导出函数，彻底支持多开)
     if (!window._ktuiDesktopListenersInstalled) {
         window._ktuiDesktopListenersInstalled = true;
         window._ktuiDrag = null;
+        window._ktuiGlobalZ = window._ktuiGlobalZ || 20;
 
         window.addEventListener('pointermove', function(e) {
             var drag = window._ktuiDrag;
             if (!drag) return;
             var dx = e.clientX - drag.startX;
             var dy = e.clientY - drag.startY;
-            if (drag.mode === 'move') {
+            if (drag.mode === 'maximized-pending') {
+                // 最大化态按住标题栏拖拽 > 6px：自动还原窗口化并按比例锚定到光标下方继续拖动
+                if (Math.hypot(dx, dy) > 6) {
+                    var rw = drag.restoredW || 960;
+                    var nx0 = Math.round(e.clientX - rw * drag.ratioX);
+                    var ny0 = Math.max(0, Math.round(e.clientY - 16));
+                    if (drag.onRestoreForDrag) drag.onRestoreForDrag(drag.winId, nx0, ny0);
+                    drag.mode = 'move';
+                    drag.startX = e.clientX;
+                    drag.startY = e.clientY;
+                    drag.origX = nx0;
+                    drag.origY = ny0;
+                }
+            } else if (drag.mode === 'move') {
                 var nx = drag.origX + dx;
                 var ny = Math.max(0, Math.min(window.innerHeight - 48 - 34, drag.origY + dy));
-                _ktui_web_on_drag_move(drag.winId, nx, ny);
+                if (drag.onMove) drag.onMove(drag.winId, nx, ny);
             } else if (drag.mode === 'resize') {
                 var x = drag.origX, y = drag.origY, w = drag.origW, h = drag.origH;
                 var ht = drag.ht;
@@ -206,7 +229,7 @@ EM_JS(void, ktui_js_init_desktop, (), {
                 if (ht === 8 || ht === 11 || ht === 12) {
                     h = Math.max(drag.minH, Math.min(drag.maxH, drag.origH + dy));
                 }
-                _ktui_web_on_drag_resize(drag.winId, x, y, w, h);
+                if (drag.onResize) drag.onResize(drag.winId, x, y, w, h);
             }
         });
 
@@ -215,7 +238,10 @@ EM_JS(void, ktui_js_init_desktop, (), {
         });
 
         window.addEventListener('resize', function() {
-            _ktui_web_on_viewport_resize();
+            var cbs = window._ktuiViewportCbs || [];
+            for (var i = 0; i < cbs.length; ++i) {
+                try { cbs[i](); } catch (_) {}
+            }
         });
 
         // 监听浏览器缩放 / 跨屏移动导致的 devicePixelRatio 变化
@@ -224,7 +250,10 @@ EM_JS(void, ktui_js_init_desktop, (), {
             var dpr = window.devicePixelRatio || 1;
             var mq = window.matchMedia('(resolution: ' + dpr + 'dppx)');
             var onDprChange = function() {
-                _ktui_web_on_viewport_resize();
+                var cbs = window._ktuiViewportCbs || [];
+                for (var i = 0; i < cbs.length; ++i) {
+                    try { cbs[i](); } catch (_) {}
+                }
                 watchDpr();
             };
             if (mq.addEventListener) mq.addEventListener('change', onDprChange, { once: true });
@@ -357,23 +386,40 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
     };
 
     canvas.addEventListener('pointerdown', function(e) {
+        window._ktuiGlobalZ = (window._ktuiGlobalZ || 20) + 1;
+        wrap.style.zIndex = String(window._ktuiGlobalZ);
         _ktui_web_on_focus_window(win_id);
         var pt = getLocal(e);
         var btn = e.button === 0 ? 1 : (e.button === 2 ? 2 : (e.button === 1 ? 3 : 0));
+        var touchFlag = (e.pointerType === 'touch') ? 16 : 0;
         if (btn === 1) {
             var ht = _ktui_web_hit_test(win_id, pt[0], pt[1]);
-            if (ht === 1 && !entry.maximized) {
+            if (ht === 1) {
                 var rect = wrap.getBoundingClientRect();
-                window._ktuiDrag = {
-                    mode: 'move',
-                    winId: win_id,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    origX: rect.left,
-                    origY: rect.top
-                };
-                // 仍转发 PointerDown 以便支持标题栏双击最大化
-                _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e));
+                if (!entry.maximized) {
+                    window._ktuiDrag = {
+                        mode: 'move',
+                        winId: win_id,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        origX: rect.left,
+                        origY: rect.top,
+                        onMove: _ktui_web_on_drag_move
+                    };
+                } else {
+                    window._ktuiDrag = {
+                        mode: 'maximized-pending',
+                        winId: win_id,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        ratioX: Math.max(0.08, Math.min(0.92, pt[0] / Math.max(1, rect.width))),
+                        restoredW: entry.normalW || 960,
+                        onRestoreForDrag: _ktui_web_on_restore_for_drag,
+                        onMove: _ktui_web_on_drag_move
+                    };
+                }
+                // 仍转发 PointerDown 以便支持标题栏双击最大化/还原
+                _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e) | touchFlag);
                 return;
             }
             if (ht >= 5 && ht <= 12 && entry.resizable && !entry.maximized) {
@@ -391,27 +437,30 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
                     minW: entry.minW,
                     minH: entry.minH,
                     maxW: entry.maxW,
-                    maxH: entry.maxH
+                    maxH: entry.maxH,
+                    onResize: _ktui_web_on_drag_resize
                 };
                 e.preventDefault();
                 return;
             }
         }
         try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
-        _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e));
+        _ktui_web_on_pointer(win_id, 1, pt[0], pt[1], btn, getMods(e) | touchFlag);
     });
 
     canvas.addEventListener('pointermove', function(e) {
         if (window._ktuiDrag) return;
         var pt = getLocal(e);
-        _ktui_web_on_pointer(win_id, 0, pt[0], pt[1], 0, getMods(e));
+        var touchFlag = (e.pointerType === 'touch') ? 16 : 0;
+        _ktui_web_on_pointer(win_id, 0, pt[0], pt[1], 0, getMods(e) | touchFlag);
     });
 
     canvas.addEventListener('pointerup', function(e) {
         if (window._ktuiDrag) return;
         var pt = getLocal(e);
         var btn = e.button === 0 ? 1 : (e.button === 2 ? 2 : (e.button === 1 ? 3 : 0));
-        _ktui_web_on_pointer(win_id, 2, pt[0], pt[1], btn, getMods(e));
+        var touchFlag = (e.pointerType === 'touch') ? 16 : 0;
+        _ktui_web_on_pointer(win_id, 2, pt[0], pt[1], btn, getMods(e) | touchFlag);
     });
 
     canvas.addEventListener('wheel', function(e) {
@@ -499,6 +548,10 @@ EM_JS(void, ktui_js_update_window_geometry, (int win_id, float x, float y, float
     var ny = Math.round(y);
     var nw = Math.round(w);
     var nh = Math.round(h);
+    if (!isMaximized && nw > 100 && nh > 100) {
+        entry.normalW = nw;
+        entry.normalH = nh;
+    }
 
     var prevRect = (entry.initialized && prevVisible && isVisible && !isDragging && prevMaximized !== isMaximized)
         ? wrap.getBoundingClientRect()
@@ -636,6 +689,9 @@ EM_JS(void, ktui_js_destroy_window, (int win_id), {
         var pill = Module['ktuiTaskbarItems'].get(win_id);
         if (pill) pill.remove();
         Module['ktuiTaskbarItems'].delete(win_id);
+    }
+    if (typeof window._ktuiNotifyDesktop === 'function') {
+        window._ktuiNotifyDesktop();
     }
 });
 
@@ -1427,6 +1483,7 @@ public:
         pe.modifiers.ctrl  = (mods & 2) != 0;
         pe.modifiers.alt   = (mods & 4) != 0;
         pe.modifiers.meta  = (mods & 8) != 0;
+        pe.device_kind = (mods & 16) ? PointerDeviceKind::Touch : PointerDeviceKind::Mouse;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
         if (button == 1) pe.button = PointerButton::Primary;
         else if (button == 2) pe.button = PointerButton::Secondary;
@@ -1449,6 +1506,7 @@ public:
         pe.modifiers.ctrl  = (mods & 2) != 0;
         pe.modifiers.alt   = (mods & 4) != 0;
         pe.modifiers.meta  = (mods & 8) != 0;
+        pe.device_kind = (mods & 16) ? PointerDeviceKind::Touch : PointerDeviceKind::Mouse;
         pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
         dispatch_event(pe);
     }
@@ -1589,6 +1647,16 @@ extern "C" {
         if (WebBackend::instance()) {
             if (auto* w = WebBackend::instance()->find_window(win_id)) {
                 w->apply_drag_resize(x, y, w_px, h_px);
+            }
+        }
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_restore_for_drag(int win_id, float x, float y) {
+        if (WebBackend::instance()) {
+            if (auto* w = WebBackend::instance()->find_window(win_id)) {
+                w->restore();
+                w->set_position(Vec2{x, y});
             }
         }
     }

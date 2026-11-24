@@ -4,28 +4,37 @@
 
 namespace gallery::pages {
 
-// 可复用控件卡片构建器
-ktui::WidgetPtr build_buttons_card(GalleryApp& app);
-ktui::WidgetPtr build_toggles_card(GalleryApp& app);
-ktui::WidgetPtr build_combobox_card(GalleryApp& app);
-ktui::WidgetPtr build_radio_button_card(GalleryApp& app);
-ktui::WidgetPtr build_radio_card_group_card(GalleryApp& app);
-ktui::WidgetPtr build_slider_progress_card(GalleryApp& app);
-ktui::WidgetPtr build_progress_ring_card(GalleryApp& app);
-ktui::WidgetPtr build_text_input_card(GalleryApp& app);
-ktui::WidgetPtr build_svg_showcase_card(GalleryApp& app);
-ktui::WidgetPtr build_menus_and_buttons_card(GalleryApp& app);
-ktui::WidgetPtr build_dialog_and_infobar_card(GalleryApp& app);
-
-// 完整页面构建器
+// ==================== 首页与系统页 ====================
 ktui::WidgetPtr build_home_page(GalleryApp& app);
-ktui::WidgetPtr build_buttons_page(GalleryApp& app);
-ktui::WidgetPtr build_inputs_page(GalleryApp& app);
-ktui::WidgetPtr build_selection_page(GalleryApp& app);
-ktui::WidgetPtr build_progress_page(GalleryApp& app);
-ktui::WidgetPtr build_svg_page(GalleryApp& app);
-ktui::WidgetPtr build_dialogs_menus_page(GalleryApp& app);
 ktui::WidgetPtr build_settings_page(GalleryApp& app);
 ktui::WidgetPtr build_about_page(GalleryApp& app);
+
+// ==================== 基础输入 (Basic Input) ====================
+ktui::WidgetPtr build_button_page(GalleryApp& app);
+ktui::WidgetPtr build_dropdown_button_page(GalleryApp& app);
+ktui::WidgetPtr build_checkbox_page(GalleryApp& app);
+ktui::WidgetPtr build_toggle_switch_page(GalleryApp& app);
+ktui::WidgetPtr build_radio_button_page(GalleryApp& app);
+ktui::WidgetPtr build_radio_card_page(GalleryApp& app);
+ktui::WidgetPtr build_combobox_page(GalleryApp& app);
+ktui::WidgetPtr build_slider_page(GalleryApp& app);
+
+// ==================== 文本与数值 (Text & Numbers) ====================
+ktui::WidgetPtr build_textbox_page(GalleryApp& app);
+ktui::WidgetPtr build_password_box_page(GalleryApp& app);
+ktui::WidgetPtr build_number_box_page(GalleryApp& app);
+
+// ==================== 菜单与工具栏 (Menus & Toolbars) ====================
+ktui::WidgetPtr build_command_bar_page(GalleryApp& app);
+ktui::WidgetPtr build_menu_flyout_page(GalleryApp& app);
+
+// ==================== 弹窗与状态 (Dialogs & Status) ====================
+ktui::WidgetPtr build_content_dialog_page(GalleryApp& app);
+ktui::WidgetPtr build_info_bar_page(GalleryApp& app);
+ktui::WidgetPtr build_progress_bar_page(GalleryApp& app);
+ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
+
+// ==================== 图形与矢量 (Media & Vector) ====================
+ktui::WidgetPtr build_svg_page(GalleryApp& app);
 
 } // namespace gallery::pages

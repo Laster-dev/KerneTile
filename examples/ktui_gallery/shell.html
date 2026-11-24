@@ -428,6 +428,197 @@
             background: rgba(255, 255, 255, 0.14);
         }
 
+        /* ==================== 桌面图标网格 (WASM 程序入口) ==================== */
+        #ktui-desktop-icons {
+            position: fixed;
+            left: 16px;
+            top: 76px;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .desktop-icon {
+            width: 84px;
+            padding: 10px 6px 8px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #eef2fa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            position: relative;
+            transition: background 120ms ease, border-color 120ms ease, transform 100ms ease;
+        }
+
+        .desktop-icon:hover {
+            background: rgba(255, 255, 255, 0.09);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .desktop-icon:active {
+            transform: scale(0.96);
+            background: rgba(255, 255, 255, 0.14);
+        }
+
+        .desktop-icon-glyph {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.42), inset 0 1px 0 rgba(255,255,255,0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .desktop-icon-label {
+            font-size: 11.5px;
+            line-height: 1.25;
+            text-align: center;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+            word-break: keep-all;
+        }
+
+        .desktop-icon-badge {
+            position: absolute;
+            top: 6px;
+            right: 10px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 9px;
+            background: #60cdff;
+            color: #09131f;
+            font-size: 10px;
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .desktop-icon-badge.visible {
+            display: inline-flex;
+        }
+
+        /* 开始菜单已固定 WASM 应用列表 */
+        .start-section-title {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: rgba(220, 226, 240, 0.72);
+            margin: 12px 0 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .start-apps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .start-app-tile {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 6px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.04);
+            color: #eef2fa;
+            font-size: 11.5px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 120ms ease, transform 100ms ease;
+        }
+
+        .start-app-tile:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .start-app-tile:active {
+            transform: scale(0.96);
+        }
+
+        .start-app-tile .tile-glyph {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 桌面右键菜单 */
+        #ktui-desktop-ctx {
+            position: fixed;
+            display: none;
+            min-width: 190px;
+            padding: 5px;
+            z-index: 950000;
+            border-radius: 8px;
+            background: rgba(40, 42, 48, 0.94);
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+        }
+
+        #ktui-desktop-ctx.open {
+            display: block;
+        }
+
+        .ctx-item {
+            width: 100%;
+            text-align: left;
+            padding: 7px 12px;
+            border: none;
+            border-radius: 5px;
+            background: transparent;
+            color: #eef1f7;
+            font-size: 12.5px;
+            font-family: inherit;
+            cursor: pointer;
+            display: block;
+        }
+
+        .ctx-item:hover {
+            background: rgba(255, 255, 255, 0.09);
+        }
+
+        .ctx-sep {
+            height: 1px;
+            margin: 4px 6px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .ktui-pin-btn {
+            width: 38px;
+            height: 38px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background: transparent;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 120ms ease;
+        }
+
+        .ktui-pin-btn:hover {
+            background: rgba(255, 255, 255, 0.10);
+        }
+
         @media (max-width: 640px) {
             .taskbar-status #status-text {
                 display: none;
@@ -450,15 +641,32 @@
     <div id="ktui-desktop">
         <div class="desktop-watermark">
             <div class="desktop-title">
-                KerneTile Studio
-                <span class="badge">Web Desktop</span>
+                KerneTile OS
+                <span class="badge">WebAssembly Desktop</span>
             </div>
-            <div class="desktop-sub">无边框自绘标题栏 · 多窗口桌面环境 · 拖拽 / 缩放 / 最小化至任务栏</div>
+            <div class="desktop-sub">双击桌面图标或打开开始菜单启动 / 多开 WASM 应用 · 最大化拖标题栏自动还原</div>
+        </div>
+
+        <!-- 桌面 WASM 应用图标网格 -->
+        <div id="ktui-desktop-icons" aria-label="桌面应用"></div>
+
+        <!-- 桌面右键菜单 -->
+        <div id="ktui-desktop-ctx" role="menu">
+            <button type="button" class="ctx-item" id="ctx-launch-gallery">启动 KTUI Gallery</button>
+            <button type="button" class="ctx-item" id="ctx-multi-gallery">新建多开实例 (KTUI Gallery)</button>
+            <div class="ctx-sep"></div>
+            <button type="button" class="ctx-item" id="ctx-show-desktop">显示桌面</button>
+            <button type="button" class="ctx-item" id="ctx-restore-all">还原所有窗口</button>
         </div>
 
         <div id="ktui-start-menu" role="dialog" aria-label="开始菜单">
-            <div class="start-menu-header">KerneTile Studio Web Desktop</div>
-            <div class="start-menu-desc">WebAssembly 多窗口虚拟桌面 · 支持 DPI 缩放与窗口动效</div>
+            <div class="start-menu-header">KerneTile Web Desktop</div>
+            <div class="start-menu-desc">每个 WASM 模块即独立桌面应用 · 支持无限多开</div>
+            <div class="start-section-title">
+                <span>已固定应用 (WASM)</span>
+                <span id="start-running-badge">0 个运行中</span>
+            </div>
+            <div class="start-apps-grid" id="ktui-start-apps"></div>
             <div class="start-menu-actions">
                 <button type="button" class="start-menu-btn" id="ktui-menu-show-desktop">显示桌面</button>
                 <button type="button" class="start-menu-btn" id="ktui-menu-restore-all">还原窗口</button>
@@ -469,12 +677,22 @@
             <div class="taskbar-left">
                 <div class="taskbar-status">
                     <span id="status-dot" class="status-dot loading"></span>
-                    <span id="status-text">正在加载 WebAssembly...</span>
+                    <span id="status-text">桌面就绪</span>
                 </div>
             </div>
             <div class="taskbar-center">
                 <button type="button" id="ktui-start-btn" class="ktui-start-btn" title="开始">
                     <span class="ktui-win-logo" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+                </button>
+                <button type="button" id="ktui-pin-gallery" class="ktui-pin-btn" title="启动 / 多开 KTUI Gallery (WASM)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <rect x="2" y="2" width="20" height="20" rx="5" fill="url(#ktPinGrad)"/>
+                        <rect x="6" y="6" width="5" height="5" rx="1.2" fill="#fff"/>
+                        <rect x="13" y="6" width="5" height="5" rx="1.2" fill="#fff" fill-opacity="0.82"/>
+                        <rect x="6" y="13" width="5" height="5" rx="1.2" fill="#fff" fill-opacity="0.82"/>
+                        <rect x="13" y="13" width="5" height="5" rx="1.2" fill="#fff"/>
+                        <defs><linearGradient id="ktPinGrad" x1="2" y1="2" x2="22" y2="22"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+                    </svg>
                 </button>
                 <div id="ktui-taskbar-apps"></div>
             </div>
@@ -491,7 +709,224 @@
     <script type="text/javascript">
         var statusDot = document.getElementById('status-dot');
         var statusText = document.getElementById('status-text');
+        var assetVer = '__KTUI_ASSET_VER__';
 
+        function withVer(url) {
+            if (assetVer && assetVer.indexOf('__KTUI_') !== 0 && url.indexOf('?') === -1) {
+                return url + '?v=' + assetVer;
+            }
+            return url;
+        }
+
+        // ==================== WASM 应用注册表 (一个 WASM 即一个独立桌面程序) ====================
+        var KTUI_APPS = [
+            {
+                id: 'ktui_gallery',
+                name: 'KTUI Gallery',
+                jsUrl: 'ktui_gallery.js',
+                factoryName: 'createKtuiApp',
+                iconSvg:
+                    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none">' +
+                    '<rect x="3" y="3" width="8" height="8" rx="2" fill="#fff"/>' +
+                    '<rect x="13" y="3" width="8" height="8" rx="2" fill="#fff" fill-opacity="0.82"/>' +
+                    '<rect x="3" y="13" width="8" height="8" rx="2" fill="#fff" fill-opacity="0.82"/>' +
+                    '<rect x="13" y="13" width="8" height="8" rx="2" fill="#fff"/>' +
+                    '</svg>'
+            }
+        ];
+
+        var loadedScripts = {};
+        var launchSeq = 0;
+
+        function ensureAppScript(app) {
+            if (typeof window[app.factoryName] === 'function') {
+                return Promise.resolve(window[app.factoryName]);
+            }
+            if (loadedScripts[app.id]) return loadedScripts[app.id];
+            loadedScripts[app.id] = new Promise(function(resolve, reject) {
+                var s = document.createElement('script');
+                s.src = withVer(app.jsUrl);
+                s.async = true;
+                s.onload = function() {
+                    if (typeof window[app.factoryName] === 'function') {
+                        resolve(window[app.factoryName]);
+                    } else {
+                        reject(new Error('WASM 工厂函数未找到: ' + app.factoryName));
+                    }
+                };
+                s.onerror = function() {
+                    delete loadedScripts[app.id];
+                    reject(new Error('拉取 ' + app.jsUrl + ' 失败'));
+                };
+                document.body.appendChild(s);
+            });
+            return loadedScripts[app.id];
+        }
+
+        function updateDesktopBadges() {
+            var liveWins = document.querySelectorAll('.ktui-win').length;
+            var startBadge = document.getElementById('start-running-badge');
+            if (startBadge) startBadge.textContent = liveWins + ' 个窗口运行中';
+            var deskBadge = document.getElementById('badge-ktui_gallery');
+            if (deskBadge) {
+                deskBadge.textContent = String(liveWins);
+                deskBadge.classList.toggle('visible', liveWins > 0);
+            }
+            if (statusDot && statusText) {
+                statusDot.className = 'status-dot';
+                statusText.textContent = liveWins > 0
+                    ? ('运行中 · ' + liveWins + ' 个窗口')
+                    : '桌面就绪 · 双击图标启动应用';
+            }
+        }
+        window._ktuiNotifyDesktop = updateDesktopBadges;
+
+        function launchWasmApp(appId) {
+            var app = KTUI_APPS.find(function(a) { return a.id === appId; });
+            if (!app) return;
+            var seq = ++launchSeq;
+            if (statusDot) statusDot.className = 'status-dot loading';
+            if (statusText) statusText.textContent = '正在拉取 ' + app.name + ' (#' + seq + ')...';
+
+            ensureAppScript(app).then(function(factory) {
+                return factory({
+                    locateFile: function(path, prefix) {
+                        return withVer((prefix || '') + path);
+                    },
+                    print: function(text) {
+                        console.log('[' + app.name + ' #' + seq + ']', text);
+                    },
+                    printErr: function(text) {
+                        console.error('[' + app.name + ' #' + seq + ']', text);
+                    }
+                });
+            }).then(function() {
+                setTimeout(updateDesktopBadges, 60);
+            }).catch(function(err) {
+                console.error(err);
+                if (statusDot) statusDot.style.backgroundColor = '#f44336';
+                if (statusText) statusText.textContent = '启动失败: ' + err.message;
+            });
+        }
+
+        // ==================== 渲染桌面图标与开始菜单应用 ====================
+        (function initDesktopShell() {
+            var iconsHost = document.getElementById('ktui-desktop-icons');
+            var startHost = document.getElementById('ktui-start-apps');
+            var startMenu = document.getElementById('ktui-start-menu');
+            var startBtn = document.getElementById('ktui-start-btn');
+            var ctxMenu = document.getElementById('ktui-desktop-ctx');
+            var desktop = document.getElementById('ktui-desktop');
+
+            function closeMenus() {
+                if (startMenu) startMenu.classList.remove('open');
+                if (startBtn) startBtn.classList.remove('open');
+                if (ctxMenu) ctxMenu.classList.remove('open');
+            }
+
+            KTUI_APPS.forEach(function(app) {
+                if (iconsHost) {
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'desktop-icon';
+                    btn.title = '双击启动或新建 ' + app.name + ' (WASM)';
+                    btn.innerHTML =
+                        '<span class="desktop-icon-glyph">' + app.iconSvg + '</span>' +
+                        '<span class="desktop-icon-label">' + app.name + '</span>' +
+                        '<span class="desktop-icon-badge" id="badge-' + app.id + '">0</span>';
+                    btn.addEventListener('dblclick', function() { launchWasmApp(app.id); });
+                    // 触控设备单击即可启动
+                    btn.addEventListener('pointerup', function(e) {
+                        if (e.pointerType === 'touch') launchWasmApp(app.id);
+                    });
+                    iconsHost.appendChild(btn);
+                }
+
+                if (startHost) {
+                    var tile = document.createElement('button');
+                    tile.type = 'button';
+                    tile.className = 'start-app-tile';
+                    tile.title = '启动 ' + app.name + ' (支持多开)';
+                    tile.innerHTML =
+                        '<span class="tile-glyph">' + app.iconSvg + '</span>' +
+                        '<span>' + app.name + '</span>';
+                    tile.addEventListener('click', function() {
+                        closeMenus();
+                        launchWasmApp(app.id);
+                    });
+                    startHost.appendChild(tile);
+                }
+            });
+
+            var pinBtn = document.getElementById('ktui-pin-gallery');
+            if (pinBtn) {
+                pinBtn.addEventListener('click', function() {
+                    closeMenus();
+                    launchWasmApp('ktui_gallery');
+                });
+            }
+
+            // 开始按钮与任务栏动作在 shell.html 统一绑定 (避免多实例 WASM 重复绑定)
+            window._ktuiTaskbarBound = true;
+            var bindDeskBtn = function(id, mode) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('click', function() {
+                    closeMenus();
+                    (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(mode); } catch (_) {} });
+                });
+            };
+            bindDeskBtn('ktui-show-desktop', 0);
+            bindDeskBtn('ktui-menu-show-desktop', 1);
+            bindDeskBtn('ktui-menu-restore-all', 2);
+
+            if (startBtn && startMenu) {
+                startBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var willOpen = !startMenu.classList.contains('open');
+                    closeMenus();
+                    if (willOpen) {
+                        updateDesktopBadges();
+                        startMenu.classList.add('open');
+                        startBtn.classList.add('open');
+                    }
+                });
+                document.addEventListener('pointerdown', function(e) {
+                    if (startMenu.classList.contains('open') && !startMenu.contains(e.target) && e.target !== startBtn && !startBtn.contains(e.target)) {
+                        startMenu.classList.remove('open');
+                        startBtn.classList.remove('open');
+                    }
+                    if (ctxMenu && ctxMenu.classList.contains('open') && !ctxMenu.contains(e.target)) {
+                        ctxMenu.classList.remove('open');
+                    }
+                });
+            }
+
+            // 桌面空白区右键菜单
+            if (desktop && ctxMenu) {
+                desktop.addEventListener('contextmenu', function(e) {
+                    if (e.target.closest('.ktui-win') || e.target.closest('#ktui-taskbar')) return;
+                    e.preventDefault();
+                    closeMenus();
+                    ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+                    ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 190) + 'px';
+                    ctxMenu.classList.add('open');
+                });
+                var bindCtx = function(id, fn) {
+                    var el = document.getElementById(id);
+                    if (el) el.addEventListener('click', function() { closeMenus(); fn(); });
+                };
+                bindCtx('ctx-launch-gallery', function() { launchWasmApp('ktui_gallery'); });
+                bindCtx('ctx-multi-gallery', function() { launchWasmApp('ktui_gallery'); });
+                bindCtx('ctx-show-desktop', function() {
+                    (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(1); } catch (_) {} });
+                });
+                bindCtx('ctx-restore-all', function() {
+                    (window._ktuiDesktopActionCbs || []).forEach(function(fn) { try { fn(2); } catch (_) {} });
+                });
+            }
+        })();
+
+        // 时钟
         (function initClock() {
             var timeEl = document.getElementById('ktui-tray-time');
             var dateEl = document.getElementById('ktui-tray-date');
@@ -509,47 +944,13 @@
             setInterval(tick, 5000);
         })();
 
-        var assetVer = '__KTUI_ASSET_VER__';
-        var Module = {
-            locateFile: function(path, prefix) {
-                var url = (prefix || '') + path;
-                if (assetVer && assetVer.indexOf('__KTUI_') !== 0 && url.indexOf('?') === -1) {
-                    return url + '?v=' + assetVer;
-                }
-                return url;
-            },
-            preRun: [],
-            postRun: [function() {
-                if (statusDot) statusDot.className = 'status-dot';
-                if (statusText) statusText.textContent = '运行中 · 60 FPS';
-            }],
-            print: function(text) {
-                console.log('[KerneTile Wasm stdout]', text);
-            },
-            printErr: function(text) {
-                console.error('[KerneTile Wasm stderr]', text);
-                if (text && (text.indexOf('Aborted') !== -1 || text.indexOf('Exception') !== -1) && statusText) {
-                    statusText.textContent = '异常: ' + text;
-                }
-            },
-            setStatus: function(text) {
-                if (!text) return;
-                if (statusText) statusText.textContent = text;
-            },
-            totalDependencies: 0,
-            monitorRunDependencies: function(left) {
-                this.totalDependencies = Math.max(this.totalDependencies, left);
-                if (statusText) {
-                    statusText.textContent = left ? '加载依赖 (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')...' : '初始化引擎...';
-                }
-            }
-        };
-
         window.onerror = function(event) {
             if (statusDot) statusDot.style.backgroundColor = '#f44336';
             if (statusText) statusText.textContent = '运行异常: ' + event;
         };
+
+        // 首次进入桌面自动拉取并启动一个 KTUI Gallery WASM 实例
+        launchWasmApp('ktui_gallery');
     </script>
-    {{{ SCRIPT }}}
 </body>
 </html>

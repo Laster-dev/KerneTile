@@ -74,6 +74,8 @@
 #include <ktui/widgets/radio.hpp>
 #include <ktui/widgets/textbox.hpp>
 #include <ktui/widgets/text_input.hpp>
+#include <ktui/widgets/password_box.hpp>
+#include <ktui/widgets/number_box.hpp>
 #include <ktui/widgets/slider.hpp>
 #include <ktui/widgets/progress_bar.hpp>
 #include <ktui/widgets/progress_ring.hpp>
@@ -84,4 +86,5 @@
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
 #include <ktui/widgets/dropdown_button.hpp>
+#include <ktui/widgets/command_bar.hpp>
 #include <ktui/widgets/navigation_view.hpp>

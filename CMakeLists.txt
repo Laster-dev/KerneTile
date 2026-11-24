@@ -296,16 +296,23 @@ if (ANDROID)
 endif()
 if (EMSCRIPTEN)
     set_target_properties(ktui_gallery PROPERTIES
-        SUFFIX ".html"
+        SUFFIX ".js"
         LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
     )
     target_link_options(ktui_gallery PRIVATE
         "-sALLOW_MEMORY_GROWTH=1"
         "-sNO_EXIT_RUNTIME=1"
+        "-sMODULARIZE=1"
+        "-sEXPORT_NAME=createKtuiApp"
         "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8']"
-        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
     )
     add_custom_command(TARGET ktui_gallery POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
+            "$<TARGET_FILE_DIR:ktui_gallery>/ktui_gallery.html"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
+            "$<TARGET_FILE_DIR:ktui_gallery>/index.html"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/wallpaper_dark.jpg"
             "$<TARGET_FILE_DIR:ktui_gallery>/wallpaper_dark.jpg"
