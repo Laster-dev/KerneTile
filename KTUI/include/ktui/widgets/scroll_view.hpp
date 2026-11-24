@@ -148,7 +148,55 @@ private:
             mark_needs_paint();
         };
 
+        // 隧道预览：识别 Android / Windows / Linux 触控垂直滚动手势 (8px 容差区分点击/水平滑块与垂直滚动)
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (e.device_kind != PointerDeviceKind::Touch) return;
+            if (e.type == PlatformEventType::PointerDown) {
+                // 若触控点落在滚动条区域内，交由滚动条直接处理，不启动内容区触控拖拽
+                Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
+                auto m = m_scrollbar.compute_metrics(vp, m_content_height, m_physics.offset());
+                if (m_scrollbar.hit_test(e.local_position, m) != WinUIScrollBar::HitPart::None) {
+                    m_touch_tracking = false;
+                    m_touch_dragging = false;
+                    return;
+                }
+                // 防御性清理可能残留的滚动条拖拽态
+                m_scrollbar.handle_pointer_up();
+                if (m_physics.max_scroll() > 0.0f) {
+                    m_touch_tracking = true;
+                    m_touch_dragging = false;
+                    m_touch_start_pos = e.position;
+                    m_touch_last_pos = e.position;
+                    m_physics.begin_touch_drag();
+                }
+            } else if (e.type == PlatformEventType::PointerMove && m_touch_tracking && !m_touch_dragging && !m_scrollbar.is_dragging()) {
+                float dx = e.position.x - m_touch_start_pos.x;
+                float dy = e.position.y - m_touch_start_pos.y;
+                if (std::abs(dy) > 8.0f && std::abs(dy) > std::abs(dx) * 1.15f) {
+                    m_touch_dragging = true;
+                    m_physics.apply_touch_drag(e.position.y - m_touch_last_pos.y);
+                    m_touch_last_pos = e.position;
+                    m_scrollbar.notify_activity();
+                    mark_needs_paint();
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                }
+            } else if (e.type == PlatformEventType::PointerUp) {
+                m_touch_tracking = false;
+                m_touch_dragging = false;
+            }
+        };
+
         on_pointer_move = [this](PointerEvent& e) {
+            if (m_touch_dragging && e.device_kind == PointerDeviceKind::Touch) {
+                float dy = e.position.y - m_touch_last_pos.y;
+                m_touch_last_pos = e.position;
+                m_physics.apply_touch_drag(dy);
+                m_scrollbar.notify_activity();
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
             Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
             if (e.type == PlatformEventType::PointerScroll) {
                 if (m_physics.max_scroll() > 0.0f) {
@@ -177,7 +225,18 @@ private:
         };
 
         on_pointer_up = [this](PointerEvent& e) {
-            if (m_scrollbar.handle_pointer_up()) {
+            bool sb_released = m_scrollbar.handle_pointer_up();
+            if (m_touch_dragging) {
+                m_touch_dragging = false;
+                m_touch_tracking = false;
+                m_physics.end_touch_drag();
+                m_scrollbar.notify_activity();
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
+            m_touch_tracking = false;
+            if (sb_released) {
                 mark_needs_paint();
                 e.stop_propagation();
             }
@@ -189,6 +248,10 @@ private:
     float m_max_height{0.0f};
     float m_content_height{0.0f};
     bool m_viewport_hovered{false};
+    bool m_touch_tracking{false};
+    bool m_touch_dragging{false};
+    PointF m_touch_start_pos{0.0f, 0.0f};
+    PointF m_touch_last_pos{0.0f, 0.0f};
     std::shared_ptr<RenderBox> m_child_box;
     SmoothScrollPhysics m_physics;
     WinUIScrollBar m_scrollbar;

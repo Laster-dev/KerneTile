@@ -210,6 +210,23 @@ private:
             float total_h = static_cast<float>(m_items.size()) * m_item_height;
             Rect sb_vp = scrollbar_viewport();
 
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_down) {
+                float dy_total = e.local_position.y - m_touch_start_y;
+                if (!m_touch_dragging && std::abs(dy_total) > 8.0f && m_scroll.max_scroll() > 0.0f) {
+                    m_touch_dragging = true;
+                    m_pressed_index = -1;
+                }
+                if (m_touch_dragging) {
+                    float dy = e.local_position.y - m_touch_last_y;
+                    m_touch_last_y = e.local_position.y;
+                    m_scroll.apply_touch_drag(dy);
+                    m_scrollbar.notify_activity();
+                    mark_needs_paint();
+                    e.stop_propagation();
+                    return;
+                }
+            }
+
             if (e.type == PlatformEventType::PointerScroll) {
                 if (m_scroll.max_scroll() > 0.0f) {
                     m_scroll.add_wheel_delta(e.delta.y);
@@ -260,6 +277,13 @@ private:
                 e.stop_propagation();
                 return;
             }
+            if (e.device_kind == PointerDeviceKind::Touch) {
+                m_touch_down = true;
+                m_touch_dragging = false;
+                m_touch_start_y = e.local_position.y;
+                m_touch_last_y = e.local_position.y;
+                m_scroll.begin_touch_drag();
+            }
             int idx = hit_test_item_index(e.local_position.y);
             if (idx >= 0 && !m_items[static_cast<size_t>(idx)].disabled) {
                 m_pressed_index = idx;
@@ -269,7 +293,20 @@ private:
         };
 
         on_pointer_up = [this](PointerEvent& e) {
-            if (m_scrollbar.handle_pointer_up()) {
+            bool sb_released = m_scrollbar.handle_pointer_up();
+            if (m_touch_down) {
+                bool was_dragging = m_touch_dragging;
+                m_touch_down = false;
+                m_touch_dragging = false;
+                if (was_dragging) {
+                    m_scroll.end_touch_drag();
+                    m_scrollbar.notify_activity();
+                    mark_needs_paint();
+                    e.stop_propagation();
+                    return;
+                }
+            }
+            if (sb_released) {
                 mark_needs_paint();
                 e.stop_propagation();
                 return;
@@ -307,6 +344,10 @@ private:
     bool m_open_upward{false};
     bool m_popup_hovered{false};
     bool m_initialized_scroll{false};
+    bool m_touch_down{false};
+    bool m_touch_dragging{false};
+    float m_touch_start_y{0.0f};
+    float m_touch_last_y{0.0f};
     SmoothScrollPhysics m_scroll;
     WinUIScrollBar m_scrollbar;
     float m_open_progress{0.0f};

@@ -6,6 +6,8 @@
 
 namespace ktui {
 
+class RenderBox;
+
 // UI 统一事件基类 (支持冒泡与捕获阻断)
 class UIEvent {
 public:
@@ -42,6 +44,9 @@ public:
     PointF local_position{0.0f, 0.0f};    // 针对当前目标控件自身的局部坐标
     Vec2 delta{0.0f, 0.0f};               // 滚轮或位移增量
     PointerButton button = PointerButton::None;
+    PointerDeviceKind device_kind = PointerDeviceKind::Mouse;
+    uint32_t pointer_id{0};
+    RenderBox* gesture_capture_target{nullptr}; // 祖先手势识别器 (ScrollView / NavigationView) 声明独占捕获
     KeyModifiers modifiers;
     uint64_t timestamp_ms{0};
 

@@ -24,11 +24,20 @@ public:
 
     // 采样当前窗口屏幕位置对应的 4x4 打包 RGBA8 云母色场
     // monitor_uv_rect: 窗口在当前显示器上的归一化区域 [0..1]
+    // active_factor: 窗口聚焦激活权重 [0.0 = 完全失焦纯色, 1.0 = 完全聚焦云母]，支持平滑渐入渐出
+    static bool build_mica_grid(WindowBackdrop backdrop,
+                                bool is_dark,
+                                float active_factor,
+                                Rect monitor_uv_rect,
+                                std::array<uint32_t, 16>& out_grid);
+
     static bool build_mica_grid(WindowBackdrop backdrop,
                                 bool is_dark,
                                 bool is_active,
                                 Rect monitor_uv_rect,
-                                std::array<uint32_t, 16>& out_grid);
+                                std::array<uint32_t, 16>& out_grid) {
+        return build_mica_grid(backdrop, is_dark, is_active ? 1.0f : 0.0f, monitor_uv_rect, out_grid);
+    }
 };
 
 } // namespace ktui

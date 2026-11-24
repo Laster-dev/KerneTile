@@ -19,11 +19,63 @@ public:
     void dispatch_pointer_event(RenderBox* root, PointerEvent& event) {
         if (!root) return;
 
+        // ==================== 0. 独占触控手势捕获快速通道 ====================
+        if (m_gesture_captured && m_active_target &&
+            (event.type == PlatformEventType::PointerMove || event.type == PlatformEventType::PointerUp)) {
+            Vec2 abs_off = m_active_target->global_offset();
+            event.local_position = event.position - abs_off;
+            if (event.type == PlatformEventType::PointerMove && m_active_target->on_pointer_move) {
+                m_active_target->on_pointer_move(event);
+            } else if (event.type == PlatformEventType::PointerUp) {
+                if (m_active_target->on_pointer_up) {
+                    m_active_target->on_pointer_up(event);
+                }
+                m_active_target->is_active = false;
+                m_active_target = nullptr;
+                m_gesture_captured = false;
+            }
+            return;
+        }
+
         HitTestResult result;
         root->hit_test(result, event.position);
 
+        // ==================== 0.5 隧道预览阶段 (Root -> Leaf，供触控滚动与边缘滑动手势识别) ====================
+        if (event.type == PlatformEventType::PointerDown ||
+            event.type == PlatformEventType::PointerMove ||
+            event.type == PlatformEventType::PointerUp) {
+            const auto& path = result.path();
+            for (auto it = path.rbegin(); it != path.rend(); ++it) {
+                RenderBox* target = it->target;
+                if (!target || !target->on_pointer_preview) continue;
+                event.local_position = it->local_position;
+                target->on_pointer_preview(event);
+                if (event.gesture_capture_target != nullptr) {
+                    RenderBox* capturer = event.gesture_capture_target;
+                    // 取消先前被手指按下的底层子控件 (例如 Button/Toggle)，防止滚动后误触发点击
+                    if (m_active_target && m_active_target != capturer) {
+                        RenderBox* prev = m_active_target;
+                        prev->is_active = false;
+                        prev->is_hovered = false;
+                        if (prev->on_pointer_exit) {
+                            PointerEvent cancel_ev = event;
+                            cancel_ev.type = PlatformEventType::PointerMove;
+                            prev->on_pointer_exit(cancel_ev);
+                        }
+                    }
+                    m_active_target = capturer;
+                    m_active_target->is_active = true;
+                    m_gesture_captured = true;
+                    return;
+                }
+                if (event.is_propagation_stopped()) {
+                    return;
+                }
+            }
+        }
+
         // ==================== 1. Hover 状态流转管理 ====================
-        if (event.type == PlatformEventType::PointerMove) {
+        if (event.type == PlatformEventType::PointerMove && event.device_kind != PointerDeviceKind::Touch) {
             std::unordered_set<RenderBox*> current_targets;
             for (const auto& entry : result.path()) {
                 current_targets.insert(entry.target);
@@ -121,6 +173,7 @@ public:
                 m_active_target->is_active = false;
                 m_active_target = nullptr;
             }
+            m_gesture_captured = false;
         }
     }
 
@@ -150,17 +203,20 @@ public:
         m_hovered_nodes.erase(node);
         if (m_active_target == node) {
             m_active_target = nullptr;
+            m_gesture_captured = false;
         }
     }
 
     void clear() {
         m_hovered_nodes.clear();
         m_active_target = nullptr;
+        m_gesture_captured = false;
     }
 
 private:
     std::unordered_set<RenderBox*> m_hovered_nodes;
     RenderBox* m_active_target{nullptr};
+    bool m_gesture_captured{false};
 };
 
 } // namespace ktui

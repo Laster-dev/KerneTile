@@ -50,6 +50,47 @@ public:
         m_target = clamped;
         m_velocity = 0.0;
         m_animating = false;
+        m_flinging = false;
+    }
+
+    // 触控手指直接拖拽 (1:1 跟手 + 速度追踪)
+    void begin_touch_drag() noexcept {
+        m_animating = false;
+        m_flinging = false;
+        m_velocity = 0.0;
+        m_target = m_current;
+        m_fling_last_time = std::chrono::steady_clock::now();
+    }
+
+    void apply_touch_drag(float finger_delta_y) noexcept {
+        auto now = std::chrono::steady_clock::now();
+        double dt = std::chrono::duration<double>(now - m_fling_last_time).count();
+        m_fling_last_time = now;
+
+        // 手指向上滑 (finger_delta_y < 0) -> 滚动偏移量增大
+        double prev = m_current;
+        m_current = std::clamp(m_current - static_cast<double>(finger_delta_y), 0.0, m_max_scroll);
+        m_target = m_current;
+        m_start = m_current;
+        m_animating = false;
+        m_flinging = false;
+
+        if (dt > 0.001 && dt < 0.15) {
+            double inst_v = (m_current - prev) / dt;
+            m_velocity = m_velocity * 0.35 + inst_v * 0.65;
+        }
+    }
+
+    void end_touch_drag() noexcept {
+        if (std::abs(m_velocity) < 60.0) {
+            m_velocity = 0.0;
+            m_flinging = false;
+            return;
+        }
+        m_velocity = std::clamp(m_velocity, -4800.0, 4800.0);
+        m_flinging = true;
+        m_animating = false;
+        m_fling_last_time = std::chrono::steady_clock::now();
     }
 
     // 相对增量平滑滚动
@@ -110,6 +151,38 @@ public:
 
     // 每帧推进物理状态，返回 true 表示仍在动画中
     bool update() noexcept {
+        if (m_flinging) {
+            auto now = std::chrono::steady_clock::now();
+            double dt = std::clamp(std::chrono::duration<double>(now - m_fling_last_time).count(), 0.0, 0.05);
+            m_fling_last_time = now;
+            // 指数摩擦衰减 (Android / iOS 触控惯性手感)
+            constexpr double kFriction = 3.8;
+            double decay = std::exp(-kFriction * dt);
+            double next = m_current + m_velocity * dt;
+            if (next <= 0.0) {
+                m_current = 0.0;
+                m_target = 0.0;
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+            if (next >= m_max_scroll) {
+                m_current = m_max_scroll;
+                m_target = m_max_scroll;
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+            m_current = next;
+            m_target = next;
+            m_velocity *= decay;
+            if (std::abs(m_velocity) < 18.0) {
+                m_velocity = 0.0;
+                m_flinging = false;
+                return false;
+            }
+            return true;
+        }
         if (!m_animating) return false;
         return step_internal(std::chrono::steady_clock::now());
     }
@@ -218,7 +291,9 @@ private:
     double m_velocity{0.0};
     double m_duration{0.2};
     bool m_animating{false};
+    bool m_flinging{false};
     std::chrono::steady_clock::time_point m_start_time;
+    std::chrono::steady_clock::time_point m_fling_last_time;
 };
 
 } // namespace ktui

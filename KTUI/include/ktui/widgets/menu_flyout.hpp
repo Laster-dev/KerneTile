@@ -284,7 +284,29 @@ public:
                 if (win) win_pos.y += win->titlebar_height();
                 MenuFlyout::show_at(m_items, win_pos);
                 e.stop_propagation();
+                return;
             }
+            if (e.device_kind == PointerDeviceKind::Touch && !m_items.empty()) {
+                m_touch_hold_active = true;
+                m_touch_hold_triggered = false;
+                m_touch_hold_pos = e.position;
+                m_touch_hold_start = std::chrono::steady_clock::now();
+                mark_needs_paint();
+            }
+        };
+        on_pointer_move = [this](PointerEvent& e) {
+            if (m_touch_hold_active && e.device_kind == PointerDeviceKind::Touch) {
+                float dist = std::hypot(e.position.x - m_touch_hold_pos.x, e.position.y - m_touch_hold_pos.y);
+                if (dist > 10.0f) {
+                    m_touch_hold_active = false;
+                }
+            }
+        };
+        on_pointer_up = [this](PointerEvent&) {
+            m_touch_hold_active = false;
+        };
+        on_pointer_exit = [this](PointerEvent&) {
+            m_touch_hold_active = false;
         };
     }
 
@@ -313,12 +335,29 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
+        if (m_touch_hold_active && !m_touch_hold_triggered && !m_items.empty()) {
+            float held = std::chrono::duration<float>(std::chrono::steady_clock::now() - m_touch_hold_start).count();
+            if (held >= 0.45f) {
+                m_touch_hold_triggered = true;
+                m_touch_hold_active = false;
+                Window* win = Window::active_window();
+                Vec2 win_pos = m_touch_hold_pos;
+                if (win) win_pos.y += win->titlebar_height();
+                MenuFlyout::show_at(m_items, win_pos);
+            } else {
+                mark_needs_paint();
+            }
+        }
         if (m_child_box) m_child_box->paint(ctx);
     }
 
 private:
     std::vector<MenuFlyoutItem> m_items;
     std::shared_ptr<RenderBox> m_child_box;
+    bool m_touch_hold_active{false};
+    bool m_touch_hold_triggered{false};
+    Vec2 m_touch_hold_pos{0.0f, 0.0f};
+    std::chrono::steady_clock::time_point m_touch_hold_start{};
 };
 
 struct ContextMenuArea {

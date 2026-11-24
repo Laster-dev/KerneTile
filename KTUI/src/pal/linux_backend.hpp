@@ -22,6 +22,9 @@
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/cursorfont.h>
+#if defined(KTUI_HAS_XI2)
+#include <X11/extensions/XInput2.h>
+#endif
 #include <poll.h>
 
 #ifdef CursorShape
@@ -263,6 +266,27 @@ public:
                                       static_cast<uint32_t>(phys_w),
                                       static_cast<uint32_t>(phys_h),
                                       0, depth, InputOutput, visual, CWEventMask, &swa);
+
+#if defined(KTUI_HAS_XI2)
+            // 启用 XInput2 触控事件 (XI_TouchBegin / XI_TouchUpdate / XI_TouchEnd)
+            {
+                int xi_opcode = 0, xi_event = 0, xi_error = 0;
+                if (XQueryExtension(m_display, "XInputExtension", &xi_opcode, &xi_event, &xi_error)) {
+                    int major = 2, minor = 2;
+                    if (XIQueryVersion(m_display, &major, &minor) == Success && (major > 2 || (major == 2 && minor >= 2))) {
+                        unsigned char mask_bytes[XIMaskLen(XI_LASTEVENT)] = {0};
+                        XISetMask(mask_bytes, XI_TouchBegin);
+                        XISetMask(mask_bytes, XI_TouchUpdate);
+                        XISetMask(mask_bytes, XI_TouchEnd);
+                        XIEventMask evmask{};
+                        evmask.deviceid = XIAllMasterDevices;
+                        evmask.mask_len = sizeof(mask_bytes);
+                        evmask.mask = mask_bytes;
+                        XISelectEvents(m_display, m_xwindow, &evmask, 1);
+                    }
+                }
+            }
+#endif
 
             // 1. 设置窗口标题 (兼容 Latin-1 与 UTF-8 EWMH)
             XStoreName(m_display, m_xwindow, m_title.c_str());
@@ -994,6 +1018,41 @@ public:
                 }
 
                 switch (ev.type) {
+#if defined(KTUI_HAS_XI2)
+                    case GenericEvent: {
+                        XGenericEventCookie* cookie = &ev.xcookie;
+                        if (XGetEventData(m_display, cookie)) {
+                            if (cookie->evtype == XI_TouchBegin ||
+                                cookie->evtype == XI_TouchUpdate ||
+                                cookie->evtype == XI_TouchEnd) {
+                                auto* dev = static_cast<XIDeviceEvent*>(cookie->data);
+                                if (dev && m_event_callback) {
+                                    float inv_dpi = 1.0f;
+                                    if (auto it = m_windows_map.find(dev->event); it != m_windows_map.end() && it->second && it->second->dpi_scale() > 0.0f) {
+                                        inv_dpi = 1.0f / it->second->dpi_scale();
+                                    }
+                                    PlatformEvent pe;
+                                    pe.window_handle = reinterpret_cast<void*>(dev->event);
+                                    pe.position = PointF{static_cast<float>(dev->event_x) * inv_dpi, static_cast<float>(dev->event_y) * inv_dpi};
+                                    pe.device_kind = PointerDeviceKind::Touch;
+                                    pe.pointer_id = static_cast<uint32_t>(dev->detail);
+                                    if (cookie->evtype == XI_TouchBegin) {
+                                        pe.type = PlatformEventType::PointerDown;
+                                        pe.button = PointerButton::Primary;
+                                    } else if (cookie->evtype == XI_TouchUpdate) {
+                                        pe.type = PlatformEventType::PointerMove;
+                                    } else {
+                                        pe.type = PlatformEventType::PointerUp;
+                                        pe.button = PointerButton::Primary;
+                                    }
+                                    m_event_callback(pe);
+                                }
+                            }
+                            XFreeEventData(m_display, cookie);
+                        }
+                        break;
+                    }
+#endif
                     case ConfigureNotify: {
                         auto it = m_windows_map.find(ev.xconfigure.window);
                         if (it != m_windows_map.end() && it->second) {

@@ -272,6 +272,8 @@ void AndroidBackend::on_touch(int action, float phys_x, float phys_y) {
     pe.window_handle = target->get_native_handle();
     pe.position = Vec2{phys_x * inv_dpi, phys_y * inv_dpi};
     pe.button = PointerButton::Primary;
+    pe.device_kind = PointerDeviceKind::Touch;
+    pe.pointer_id = 1;
     pe.timestamp_ms = now_ms();
 
     // MotionEvent: ACTION_DOWN = 0, ACTION_UP = 1, ACTION_MOVE = 2, ACTION_CANCEL = 3

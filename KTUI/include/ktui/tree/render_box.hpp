@@ -128,6 +128,7 @@ public:
     bool is_focusable{false};
     CursorShape cursor_shape{CursorShape::Arrow};
 
+    std::function<void(PointerEvent&)> on_pointer_preview; // 隧道/捕获阶段预览回调 (供触控滚动与边缘滑动手势识别)
     std::function<void(PointerEvent&)> on_pointer_down;
     std::function<void(PointerEvent&)> on_pointer_up;
     std::function<void(PointerEvent&)> on_pointer_move;

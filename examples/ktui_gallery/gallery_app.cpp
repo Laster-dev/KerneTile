@@ -13,11 +13,10 @@ void GalleryApp::refresh_count() {
 
 WidgetPtr GalleryApp::make_card(WidgetPtr child) {
     return Box {
-        .background_color = Bind(card_bg),
-        .border_color = Bind(card_border),
         .border_width = 1.0f,
         .corner_radius = 6.0f,
         .padding = EdgeInsets(12.0f, 14.0f),
+        .theme_card = true,
         .child = std::move(child)
     };
 }

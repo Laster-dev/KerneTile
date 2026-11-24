@@ -78,6 +78,26 @@ public:
     }
 
     void set_theme(const Theme& t) {
+        Theme old_t = theme.get();
+        if (old_t.is_dark != t.is_dark) {
+            for (auto& win : m_windows) {
+                if (win && !win->is_closed()) {
+                    win->start_theme_ripple(old_t, t, win->last_pointer_pos());
+                }
+            }
+        }
+        theme.set(t);
+    }
+
+    void set_theme_with_ripple(const Theme& t, Vec2 origin) {
+        Theme old_t = theme.get();
+        if (old_t.is_dark != t.is_dark) {
+            for (auto& win : m_windows) {
+                if (win && !win->is_closed()) {
+                    win->start_theme_ripple(old_t, t, origin);
+                }
+            }
+        }
         theme.set(t);
     }
 

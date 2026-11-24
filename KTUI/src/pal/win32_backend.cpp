@@ -1066,9 +1066,20 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
             pe.modifiers.ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             pe.modifiers.alt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
             const float inv_dpi = (win->dpi_scale() > 0.0f) ? (1.0f / win->dpi_scale()) : 1.0f;
+            auto detect_pointer_kind = []() noexcept -> PointerDeviceKind {
+                constexpr LPARAM kTouchPenMask = 0xFFFFFF00L;
+                constexpr LPARAM kTouchPenSig  = 0xFF515700L;
+                LPARAM extra = GetMessageExtraInfo();
+                if ((extra & kTouchPenMask) == kTouchPenSig) {
+                    return (extra & 0x80L) ? PointerDeviceKind::Touch : PointerDeviceKind::Pen;
+                }
+                return PointerDeviceKind::Mouse;
+            };
+
             switch (msg) {
                 case WM_MOUSEMOVE:
                     pe.type = PlatformEventType::PointerMove;
+                    pe.device_kind = detect_pointer_kind();
                     pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
                                        static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
@@ -1076,6 +1087,7 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                 case WM_LBUTTONDOWN:
                     pe.type = PlatformEventType::PointerDown;
                     pe.button = PointerButton::Primary;
+                    pe.device_kind = detect_pointer_kind();
                     pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
                                        static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);
@@ -1083,6 +1095,7 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
                 case WM_LBUTTONUP:
                     pe.type = PlatformEventType::PointerUp;
                     pe.button = PointerButton::Primary;
+                    pe.device_kind = detect_pointer_kind();
                     pe.position = Vec2{static_cast<float>(static_cast<short>(LOWORD(lparam))) * inv_dpi,
                                        static_cast<float>(static_cast<short>(HIWORD(lparam))) * inv_dpi};
                     s_instance->dispatch_platform_event(pe);

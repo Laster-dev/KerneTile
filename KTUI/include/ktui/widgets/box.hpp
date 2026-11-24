@@ -5,6 +5,7 @@
 #include <ktui/binding/binding.hpp>
 #include <ktui/layout/box_constraints.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/theme/theme_scope.hpp>
 #include <memory>
 
 namespace ktui {
@@ -76,14 +77,25 @@ public:
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
     }
 
+    void set_theme_card(bool v) {
+        if (m_theme_card != v) { m_theme_card = v; mark_needs_paint(); }
+    }
+
     void paint(PaintContext& context) override {
+        Color bg = m_background_color;
+        Color bd = m_border_color;
+        if (m_theme_card) {
+            const bool is_dark = ThemeContext::current().is_dark;
+            bg = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.045f} : Color{1.0f, 1.0f, 1.0f, 0.65f};
+            bd = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.07f}  : Color{0.0f, 0.0f, 0.0f, 0.07f};
+        }
         // 1. 绘制自身实心背景
-        if (m_background_color.a > 0.001f) {
-            context.draw_rect(bounds(), m_background_color, m_corner_radius, 0.0f);
+        if (bg.a > 0.001f) {
+            context.draw_rect(bounds(), bg, m_corner_radius, 0.0f);
         }
         // 2. 绘制 1px 细边框
-        if (m_border_width > 0.0f && m_border_color.a > 0.001f) {
-            context.draw_rect(bounds(), m_border_color, m_corner_radius, m_border_width);
+        if (m_border_width > 0.0f && bd.a > 0.001f) {
+            context.draw_rect(bounds(), bd, m_corner_radius, m_border_width);
         }
         // 3. 递归绘制子节点 (默认施加硬件级圆角矩形裁剪，严防内容溢出容器)
         if (m_clip_content) {
@@ -113,6 +125,7 @@ private:
     float m_corner_radius{0.0f};
     EdgeInsets m_padding{EdgeInsets::zero()};
     bool m_clip_content{true};
+    bool m_theme_card{false};
     std::shared_ptr<RenderBox> m_child_box{nullptr};
 };
 
@@ -128,6 +141,7 @@ struct Box {
     Bindable<float> border_width{0.0f};
     Bindable<float> corner_radius{0.0f}; // 桌面级克制圆角 (0px 直角或 2~4px 微圆角)
     Bindable<EdgeInsets> padding{EdgeInsets::zero()};
+    bool theme_card{false};              // 自动跟随 ThemeContext::current() 渲染卡片底色与描边 (支持涟漪主题无缝过渡)
     WidgetPtr child{nullptr};
     Bindable<bool> clip_content{true};   // 是否对子节点施加硬件视口裁剪
 
@@ -180,6 +194,7 @@ private:
             m_desc.width.get(), m_desc.height.get(), m_desc.background_color.get(),
             m_desc.border_color.get(), m_desc.border_width.get(),
             m_desc.corner_radius.get(), m_desc.padding.get(), m_desc.clip_content.get());
+        dec_box->set_theme_card(m_desc.theme_card);
     }
 
     void bind_all(const std::shared_ptr<RenderDecoratedBox>& dec_box) {

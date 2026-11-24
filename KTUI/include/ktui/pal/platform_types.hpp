@@ -113,6 +113,13 @@ enum class PointerButton {
     Auxiliary   // 鼠标滚轮中键
 };
 
+// 指针输入设备类别 (区分鼠标、触控屏手指、手写笔)
+enum class PointerDeviceKind : uint8_t {
+    Mouse = 0,
+    Touch = 1,
+    Pen   = 2
+};
+
 // 跨平台统一输入与系统事件类型
 enum class PlatformEventType {
     PointerDown,
@@ -138,6 +145,8 @@ struct PlatformEvent {
     Vec2 position = {0.0f, 0.0f};      // 局部或全局坐标
     Vec2 delta = {0.0f, 0.0f};         // 移动位移或滚轮偏移
     PointerButton button = PointerButton::None;
+    PointerDeviceKind device_kind = PointerDeviceKind::Mouse;
+    uint32_t pointer_id = 0;           // 触控指点 ID (支持多点触控区分)
     uint32_t key_code = 0;             // KTUI 虚拟键值，与 Windows VK 值一致
     std::string text;                  // 提交字符或拼音预编辑文本
     KeyModifiers modifiers;

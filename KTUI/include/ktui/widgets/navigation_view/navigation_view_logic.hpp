@@ -654,10 +654,18 @@ private:
         ctx.draw_rounded_rect(surf, style.content_surface_bg, tl_rad, 0.0f, 0.0f, 0.0f);
 
         if (style.content_surface_border.a > 0.001f) {
-            ctx.draw_rect(Rect::from_xywh(surf.min_x + tl_rad, surf.min_y, std::max(0.0f, surf.width() - tl_rad), 1.0f),
-                          style.content_surface_border, 0.0f, 0.0f);
-            if (eff != NavigationPaneDisplayMode::Top && eff != NavigationPaneDisplayMode::LeftMinimal) {
-                ctx.draw_rect(Rect::from_xywh(surf.min_x, surf.min_y + tl_rad, 1.0f, std::max(0.0f, surf.height() - tl_rad)),
+            if (tl_rad > 0.0f) {
+                // 使用带左上角独立圆角的 1px 完整描边，右/下侧外扩 4px 并裁剪到 surf，
+                // 让 1px 边框顺着左上圆角弧线连续无缝绘制，绝不在圆角处截断
+                ctx.push_clip(surf, 0.0f);
+                ctx.draw_rounded_rect(
+                    Rect::from_xywh(surf.min_x, surf.min_y, surf.width() + 4.0f, surf.height() + 4.0f),
+                    style.content_surface_border,
+                    tl_rad, 0.0f, 0.0f, 0.0f,
+                    0.0f, Vec2{0.0f, 0.0f}, 1.0f);
+                ctx.pop_clip();
+            } else {
+                ctx.draw_rect(Rect::from_xywh(surf.min_x, surf.min_y, surf.width(), 1.0f),
                               style.content_surface_border, 0.0f, 0.0f);
             }
         }
@@ -1166,7 +1174,77 @@ private:
     }
 
     void setup_behavior() {
+        // 隧道预览：识别 Android / Windows / Linux 触控边缘右滑展开、左滑收起与侧边栏列表触控滚动
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (e.device_kind != PointerDeviceKind::Touch) return;
+            const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
+            if (eff == NavigationPaneDisplayMode::Top) return;
+
+            if (e.type == PlatformEventType::PointerDown) {
+                m_touch_tracking = true;
+                m_touch_mode = TouchGestureMode::None;
+                m_touch_start_local = e.local_position;
+                m_touch_last_local = e.local_position;
+                if (m_menu_scroll.max_scroll() > 0.0f) {
+                    m_menu_scroll.begin_touch_drag();
+                }
+            } else if (e.type == PlatformEventType::PointerMove && m_touch_tracking && m_touch_mode == TouchGestureMode::None) {
+                float dx = e.local_position.x - m_touch_start_local.x;
+                float dy = e.local_position.y - m_touch_start_local.y;
+                const float pane_w = current_pane_width(eff);
+
+                // 1. 左边缘右滑直接展开侧边栏 (任意模式关闭态从左侧 <= 36px 右滑 > 20px)
+                if (!m_data.is_pane_open && m_touch_start_local.x <= 36.0f &&
+                    dx > 20.0f && std::abs(dx) > std::abs(dy) * 1.2f) {
+                    m_touch_mode = TouchGestureMode::EdgeSwipe;
+                    set_pane_open(true, true);
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                    return;
+                }
+                // 2. 侧边栏展开态向左滑直接收起 (dx < -28px)
+                if (m_data.is_pane_open && m_touch_start_local.x <= pane_w + 24.0f &&
+                    dx < -28.0f && std::abs(dx) > std::abs(dy) * 1.2f) {
+                    m_touch_mode = TouchGestureMode::EdgeSwipe;
+                    set_pane_open(false, true);
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                    return;
+                }
+                // 3. 侧边栏菜单列表垂直触控拖拽滚动 (避开滚动条区域)
+                Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
+                auto sb_m = m_menu_scrollbar.compute_metrics(menu_vp, compute_left_menu_total_height(), m_menu_scroll.offset());
+                bool on_sb = (m_menu_scrollbar.hit_test(m_touch_start_local, sb_m) != WinUIScrollBar::HitPart::None);
+                if (!on_sb && !m_menu_scrollbar.is_dragging() &&
+                    menu_vp.contains(m_touch_start_local) && m_menu_scroll.max_scroll() > 0.0f &&
+                    std::abs(dy) > 8.0f && std::abs(dy) > std::abs(dx) * 1.15f) {
+                    m_touch_mode = TouchGestureMode::MenuScroll;
+                    m_menu_scroll.apply_touch_drag(e.local_position.y - m_touch_last_local.y);
+                    m_touch_last_local = e.local_position;
+                    m_menu_scrollbar.notify_activity();
+                    mark_needs_paint();
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                    return;
+                }
+            } else if (e.type == PlatformEventType::PointerUp) {
+                m_touch_tracking = false;
+                m_touch_mode = TouchGestureMode::None;
+            }
+        };
+
         on_pointer_move = [this](PointerEvent& e) {
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_mode != TouchGestureMode::None) {
+                if (m_touch_mode == TouchGestureMode::MenuScroll) {
+                    float dy = e.local_position.y - m_touch_last_local.y;
+                    m_touch_last_local = e.local_position;
+                    m_menu_scroll.apply_touch_drag(dy);
+                    m_menu_scrollbar.notify_activity();
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+                return;
+            }
             const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
 
             if (e.type == PlatformEventType::PointerScroll && eff != NavigationPaneDisplayMode::Top) {
@@ -1304,7 +1382,21 @@ private:
         };
 
         on_pointer_up = [this](PointerEvent& e) {
-            if (m_menu_scrollbar.handle_pointer_up()) {
+            bool sb_released = m_menu_scrollbar.handle_pointer_up();
+            if (m_touch_mode != TouchGestureMode::None) {
+                if (m_touch_mode == TouchGestureMode::MenuScroll) {
+                    m_menu_scroll.end_touch_drag();
+                    m_menu_scrollbar.notify_activity();
+                    mark_needs_paint();
+                }
+                m_touch_mode = TouchGestureMode::None;
+                m_touch_tracking = false;
+                e.stop_propagation();
+                return;
+            }
+            m_touch_tracking = false;
+
+            if (sb_released) {
                 mark_needs_paint();
                 e.stop_propagation();
                 return;
@@ -1484,6 +1576,12 @@ private:
     float m_settings_spin_base{0.0f};
     float m_settings_gear_angle{0.0f};
     float m_page_enter_progress{1.0f};
+
+    enum class TouchGestureMode : uint8_t { None, EdgeSwipe, MenuScroll };
+    bool m_touch_tracking{false};
+    TouchGestureMode m_touch_mode{TouchGestureMode::None};
+    PointF m_touch_start_local{0.0f, 0.0f};
+    PointF m_touch_last_local{0.0f, 0.0f};
 
     SmoothScrollPhysics m_menu_scroll;
     WinUIScrollBar m_menu_scrollbar;

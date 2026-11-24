@@ -237,7 +237,7 @@ void MicaBackdropEngine::invalidate_wallpaper() noexcept {
 
 bool MicaBackdropEngine::build_mica_grid(WindowBackdrop backdrop,
                                          bool is_dark,
-                                         bool is_active,
+                                         float active_factor,
                                          Rect monitor_uv_rect,
                                          std::array<uint32_t, 16>& out_grid) {
     if (backdrop == WindowBackdrop::None) {
@@ -261,16 +261,19 @@ bool MicaBackdropEngine::build_mica_grid(WindowBackdrop backdrop,
         }
     }
 
-    // 失焦时按 Windows 11 / CUI.Core 规范退化为纯净主题底色
-    if (!is_active) {
+    const float clamped_active = std::clamp(active_factor, 0.0f, 1.0f);
+
+    // 完全失焦时按 Windows 11 / CUI.Core 规范退化为纯净主题底色
+    if (clamped_active <= 0.001f) {
         const uint32_t solid = pack_rgba8(base_r, base_g, base_b, 1.0f);
         out_grid.fill(solid);
         return true;
     }
 
-    const float wp_opacity = (backdrop == WindowBackdrop::MicaAlt)
+    const float base_wp_opacity = (backdrop == WindowBackdrop::MicaAlt)
         ? (is_dark ? 0.34f : 0.38f)
         : (is_dark ? 0.20f : 0.24f);
+    const float wp_opacity = base_wp_opacity * clamped_active;
 
     auto& c = cache();
     std::lock_guard<std::mutex> lock(c.mutex);

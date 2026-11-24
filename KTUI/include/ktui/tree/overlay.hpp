@@ -138,7 +138,7 @@ public:
 
     // 处理鼠标按下事件（由 Window::handle_platform_event 优先调用）
     // 返回 true 表示事件被浮层或阻断遮罩消费
-    bool handle_pointer_down(Vec2 pos, PointerButton button) {
+    bool handle_pointer_down(Vec2 pos, PointerButton button, PointerDeviceKind device_kind = PointerDeviceKind::Mouse) {
         if (m_entries.empty()) return false;
 
         // 逆序从最顶层浮层向下测试
@@ -156,6 +156,7 @@ public:
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
                 if (entry.content->hit_test(hit_res, local_p)) {
                     PointerEvent ev(PlatformEventType::PointerDown, pos, button);
+                    ev.device_kind = device_kind;
                     for (const auto& h : hit_res.path()) {
                         if (h.target && h.target->on_pointer_down) {
                             PointerEvent tev = ev;
@@ -182,15 +183,16 @@ public:
         return false;
     }
 
-    // 处理鼠标移动事件
-    bool handle_pointer_move(Vec2 pos) {
+    // 处理鼠标/触控移动事件
+    bool handle_pointer_move(Vec2 pos, PointerDeviceKind device_kind = PointerDeviceKind::Mouse) {
         if (m_entries.empty()) return false;
 
-        // 若当前存在拖拽捕获浮层（如拖拽浮层内的滚动条滑块），即使指针移出浮层边界仍持续转发 Move
+        // 若当前存在拖拽捕获浮层（如拖拽浮层内的滚动条滑块或触控拖拽），即使指针移出浮层边界仍持续转发 Move
         if (m_captured_id != 0) {
             for (auto& entry : m_entries) {
                 if (entry.id == m_captured_id && entry.content && entry.content->on_pointer_move) {
                     PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                    ev.device_kind = device_kind;
                     ev.local_position = PointF{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
                     entry.content->on_pointer_move(ev);
                     return true;

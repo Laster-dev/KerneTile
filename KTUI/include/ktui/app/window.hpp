@@ -9,12 +9,16 @@
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/mica_backdrop.hpp>
+#include <ktui/theme/theme_scope.hpp>
 #include <kernetile/renderer.hpp>
 #include <string>
 #include <memory>
 #include <vector>
 #include <functional>
 #include <atomic>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 
 namespace ktui {
@@ -202,6 +206,32 @@ public:
 
     [[nodiscard]] WindowBackdrop backdrop() const noexcept { return m_backdrop; }
 
+    // 启动仿 CUI.Core 的圆形涟漪主题扩散切换动效 (新主题随扩散圆扫过之处实时切换)
+    void start_theme_ripple(const Theme& old_theme, const Theme& new_theme, Vec2 origin) {
+        Vec2 sz = size();
+        if (sz.x <= 1.0f || sz.y <= 1.0f) return;
+        float ox = std::clamp(origin.x, 0.0f, sz.x);
+        float oy = std::clamp(origin.y, 0.0f, sz.y);
+        float d1 = std::hypot(ox, oy);
+        float d2 = std::hypot(sz.x - ox, oy);
+        float d3 = std::hypot(ox, sz.y - oy);
+        float d4 = std::hypot(sz.x - ox, sz.y - oy);
+        m_theme_ripple_max_radius = std::max({d1, d2, d3, d4}) + 24.0f;
+        m_theme_ripple_origin = Vec2{ox, oy};
+        m_theme_ripple_old = old_theme;
+        m_theme_ripple_new = new_theme;
+        m_theme_ripple_start = std::chrono::steady_clock::now();
+        m_theme_ripple_active = true;
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+
+    [[nodiscard]] Vec2 last_pointer_pos() const noexcept {
+        if (m_has_last_pointer) return m_last_pointer_pos;
+        Vec2 sz = size();
+        return Vec2{sz.x * 0.5f, sz.y * 0.5f};
+    }
+
     // ==================== DPI 与显示参数 ====================
     [[nodiscard]] float dpi_scale() const {
         return m_platform_window ? m_platform_window->dpi_scale() : 1.0f;
@@ -344,37 +374,117 @@ public:
         }
         clear_redraw_flag();
 
-        // 3. 更新自算云母 (Homemade Mica) 屏幕空间壁纸采样色场
-        std::array<uint32_t, 16> mica_grid{};
-        const bool mica_active = MicaBackdropEngine::build_mica_grid(
-            m_backdrop,
-            ThemeContext::current().is_dark,
-            m_window_focused,
-            m_platform_window->monitor_uv_rect(),
-            mica_grid);
-        m_renderer->set_mica_backdrop(mica_active, mica_grid);
+        // 3. 更新自算云母 (Homemade Mica) 失焦/聚焦平滑过渡动画 (约 280ms 指数缓动)
+        {
+            auto now = std::chrono::steady_clock::now();
+            float dt = (m_mica_anim_time.time_since_epoch().count() == 0)
+                ? 0.016f
+                : std::clamp(std::chrono::duration<float>(now - m_mica_anim_time).count(), 0.0f, 0.05f);
+            m_mica_anim_time = now;
+            float target_focus = m_window_focused ? 1.0f : 0.0f;
+            if (std::abs(m_mica_focus_anim - target_focus) > 0.002f) {
+                float k = 1.0f - std::exp(-dt * 9.5f);
+                m_mica_focus_anim += (target_focus - m_mica_focus_anim) * k;
+                if (std::abs(m_mica_focus_anim - target_focus) <= 0.003f) {
+                    m_mica_focus_anim = target_focus;
+                } else {
+                    request_redraw();
+                }
+            } else {
+                m_mica_focus_anim = target_focus;
+            }
+        }
 
-        // 3.1 绘制图元 (运行中的动效将在 paint 中重新 mark_needs_paint())
-        m_renderer->begin_frame();
-        PaintContext ctx(m_renderer.get(), scale);
-        if (tb_h > 0.0f) {
-            ctx.push_clip(Rect::from_xywh(0.0f, tb_h, client_sz.x, client_sz.y), 0.0f);
-            {
-                PaintContext::OffsetScope client_offset(ctx, Vec2{0.0f, tb_h});
+        auto paint_scene = [&](PaintContext& ctx, bool mica_flag) {
+            if (tb_h > 0.0f) {
+                ctx.push_clip(Rect::from_xywh(0.0f, tb_h, client_sz.x, client_sz.y), 0.0f);
+                {
+                    PaintContext::OffsetScope client_offset(ctx, Vec2{0.0f, tb_h});
+                    m_root_render_box->paint(ctx);
+                }
+                ctx.pop_clip();
+                m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top(), mica_flag);
+            } else {
                 m_root_render_box->paint(ctx);
             }
-            ctx.pop_clip();
-            m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top(), mica_active);
+            m_overlay_manager.layout_and_paint(ctx, sz);
+            if (!is_decorated()) {
+                m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
+            }
+        };
+
+        // 3.1 采样云母色场并绘制图元 (支持 CUI 风格圆形涟漪扩散主题切换)
+        std::array<uint32_t, 16> mica_grid{};
+        if (m_theme_ripple_active) {
+            auto now = std::chrono::steady_clock::now();
+            float t = std::clamp(std::chrono::duration<float>(now - m_theme_ripple_start).count() / 0.52f, 0.0f, 1.0f);
+            float ease = 1.0f - std::pow(1.0f - t, 3.0f);
+            float radius = std::max(1.0f, m_theme_ripple_max_radius * ease);
+
+            const bool old_mica = MicaBackdropEngine::build_mica_grid(
+                m_backdrop, m_theme_ripple_old.is_dark, m_mica_focus_anim,
+                m_platform_window->monitor_uv_rect(), mica_grid);
+            m_renderer->set_mica_backdrop(old_mica, mica_grid);
+
+            m_renderer->begin_frame();
+            PaintContext ctx(m_renderer.get(), scale);
+            {
+                // Pass 1: 旧主题完整底图
+                ThemeScopeGuard old_scope(m_theme_ripple_old);
+                paint_scene(ctx, old_mica);
+            }
+            {
+                // Pass 2: 新主题在从点击原点向外扩散的精确圆形 SDF 裁剪区内重绘
+                ThemeScopeGuard new_scope(m_theme_ripple_new);
+                Rect circle_bounds = Rect::from_xywh(
+                    m_theme_ripple_origin.x - radius,
+                    m_theme_ripple_origin.y - radius,
+                    radius * 2.0f, radius * 2.0f);
+                ctx.push_clip(circle_bounds, radius);
+
+                std::array<uint32_t, 16> new_mica_grid{};
+                const bool new_mica = MicaBackdropEngine::build_mica_grid(
+                    m_backdrop, m_theme_ripple_new.is_dark, m_mica_focus_anim,
+                    m_platform_window->monitor_uv_rect(), new_mica_grid);
+                Color ripple_bg = m_theme_ripple_new.is_dark
+                    ? Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f}
+                    : Color{0xEA / 255.0f, 0xED / 255.0f, 0xF1 / 255.0f, 1.0f};
+                if (new_mica) {
+                    // 混合 4x4 新云母色场中心色，确保扩散圆内云母底色平滑无缝衔接
+                    float ar = 0.0f, ag = 0.0f, ab = 0.0f;
+                    for (uint32_t packed : new_mica_grid) {
+                        ar += static_cast<float>(packed & 255u) / 255.0f;
+                        ag += static_cast<float>((packed >> 8u) & 255u) / 255.0f;
+                        ab += static_cast<float>((packed >> 16u) & 255u) / 255.0f;
+                    }
+                    ripple_bg = Color{ar / 16.0f, ag / 16.0f, ab / 16.0f, 1.0f};
+                }
+                ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, sz.x, sz.y), ripple_bg, 0.0f, 0.0f);
+                paint_scene(ctx, new_mica);
+                ctx.pop_clip();
+            }
+            m_renderer->end_frame();
+
+            if (t < 1.0f) {
+                request_redraw();
+            } else {
+                m_theme_ripple_active = false;
+                request_redraw(); // 结束后再刷一帧纯净单 Pass 4x4 云母
+            }
         } else {
-            m_root_render_box->paint(ctx);
+            const bool mica_active = MicaBackdropEngine::build_mica_grid(
+                m_backdrop,
+                ThemeContext::current().is_dark,
+                m_mica_focus_anim,
+                m_platform_window->monitor_uv_rect(),
+                mica_grid);
+            m_renderer->set_mica_backdrop(mica_active, mica_grid);
+
+            m_renderer->begin_frame();
+            PaintContext ctx(m_renderer.get(), scale);
+            paint_scene(ctx, mica_active);
+            m_renderer->end_frame();
         }
-        // 3.1 绘制顶层独立浮层 (脱离所有父级 clip 硬件裁剪)
-        m_overlay_manager.layout_and_paint(ctx, sz);
-        // 3.2 无边框窗口外框 1px 描边
-        if (!is_decorated()) {
-            m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
-        }
-        m_renderer->end_frame();
 
         // The compute backend owns its surface and presents the composed texture.
         if (m_renderer->present_computed_frame(force_full_present)) {
@@ -403,16 +513,20 @@ public:
     void handle_platform_event(const PlatformEvent& pe) {
         s_active_window = this;
         if (!m_root_render_box) return;
+        if (pe.type == PlatformEventType::PointerDown || pe.type == PlatformEventType::PointerUp) {
+            m_last_pointer_pos = pe.position;
+            m_has_last_pointer = true;
+        }
 
         // 优先让浮层系统拦截处理输入事件
         if (m_overlay_manager.has_active_overlay()) {
             if (pe.type == PlatformEventType::PointerDown) {
-                bool handled = m_overlay_manager.handle_pointer_down(pe.position, pe.button);
+                bool handled = m_overlay_manager.handle_pointer_down(pe.position, pe.button, pe.device_kind);
                 request_redraw();
                 if (m_platform_window) m_platform_window->invalidate();
                 if (handled) return;
             } else if (pe.type == PlatformEventType::PointerMove) {
-                bool handled = m_overlay_manager.handle_pointer_move(pe.position);
+                bool handled = m_overlay_manager.handle_pointer_move(pe.position, pe.device_kind);
                 if (handled) {
                     request_redraw();
                     if (m_platform_window) m_platform_window->invalidate();
@@ -511,9 +625,16 @@ public:
         switch (pe.type) {
             case PlatformEventType::PointerMove: {
                 PointerEvent ev(PlatformEventType::PointerMove, client_pos, pe.button);
+                ev.device_kind = pe.device_kind;
+                ev.pointer_id = pe.pointer_id;
+                ev.timestamp_ms = pe.timestamp_ms;
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
+                if (pe.device_kind == PointerDeviceKind::Touch) {
+                    request_redraw();
+                    if (m_platform_window) m_platform_window->invalidate();
+                }
                 // 自动同步鼠标光标形状 (Hover 按钮变手型、输入框变 I-Beam)
-                if (m_platform_window) {
+                if (m_platform_window && pe.device_kind != PointerDeviceKind::Touch) {
                     CursorShape cursor = CursorShape::Arrow;
                     HitTestResult hit_res;
                     if (m_root_render_box->hit_test(hit_res, client_pos)) {
@@ -531,6 +652,9 @@ public:
             case PlatformEventType::PointerScroll: {
                 PointerEvent ev(PlatformEventType::PointerScroll, client_pos, PointerButton::None);
                 ev.delta = pe.delta;
+                ev.device_kind = pe.device_kind;
+                ev.pointer_id = pe.pointer_id;
+                ev.timestamp_ms = pe.timestamp_ms;
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 request_redraw();
                 if (m_platform_window) m_platform_window->invalidate();
@@ -555,6 +679,9 @@ public:
                 }
 
                 PointerEvent ev(PlatformEventType::PointerDown, client_pos, pe.button);
+                ev.device_kind = pe.device_kind;
+                ev.pointer_id = pe.pointer_id;
+                ev.timestamp_ms = pe.timestamp_ms;
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 sync_ime_state();
                 request_redraw();
@@ -563,6 +690,9 @@ public:
             }
             case PlatformEventType::PointerUp: {
                 PointerEvent ev(PlatformEventType::PointerUp, client_pos, pe.button);
+                ev.device_kind = pe.device_kind;
+                ev.pointer_id = pe.pointer_id;
+                ev.timestamp_ms = pe.timestamp_ms;
                 m_event_dispatcher.dispatch_pointer_event(m_root_render_box.get(), ev);
                 sync_ime_state();
                 request_redraw();
@@ -777,10 +907,12 @@ private:
 
         m_platform_window->on_focus_changed([this](bool focused) {
             m_window_focused = focused;
+            m_mica_anim_time = std::chrono::steady_clock::now();
             if (!focused) {
                 m_titlebar.handle_pointer_leave();
             }
             request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
             for (auto& cb : m_focus_callbacks) {
                 if (cb) cb(focused);
             }
@@ -794,7 +926,19 @@ private:
     bool m_compute_was_ready{false};
     bool m_show_titlebar{true};
     bool m_window_focused{true};
+    float m_mica_focus_anim{1.0f};
+    std::chrono::steady_clock::time_point m_mica_anim_time{};
     WindowBackdrop m_backdrop{WindowBackdrop::Mica};
+
+    // 圆形涟漪主题切换动画状态
+    bool m_theme_ripple_active{false};
+    Theme m_theme_ripple_old{Theme::dark()};
+    Theme m_theme_ripple_new{Theme::dark()};
+    Vec2 m_theme_ripple_origin{0.0f, 0.0f};
+    float m_theme_ripple_max_radius{0.0f};
+    std::chrono::steady_clock::time_point m_theme_ripple_start{};
+    Vec2 m_last_pointer_pos{0.0f, 0.0f};
+    bool m_has_last_pointer{false};
     float m_render_scale{1.0f};
     void* m_last_native_handle{nullptr};
     WindowTitlebar m_titlebar;

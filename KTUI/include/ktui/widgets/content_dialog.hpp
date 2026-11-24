@@ -65,21 +65,60 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
-        if (m_open_progress < 1.0f) {
-            auto now = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        float scale_factor = 1.0f;
+        float alpha = 1.0f;
+        float smoke_alpha = 1.0f;
+
+        if (m_closing) {
+            float elapsed = std::chrono::duration<float>(now - m_close_start).count();
+            float t = std::clamp(elapsed / 0.12f, 0.0f, 1.0f);
+            // WinUI 3 DialogHidden: Accelerate 1.00 -> 1.05, Opacity 1 -> 0 (120ms)
+            float accel = t * t;
+            scale_factor = 1.0f + 0.05f * accel;
+            alpha = 1.0f - t;
+            smoke_alpha = 1.0f - t;
+            if (t < 1.0f) {
+                mark_needs_paint();
+            } else if (!m_close_finished) {
+                m_close_finished = true;
+                if (m_on_close_anim_done) m_on_close_anim_done();
+                return;
+            }
+        } else {
             float elapsed = std::chrono::duration<float>(now - m_open_start).count();
-            m_open_progress = std::clamp(elapsed / 0.16f, 0.0f, 1.0f);
-            if (m_open_progress < 1.0f) mark_needs_paint();
+            float t_scale = std::clamp(elapsed / 0.25f, 0.0f, 1.0f);
+            float t_alpha = std::clamp(elapsed / 0.15f, 0.0f, 1.0f);
+            float t_smoke = std::clamp(elapsed / 0.18f, 0.0f, 1.0f);
+            // WinUI 3 DialogShowing: Decelerate (KeySpline 0.1,0.9 0.2,1.0) Scale 1.05 -> 1.00 (250ms)
+            float ease_scale = 1.0f - std::pow(1.0f - t_scale, 4.0f);
+            scale_factor = 1.05f - 0.05f * ease_scale;
+            alpha = 1.0f - std::pow(1.0f - t_alpha, 2.0f);
+            smoke_alpha = 1.0f - std::pow(1.0f - t_smoke, 2.0f);
+            m_open_progress = t_scale;
+            if (t_scale < 1.0f || t_smoke < 1.0f) {
+                mark_needs_paint();
+            }
         }
 
         const Theme& theme = ThemeContext::current();
-        float ease = 1.0f - std::pow(1.0f - m_open_progress, 3.0f);
-        float alpha = std::clamp(ease * 1.15f, 0.0f, 1.0f);
-        float y_off = std::round((1.0f - ease) * 10.0f);
 
-        const float w = size().x;
-        const float h = size().y;
-        const float footer_h = 72.0f;
+        // 0. 全窗口平滑淡入/淡出 Smoke 遮罩层 (随弹窗动效同步过渡)
+        if (m_smoke_window_size.x > 0.0f && m_smoke_window_size.y > 0.0f && smoke_alpha > 0.001f) {
+            float max_smoke = theme.is_dark ? 0.45f : 0.30f;
+            ctx.draw_rect(
+                Rect::from_xywh(-m_dialog_global_pos.x, -m_dialog_global_pos.y,
+                                m_smoke_window_size.x, m_smoke_window_size.y),
+                Color{0.0f, 0.0f, 0.0f, max_smoke * smoke_alpha}, 0.0f, 0.0f);
+        }
+
+        const float base_w = size().x;
+        const float base_h = size().y;
+        const float w = base_w * scale_factor;
+        const float h = base_h * scale_factor;
+        const float dx = (base_w - w) * 0.5f;
+        const float dy = (base_h - h) * 0.5f;
+        const float footer_h = 72.0f * scale_factor;
         const float body_h = h - footer_h;
 
         Color body_bg = theme.is_dark
@@ -102,25 +141,26 @@ public:
             : Color{0.0f, 0.0f, 0.0f, 0.72f * alpha};
 
         // 1. WinUI 3 Dialog 64dp 双层真实高斯软阴影
-        ctx.draw_elevation_shadow(Rect::from_xywh(0.0f, y_off, w, h), 8.0f, theme.is_dark, 64.0f, alpha);
+        ctx.draw_elevation_shadow(Rect::from_xywh(dx, dy, w, h), 8.0f, theme.is_dark, 64.0f, alpha);
 
         // 2. WinUI 3 双段底板 (上部内容区 + 下部操作条)
-        ctx.draw_rounded_rect(Rect::from_xywh(0.0f, y_off, w, body_h), body_bg, 8.0f, 8.0f, 0.0f, 0.0f);
-        ctx.draw_rounded_rect(Rect::from_xywh(0.0f, y_off + body_h, w, footer_h), footer_bg, 0.0f, 0.0f, 8.0f, 8.0f);
-        ctx.draw_rect(Rect::from_xywh(0.0f, y_off + body_h, w, 1.0f), divider, 0.0f, 0.0f);
-        ctx.draw_rect(Rect::from_xywh(0.0f, y_off, w, h), border, 8.0f, 1.0f);
+        ctx.draw_rounded_rect(Rect::from_xywh(dx, dy, w, body_h), body_bg, 8.0f, 8.0f, 0.0f, 0.0f);
+        ctx.draw_rounded_rect(Rect::from_xywh(dx, dy + body_h, w, footer_h), footer_bg, 0.0f, 0.0f, 8.0f, 8.0f);
+        ctx.draw_rect(Rect::from_xywh(dx, dy + body_h, w, 1.0f), divider, 0.0f, 0.0f);
+        ctx.draw_rect(Rect::from_xywh(dx, dy, w, h), border, 8.0f, 1.0f);
 
         // 3. 标题与多行折行正文
-        float cur_y = y_off + 24.0f;
+        float cur_y = dy + 24.0f * scale_factor;
+        float text_x = dx + 24.0f * scale_factor;
         if (!m_desc.title.empty()) {
-            ctx.draw_text(m_desc.title, PointF{24.0f, std::round(cur_y)}, 18.0f, title_col);
-            cur_y += 32.0f;
+            ctx.draw_text(m_desc.title, PointF{std::round(text_x), std::round(cur_y)}, 18.0f, title_col);
+            cur_y += 32.0f * scale_factor;
         }
         if (!m_desc.content.empty()) {
-            auto lines = wrap_lines(m_desc.content, 13.5f, w - 48.0f);
+            auto lines = wrap_lines(m_desc.content, 13.5f, base_w - 48.0f);
             for (const auto& line : lines) {
-                ctx.draw_text(line, PointF{24.0f, std::round(cur_y)}, 13.5f, msg_col);
-                cur_y += 21.0f;
+                ctx.draw_text(line, PointF{std::round(text_x), std::round(cur_y)}, 13.5f, msg_col);
+                cur_y += 21.0f * scale_factor;
             }
         }
 
@@ -138,13 +178,13 @@ public:
 
         const int n = static_cast<int>(specs.size());
         if (n > 0) {
-            const float pad_x = 24.0f;
-            const float gap = 8.0f;
-            const float btn_h = 32.0f;
-            const float btn_y = std::round(y_off + body_h + (footer_h - btn_h) * 0.5f);
+            const float pad_x = 24.0f * scale_factor;
+            const float gap = 8.0f * scale_factor;
+            const float btn_h = 32.0f * scale_factor;
+            const float btn_y = std::round(dy + body_h + (footer_h - btn_h) * 0.5f);
             const float avail_w = w - pad_x * 2.0f - gap * static_cast<float>(n - 1);
-            const float btn_w = (n == 1) ? std::min(160.0f, avail_w) : (avail_w / static_cast<float>(n));
-            float start_x = (n == 1) ? (w - pad_x - btn_w) : pad_x;
+            const float btn_w = (n == 1) ? std::min(160.0f * scale_factor, avail_w) : (avail_w / static_cast<float>(n));
+            float start_x = dx + ((n == 1) ? (w - pad_x - btn_w) : pad_x);
 
             for (int i = 0; i < n; ++i) {
                 Rect br = Rect::from_xywh(std::round(start_x + static_cast<float>(i) * (btn_w + gap)), btn_y, std::round(btn_w), btn_h);
@@ -190,6 +230,19 @@ public:
                               13.0f, btc);
             }
         }
+    }
+
+    void set_smoke_backdrop_bounds(Vec2 dialog_global_pos, Vec2 window_size) {
+        m_dialog_global_pos = dialog_global_pos;
+        m_smoke_window_size = window_size;
+    }
+
+    void begin_close(std::function<void()> on_done) {
+        if (m_closing) return;
+        m_closing = true;
+        m_close_start = std::chrono::steady_clock::now();
+        m_on_close_anim_done = std::move(on_done);
+        mark_needs_paint();
     }
 
 private:
@@ -284,6 +337,12 @@ private:
     int m_pressed_btn{-1};
     float m_open_progress{0.0f};
     std::chrono::steady_clock::time_point m_open_start;
+    bool m_closing{false};
+    bool m_close_finished{false};
+    std::chrono::steady_clock::time_point m_close_start;
+    std::function<void()> m_on_close_anim_done;
+    Vec2 m_dialog_global_pos{0.0f, 0.0f};
+    Vec2 m_smoke_window_size{0.0f, 0.0f};
 };
 
 // 静态便捷弹出器 (ContentDialog::show)
@@ -295,31 +354,43 @@ struct ContentDialog {
         auto overlay_id = std::make_shared<uint64_t>(0);
         auto on_result = desc.on_result;
         auto result_fired = std::make_shared<bool>(false);
+        auto dialog_weak = std::make_shared<std::weak_ptr<RenderContentDialog>>();
 
         auto dialog = std::make_shared<RenderContentDialog>(
             desc,
-            [overlay_id, on_result, result_fired](ContentDialogResult res) {
+            [overlay_id, on_result, result_fired, dialog_weak](ContentDialogResult res) {
+                if (*result_fired) return;
                 *result_fired = true;
-                if (Window* w = Window::active_window(); w && *overlay_id != 0) {
+                if (on_result) on_result(res);
+                if (auto dlg = dialog_weak->lock()) {
+                    dlg->begin_close([overlay_id]() {
+                        if (Window* w = Window::active_window(); w && *overlay_id != 0) {
+                            uint64_t id = *overlay_id;
+                            *overlay_id = 0;
+                            w->hide_overlay(id);
+                        }
+                    });
+                } else if (Window* w = Window::active_window(); w && *overlay_id != 0) {
                     uint64_t id = *overlay_id;
                     *overlay_id = 0;
                     w->hide_overlay(id);
                 }
-                if (on_result) on_result(res);
             });
+        *dialog_weak = dialog;
 
         Vec2 dlg_sz = dialog->compute_size();
         Vec2 win_sz = win->size();
-        float gx = std::round((win_sz.x - dlg_sz.x) * 0.5f);
-        float gy = std::round((win_sz.y - dlg_sz.y) * 0.5f);
+        float gx = std::max(12.0f, std::round((win_sz.x - dlg_sz.x) * 0.5f));
+        float gy = std::max(win->titlebar_height() + 12.0f, std::round((win_sz.y - dlg_sz.y) * 0.5f));
+        dialog->set_smoke_backdrop_bounds(Vec2{gx, gy}, win_sz);
 
         OverlayEntry entry;
         entry.content = dialog;
-        entry.global_pos = Vec2{std::max(12.0f, gx), std::max(win->titlebar_height() + 12.0f, gy)};
+        entry.global_pos = Vec2{gx, gy};
         entry.size = dlg_sz;
         entry.dismiss_on_outside_click = false;
         entry.is_modal = true;
-        entry.barrier_color = Color{0.0f, 0.0f, 0.0f, 0.45f};
+        entry.barrier_color = Color::transparent(); // 由 RenderContentDialog 自绘平滑淡入/淡出 Smoke 遮罩
         entry.on_dismiss = [on_result, result_fired]() {
             if (!*result_fired && on_result) {
                 *result_fired = true;
