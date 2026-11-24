@@ -777,8 +777,9 @@ private:
 
         // 2. 可滚动主菜单区域
         Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
-        const float scroll_y = m_menu_scroll.offset();
         const float total_menu_h = compute_left_menu_total_height();
+        m_menu_scroll.set_max_scroll(std::max(0.0f, total_menu_h - menu_vp.height()));
+        const float scroll_y = m_menu_scroll.offset();
         const float label_alpha = std::clamp((m_pane_open_anim - 0.35f) / 0.65f, 0.0f, 1.0f);
         const bool is_compact = (m_pane_open_anim < 0.25f);
 
@@ -1250,6 +1251,7 @@ private:
 
             if (e.type == PlatformEventType::PointerScroll && eff != NavigationPaneDisplayMode::Top) {
                 Rect menu_vp = compute_left_menu_viewport(size().y, current_pane_width(eff));
+                m_menu_scroll.set_max_scroll(std::max(0.0f, compute_left_menu_total_height() - menu_vp.height()));
                 if (menu_vp.contains(e.local_position) && m_menu_scroll.max_scroll() > 0.0f) {
                     m_menu_scroll.add_wheel_delta(e.delta.y);
                     m_menu_scrollbar.notify_activity();

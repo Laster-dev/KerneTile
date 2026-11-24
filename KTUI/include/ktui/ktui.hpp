@@ -68,6 +68,7 @@
 #include <ktui/widgets/hstack.hpp>
 #include <ktui/widgets/zstack.hpp>
 #include <ktui/widgets/text.hpp>
+#include <ktui/widgets/label.hpp>
 #include <ktui/widgets/button.hpp>
 #include <ktui/widgets/checkbox.hpp>
 #include <ktui/widgets/toggle_switch.hpp>
@@ -83,6 +84,7 @@
 #include <ktui/widgets/combobox.hpp>
 #include <ktui/widgets/svg.hpp>
 #include <ktui/widgets/info_bar.hpp>
+#include <ktui/widgets/toast.hpp>
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
 #include <ktui/widgets/dropdown_button.hpp>

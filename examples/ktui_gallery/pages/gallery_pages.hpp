@@ -20,9 +20,13 @@ ktui::WidgetPtr build_combobox_page(GalleryApp& app);
 ktui::WidgetPtr build_slider_page(GalleryApp& app);
 
 // ==================== 文本与数值 (Text & Numbers) ====================
+ktui::WidgetPtr build_label_page(GalleryApp& app);
 ktui::WidgetPtr build_textbox_page(GalleryApp& app);
 ktui::WidgetPtr build_password_box_page(GalleryApp& app);
 ktui::WidgetPtr build_number_box_page(GalleryApp& app);
+
+// ==================== 导航 (Navigation) ====================
+ktui::WidgetPtr build_navigation_view_page(GalleryApp& app);
 
 // ==================== 菜单与工具栏 (Menus & Toolbars) ====================
 ktui::WidgetPtr build_command_bar_page(GalleryApp& app);
@@ -31,6 +35,7 @@ ktui::WidgetPtr build_menu_flyout_page(GalleryApp& app);
 // ==================== 弹窗与状态 (Dialogs & Status) ====================
 ktui::WidgetPtr build_content_dialog_page(GalleryApp& app);
 ktui::WidgetPtr build_info_bar_page(GalleryApp& app);
+ktui::WidgetPtr build_toast_page(GalleryApp& app);
 ktui::WidgetPtr build_progress_bar_page(GalleryApp& app);
 ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
 

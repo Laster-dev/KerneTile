@@ -27,6 +27,10 @@ struct GalleryApp {
     ktui::Property<double> number_float_val{3.14};
     ktui::Property<std::string> number_status{"当前数值: 42 / 3.14 (支持输入 12+8*2 按 Enter 求值)"};
     ktui::Property<std::string> commandbar_status{"CommandBar 就绪: 点击命令项或右侧 ... 查看溢出/二级菜单"};
+    ktui::Property<std::string> toast_status{"点击下方按钮弹出 Windows 11 风格 Toast 通知"};
+    ktui::Property<std::string> demo_nav_selected{"overview"};
+    ktui::Property<ktui::NavigationPaneDisplayMode> demo_nav_mode{ktui::NavigationPaneDisplayMode::Left};
+    ktui::Property<int> demo_nav_mode_idx{0};
     ktui::Property<std::string> theme_btn_text{"切换浅色主题"};
     ktui::Property<float> slider_val{45.0f};
     ktui::Property<float> progress_norm{0.45f};

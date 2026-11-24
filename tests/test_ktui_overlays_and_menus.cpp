@@ -5,6 +5,8 @@
 #include <ktui/widgets/password_box.hpp>
 #include <ktui/widgets/number_box.hpp>
 #include <ktui/widgets/command_bar.hpp>
+#include <ktui/widgets/label.hpp>
+#include <ktui/widgets/toast.hpp>
 #include <ktui/theme/theme.hpp>
 #include <cassert>
 #include <iostream>
@@ -149,6 +151,18 @@ int main() {
     cmd_node->layout(BoxConstraints::tight(Vec2{220.0f, 40.0f}));
     assert(cmd_node->overflowed_primary_count() > 0);
 
-    std::cout << "All InfoBar, ContentDialog, MenuFlyout, Split/DropDownButton, PasswordBox, NumberBox & CommandBar tests passed!" << std::endl;
+    // 8. Label 排版与胶囊徽章布局校验
+    Label lb{ .text = "已就绪", .variant = LabelVariant::Success, .pill = true, .required = true };
+    WidgetPtr lb_ptr = lb;
+    auto lb_node = std::dynamic_pointer_cast<RenderLabel>(lb_ptr->create_render_node());
+    lb_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
+    assert(lb_node->size().x > 30.0f && lb_node->size().y >= 24.0f);
+
+    // 9. Toast 尺寸计算与关闭触发校验
+    RenderToast toast(ToastDesc{ .title = "保存成功", .message = "已写入配置", .action_text = "撤销" }, nullptr);
+    toast.layout(BoxConstraints::loose(Vec2{500.0f, 200.0f}));
+    assert(toast.size().x == 340.0f && toast.size().y == 100.0f);
+
+    std::cout << "All InfoBar, ContentDialog, MenuFlyout, Split/DropDownButton, PasswordBox, NumberBox, CommandBar, Label & Toast tests passed!" << std::endl;
     return 0;
 }

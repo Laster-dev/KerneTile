@@ -77,7 +77,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             Text { .text = "KTUI Gallery", .font_size = 24.0f },
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 18 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 21 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -114,9 +114,10 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
                         .content = {
+                            nav_chip(app, "Label", "label", true),
                             nav_chip(app, "TextBox", "textbox"),
-                            nav_chip(app, "PasswordBox", "password_box", true),
-                            nav_chip(app, "NumberBox", "number_box", true)
+                            nav_chip(app, "PasswordBox", "password_box"),
+                            nav_chip(app, "NumberBox", "number_box")
                         }
                     }
                 }
@@ -125,12 +126,13 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "菜单与工具栏 (Menus & Toolbars)", .font_size = 14.0f },
+                    Text { .text = "导航、菜单与工具栏 (Navigation, Menus & Toolbars)", .font_size = 14.0f },
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
                         .content = {
-                            nav_chip(app, "CommandBar", "command_bar", true),
+                            nav_chip(app, "NavigationView", "navigation_view", true),
+                            nav_chip(app, "CommandBar", "command_bar"),
                             nav_chip(app, "MenuFlyout / ContextMenu", "menu_flyout")
                         }
                     }
@@ -147,6 +149,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .content = {
                             nav_chip(app, "ContentDialog", "content_dialog"),
                             nav_chip(app, "InfoBar", "info_bar"),
+                            nav_chip(app, "Toast", "toast", true),
                             nav_chip(app, "ProgressBar", "progress_bar"),
                             nav_chip(app, "ProgressRing", "progress_ring"),
                             nav_chip(app, "NanoSVG", "svg")

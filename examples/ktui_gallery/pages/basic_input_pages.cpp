@@ -285,6 +285,58 @@ WidgetPtr build_combobox_page(GalleryApp& app) {
     });
 }
 
+// ==================== Label ====================
+WidgetPtr build_label_page(GalleryApp& app) {
+    static constexpr const char* kTagSvg =
+        "M12 2.25c.3 0 .59.07.86.2l6.5 3.1c.54.26.89.8.89 1.4v4.73c0 4.65-3.07 8.79-7.53 10.12a2.5 2.5 0 0 1-1.44 0C6.82 20.47 3.75 16.33 3.75 11.68V6.95c0-.6.35-1.14.89-1.4l6.5-3.1c.27-.13.56-.2.86-.2Z";
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            page_header(app, "Label", "WinUI 3 / Fluent 2 语义标签与胶囊徽章组件，支持排版层级、必填星号 (*)、前置 SVG 图标与 4 种语义色。"),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "语义排版与表单必填标签", .font_size = 14.0f },
+                    Label { .text = "Title 标题标签 (20px)", .variant = LabelVariant::Title },
+                    Label { .text = "Subtitle 副标题标签 (16px)", .variant = LabelVariant::Subtitle },
+                    Label { .text = "Body 正文标签 (13.5px)", .variant = LabelVariant::Body },
+                    Label { .text = "Caption 辅助说明标签 (12px)", .variant = LabelVariant::Caption },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 14.0f,
+                        .content = {
+                            Label { .text = "用户名", .variant = LabelVariant::Body, .required = true },
+                            Label { .text = "安全校验已通过", .variant = LabelVariant::Success, .svg_path = kTagSvg },
+                            Label { .text = "只读禁用标签", .variant = LabelVariant::Body, .disabled = true }
+                        }
+                    }
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "Fluent 2 语义胶囊标签 (pill = true)", .font_size = 14.0f },
+                    HStack {
+                        .align_items = AlignItems::Center,
+                        .spacing = 8.0f,
+                        .content = {
+                            Label { .text = "默认标签", .variant = LabelVariant::Body, .pill = true },
+                            Label { .text = "强调 Accent", .variant = LabelVariant::Accent, .pill = true, .svg_path = kTagSvg },
+                            Label { .text = "已就绪 Success", .variant = LabelVariant::Success, .pill = true },
+                            Label { .text = "高刷新 Warning", .variant = LabelVariant::Warning, .pill = true },
+                            Label { .text = "异常 Error", .variant = LabelVariant::Error, .pill = true }
+                        }
+                    }
+                }
+            })
+        }
+    });
+}
+
 // ==================== TextBox / TextInput ====================
 WidgetPtr build_textbox_page(GalleryApp& app) {
     return app.make_scroll_page(VStack {

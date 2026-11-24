@@ -145,25 +145,33 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "3", .expanded = true,
+                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "4", .expanded = true,
                 .children = {
+                    NavigationViewItem{ .id = "label",        .label = "Label",       .badge = "New" },
                     NavigationViewItem{ .id = "textbox",      .label = "TextBox" },
-                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox", .badge = "New" },
-                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox",   .badge = "New" }
+                    NavigationViewItem{ .id = "password_box", .label = "PasswordBox" },
+                    NavigationViewItem{ .id = "number_box",   .label = "NumberBox" }
+                }
+            },
+            NavigationViewItem{
+                .id = "cat_nav", .label = "导航", .icon = NavigationIcon::Layout, .badge = "1", .expanded = false,
+                .children = {
+                    NavigationViewItem{ .id = "navigation_view", .label = "NavigationView", .badge = "New" }
                 }
             },
             NavigationViewItem{
                 .id = "cat_menus", .label = "菜单与工具栏", .icon = NavigationIcon::Layout, .badge = "2", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar",  .badge = "New" },
+                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar" },
                     NavigationViewItem{ .id = "menu_flyout",  .label = "MenuFlyout" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "4", .expanded = false,
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "5", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
                     NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
+                    NavigationViewItem{ .id = "toast",          .label = "Toast",         .badge = "New" },
                     NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar" },
                     NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing" }
                 }
@@ -195,13 +203,16 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "radio_card")      return pages::build_radio_card_page(*this);
             if (page_id == "combobox")        return pages::build_combobox_page(*this);
             if (page_id == "slider")          return pages::build_slider_page(*this);
+            if (page_id == "label")           return pages::build_label_page(*this);
             if (page_id == "textbox")         return pages::build_textbox_page(*this);
             if (page_id == "password_box")    return pages::build_password_box_page(*this);
             if (page_id == "number_box")      return pages::build_number_box_page(*this);
+            if (page_id == "navigation_view") return pages::build_navigation_view_page(*this);
             if (page_id == "command_bar")     return pages::build_command_bar_page(*this);
             if (page_id == "menu_flyout")     return pages::build_menu_flyout_page(*this);
             if (page_id == "content_dialog")  return pages::build_content_dialog_page(*this);
             if (page_id == "info_bar")        return pages::build_info_bar_page(*this);
+            if (page_id == "toast")           return pages::build_toast_page(*this);
             if (page_id == "progress_bar")    return pages::build_progress_bar_page(*this);
             if (page_id == "progress_ring")   return pages::build_progress_ring_page(*this);
             if (page_id == "svg")             return pages::build_svg_page(*this);
