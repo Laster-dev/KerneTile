@@ -110,15 +110,15 @@ FontRasterResult raster_jni(const std::string& utf8, float size) {
 
 class AndroidTextEngine final : public ITextEngine {
 public:
-    FontMetrics get_metrics(float size, std::string_view) override {
+    FontMetrics get_metrics(float size, std::string_view, uint16_t, bool) override {
         float values[3]{};
         measure_jni("M", size, values);
         return {size, values[1], -values[2], values[1] + values[2]};
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family) override {
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
         TextLayoutResult result;
-        result.metrics = get_metrics(size, family);
+        result.metrics = get_metrics(size, family, font_weight, italic);
         result.total_height = result.metrics.line_height;
         const auto stops = grapheme_boundaries(text);
         for (size_t i = 1; i < stops.size(); ++i) {

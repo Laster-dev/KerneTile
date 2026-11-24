@@ -103,6 +103,14 @@ public:
         });
     }
 
+    // 返回最顶层模态浮层的内容根节点 (用于 ContentDialog 等模态对话框的 Tab 焦点陷阱)
+    [[nodiscard]] RenderBox* top_modal_content() const noexcept {
+        for (auto it = m_entries.rbegin(); it != m_entries.rend(); ++it) {
+            if (it->is_modal && it->content) return it->content.get();
+        }
+        return nullptr;
+    }
+
     [[nodiscard]] size_t overlay_count() const noexcept {
         return m_entries.size();
     }

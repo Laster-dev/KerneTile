@@ -10,15 +10,17 @@ ITextEngine& shared_text_engine() {
     return *engine;
 }
 
-std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float size) {
+std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float size, uint16_t font_weight, bool italic) {
     struct Entry {
         std::string text;
         float size;
+        uint16_t weight;
+        bool italic;
         std::shared_ptr<const TextLayoutResult> layout;
     };
     static thread_local std::list<Entry> cache;
     auto hit = std::find_if(cache.begin(), cache.end(), [&](const auto& entry) {
-        return entry.size == size && entry.text == text;
+        return entry.size == size && entry.weight == font_weight && entry.italic == italic && entry.text == text;
     });
     if (hit != cache.end()) {
         cache.splice(cache.begin(), cache, hit);
@@ -29,7 +31,7 @@ std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float
     while (true) {
         const auto end = text.find_first_of("\r\n", start);
         const auto line = text.substr(start, end == std::string_view::npos ? end : end - start);
-        auto shaped = shared_text_engine().shape_text(line, size);
+        auto shaped = shared_text_engine().shape_text(line, size, "", font_weight, italic);
         layout->metrics = shaped.metrics;
         if (shaped.carets.empty()) {
             auto boundaries = grapheme_boundaries(line);
@@ -58,7 +60,7 @@ std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float
         if (text[end] == '\r' && start < text.size() && text[start] == '\n') ++start;
     }
     if (text.size() <= 16384) {
-        cache.push_front({std::string(text), size, layout});
+        cache.push_front({std::string(text), size, font_weight, italic, layout});
         if (cache.size() > 128) cache.pop_back();
     }
     return layout;

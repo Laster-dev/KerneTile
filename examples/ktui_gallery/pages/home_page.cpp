@@ -76,13 +76,13 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .align_items = AlignItems::Stretch,
         .spacing = 14.0f,
         .content = {
-            Text { .text = "KTUI Gallery", .font_size = 24.0f },
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 40 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
+            Text { .text = "KTUI Gallery", .font_size = 24.0f, .font_weight = FontWeight::SemiBold },
+            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 41 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f, .color = Bind(app.muted_text) },
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "基础输入 (Basic Input)", .font_size = 14.0f },
+                    Text { .text = "基础输入 (Basic Input)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
@@ -177,6 +177,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .content = {
                             nav_chip(app, "ContentDialog", "content_dialog"),
                             nav_chip(app, "TeachingTip", "teaching_tip"),
+                            nav_chip(app, "Tooltip", "tooltip", true),
                             nav_chip(app, "InfoBar", "info_bar"),
                             nav_chip(app, "InfoBadge", "info_badge", true),
                             nav_chip(app, "PersonPicture", "person_picture", true),

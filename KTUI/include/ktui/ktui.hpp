@@ -53,6 +53,7 @@
 #include <ktui/tree/popup_handle.hpp>
 
 // 事件与焦点管线
+#include <ktui/a11y/accessibility.hpp>
 #include <ktui/event/event_types.hpp>
 #include <ktui/event/text_input_client.hpp>
 #include <ktui/event/hit_test_tree.hpp>
@@ -87,6 +88,7 @@
 #include <ktui/widgets/svg.hpp>
 #include <ktui/widgets/info_bar.hpp>
 #include <ktui/widgets/toast.hpp>
+#include <ktui/widgets/tooltip.hpp>
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
 #include <ktui/widgets/dropdown_button.hpp>

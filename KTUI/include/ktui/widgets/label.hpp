@@ -41,9 +41,20 @@ public:
                         bool required,
                         const std::string& svg_path,
                         float font_size_override,
-                        bool disabled) {
+                        bool disabled,
+                        FontWeight font_weight = FontWeight::Regular,
+                        bool bold = false,
+                        bool italic = false,
+                        bool underline = false,
+                        bool strikethrough = false) {
+        FontWeight eff_weight = bold ? FontWeight::Bold : font_weight;
+        if (eff_weight == FontWeight::Regular &&
+            (variant == LabelVariant::Title || variant == LabelVariant::Subtitle)) {
+            eff_weight = FontWeight::SemiBold;
+        }
         bool relayout = (m_text != text || m_variant != variant || m_pill != pill ||
                          m_required != required || m_svg_path != svg_path ||
+                         m_font_weight != eff_weight || m_italic != italic ||
                          std::abs(m_font_size_override - font_size_override) > 0.001f);
         m_text = text;
         m_variant = variant;
@@ -52,6 +63,10 @@ public:
         m_svg_path = svg_path;
         m_font_size_override = font_size_override;
         m_disabled = disabled;
+        m_font_weight = eff_weight;
+        m_italic = italic;
+        m_underline = underline;
+        m_strikethrough = strikethrough;
         if (relayout) mark_needs_layout();
         else mark_needs_paint();
     }
@@ -72,8 +87,8 @@ public:
         const bool has_icon = !m_svg_path.empty();
         const float icon_sz = std::clamp(fs + 1.0f, 12.0f, 18.0f);
 
-        Vec2 ts = m_text.empty() ? Vec2{0.0f, fs * 1.25f} : TextMeasure::measure(m_text, fs);
-        float w = pad_x * 2.0f + ts.x;
+        Vec2 ts = m_text.empty() ? Vec2{0.0f, fs * 1.25f} : TextMeasure::measure(m_text, fs, m_font_weight, m_italic);
+        float w = pad_x * 2.0f + ts.x + (m_italic ? 2.0f : 0.0f);
         if (has_icon) w += icon_sz + (m_text.empty() ? 0.0f : 6.0f);
         if (m_required) w += 10.0f;
         float h = std::max(ts.y, has_icon ? icon_sz : 0.0f) + pad_y * 2.0f;
@@ -114,8 +129,18 @@ public:
         }
 
         if (!m_text.empty()) {
-            Vec2 ts = TextMeasure::measure(m_text, fs);
-            ctx.draw_text(m_text, PointF{std::round(cur_x), std::round((size().y - ts.y) * 0.5f)}, fs, fg);
+            Vec2 ts = TextMeasure::measure(m_text, fs, m_font_weight, m_italic);
+            float tx = std::round(cur_x);
+            float ty = std::round((size().y - ts.y) * 0.5f);
+            ctx.draw_text(m_text, PointF{tx, ty}, fs, fg, m_font_weight, m_italic);
+            if (m_underline) {
+                float uy = std::round(ty + ts.y - 1.5f);
+                ctx.draw_rect(Rect::from_xywh(tx, uy, ts.x, 1.0f), fg, 0.0f, 0.0f);
+            }
+            if (m_strikethrough) {
+                float sy = std::round(ty + ts.y * 0.52f);
+                ctx.draw_rect(Rect::from_xywh(tx, sy, ts.x, 1.0f), fg, 0.0f, 0.0f);
+            }
             cur_x += ts.x;
         }
 
@@ -216,6 +241,10 @@ private:
     std::string m_svg_path;
     float m_font_size_override{0.0f};
     bool m_disabled{false};
+    FontWeight m_font_weight{FontWeight::Regular};
+    bool m_italic{false};
+    bool m_underline{false};
+    bool m_strikethrough{false};
 };
 
 // C++20 指定初始化器声明式 WinUI 3 Label
@@ -227,6 +256,11 @@ struct Label {
     std::string svg_path{""};
     float font_size{0.0f};
     bool disabled{false};
+    FontWeight font_weight{FontWeight::Regular};
+    bool bold{false};
+    bool italic{false};
+    bool underline{false};
+    bool strikethrough{false};
 
     operator WidgetPtr() const;
 };
@@ -253,7 +287,9 @@ public:
 private:
     void apply(const std::shared_ptr<RenderLabel>& lb) const {
         lb->set_properties(m_desc.text.get(), m_desc.variant, m_desc.pill,
-                           m_desc.required, m_desc.svg_path, m_desc.font_size, m_desc.disabled);
+                           m_desc.required, m_desc.svg_path, m_desc.font_size, m_desc.disabled,
+                           m_desc.font_weight, m_desc.bold, m_desc.italic,
+                           m_desc.underline, m_desc.strikethrough);
     }
 
     void bind(const std::shared_ptr<RenderLabel>& lb) {

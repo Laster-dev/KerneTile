@@ -51,6 +51,7 @@ ktui::WidgetPtr build_menu_flyout_page(GalleryApp& app);
 // ==================== 弹窗与状态 (Dialogs & Status) ====================
 ktui::WidgetPtr build_content_dialog_page(GalleryApp& app);
 ktui::WidgetPtr build_teaching_tip_page(GalleryApp& app);
+ktui::WidgetPtr build_tooltip_page(GalleryApp& app);
 ktui::WidgetPtr build_info_bar_page(GalleryApp& app);
 ktui::WidgetPtr build_info_badge_page(GalleryApp& app);
 ktui::WidgetPtr build_person_picture_page(GalleryApp& app);

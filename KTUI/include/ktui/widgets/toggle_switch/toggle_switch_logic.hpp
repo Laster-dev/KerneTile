@@ -41,6 +41,15 @@ public:
 
     [[nodiscard]] bool checked() const noexcept { return m_data.checked; }
     [[nodiscard]] const std::string& label() const noexcept { return m_data.label; }
+
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = AccessibilityRole::Switch;
+        if (p.name.empty()) p.name = m_data.label;
+        p.checked = m_data.checked;
+        p.disabled = m_state.is_disabled;
+        return p;
+    }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
     [[nodiscard]] const ToggleSwitchData& data() const noexcept { return m_data; }
     [[nodiscard]] const ToggleSwitchInteractiveState& state() const noexcept { return m_state; }

@@ -152,6 +152,14 @@ public:
         return m_custom_text.value_or(resolve_current_style().text);
     }
 
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        if (p.role == AccessibilityRole::None) p.role = AccessibilityRole::Button;
+        if (p.name.empty()) p.name = m_data.text;
+        p.disabled = m_state.is_disabled || m_state.is_loading;
+        return p;
+    }
+
     // ==================== Fluent 水波纹 (Ripple) 动效控制 ====================
     // 完全委托给 MotionTween 与 Motion 管理器，无任何私有数学曲线
 

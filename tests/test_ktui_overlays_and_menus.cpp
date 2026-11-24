@@ -27,6 +27,8 @@
 #include <ktui/widgets/flip_view.hpp>
 #include <ktui/widgets/segmented_control.hpp>
 #include <ktui/widgets/toggle_button.hpp>
+#include <ktui/widgets/tooltip.hpp>
+#include <ktui/event/focus_tree.hpp>
 #include <ktui/animation/frame_clock.hpp>
 #include <ktui/tree/popup_handle.hpp>
 #include <ktui/theme/theme.hpp>
@@ -530,6 +532,95 @@ int main() {
     assert(sb_reuse_node->main_button() != nullptr && sb_reuse_node->drop_button() != nullptr);
     assert(sb_reuse_node->main_button()->variant() == ButtonVariant::Accent);
 
-    std::cout << "All 36 KTUI widget, overlay & architecture tests passed!" << std::endl;
+    // 37. FontWeight (Regular / SemiBold / Bold) 排版与测量校验
+    Vec2 reg_sz = TextMeasure::measure("KerneTile WinUI 3", 16.0f, FontWeight::Regular);
+    Vec2 bold_sz = TextMeasure::measure("KerneTile WinUI 3", 16.0f, FontWeight::Bold);
+    assert(reg_sz.x > 0.0f && bold_sz.x > 0.0f);
+    assert(bold_sz.x >= reg_sz.x * 0.95f);
+
+    // 38. Tooltip 悬浮提示尺寸计算、点击穿透与布局透传校验
+    RenderTooltipPopup tip_popup("快捷键 Ctrl+S 保存");
+    Vec2 tip_sz = tip_popup.compute_ideal_size();
+    assert(tip_sz.x >= 32.0f && tip_sz.y >= 26.0f);
+    HitTestResult tip_hit;
+    assert(!tip_popup.hit_test(tip_hit, PointF{10.0f, 10.0f}));
+
+    Tooltip tip_widget{
+        .text = "操作提示",
+        .child = Button { .text = "确定" }
+    };
+    WidgetPtr tip_ptr = tip_widget;
+    auto tip_area = std::dynamic_pointer_cast<RenderTooltipArea>(tip_ptr->create_render_node());
+    tip_area->layout(BoxConstraints::loose(Vec2{200.0f, 60.0f}));
+    assert(tip_area->size().x > 20.0f && tip_area->size().y == 32.0f);
+
+    // 39. FocusManager Tab / Shift+Tab 键盘焦点流转、焦点环可见性与零尺寸节点跳过校验
+    RenderDecoratedBox focus_root;
+    focus_root.layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
+    RenderButton fb1, fb2, fb_hidden;
+    fb1.set_text("One");
+    fb2.set_text("Two");
+    fb_hidden.set_text("Hidden");
+    fb1.layout(BoxConstraints::tight(Vec2{80.0f, 32.0f}));
+    fb2.layout(BoxConstraints::tight(Vec2{80.0f, 32.0f}));
+    fb_hidden.layout(BoxConstraints::tight(Vec2{0.0f, 0.0f}));
+    focus_root.append_child(&fb1);
+    focus_root.append_child(&fb_hidden);
+    focus_root.append_child(&fb2);
+
+    FocusManager fm;
+    fm.request_focus(&fb1, false); // 鼠标点击不显示键盘焦点环
+    assert(fm.focused_node() == &fb1 && !fm.is_keyboard_focus_visible());
+    assert(fm.handle_tab_navigation(&focus_root, false)); // Tab 跳过零尺寸节点到 fb2
+    assert(fm.focused_node() == &fb2 && fm.is_keyboard_focus_visible());
+    assert(fm.handle_tab_navigation(&focus_root, true));  // Shift+Tab 回到 fb1
+    assert(fm.focused_node() == &fb1 && fm.is_keyboard_focus_visible());
+
+    focus_root.remove_child(&fb1);
+    focus_root.remove_child(&fb_hidden);
+    focus_root.remove_child(&fb2);
+
+    // 40. Label 粗体/斜体/下划线/删除线组合校验
+    Label rich_lbl{
+        .text = "富文本标签",
+        .variant = LabelVariant::Accent,
+        .bold = true,
+        .italic = true,
+        .underline = true,
+        .strikethrough = true
+    };
+    WidgetPtr rich_lbl_ptr = rich_lbl;
+    auto rich_lbl_node = std::dynamic_pointer_cast<RenderLabel>(rich_lbl_ptr->create_render_node());
+    rich_lbl_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
+    assert(rich_lbl_node->size().x > 20.0f && rich_lbl_node->size().y >= 16.0f);
+
+    // 41. WinUI 3 无障碍自动化树 (AccessibilityService::build_tree) 与 LiveRegion 播报校验
+    RenderDecoratedBox a11y_root;
+    a11y_root.layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
+    RenderButton a11y_btn;
+    a11y_btn.set_text("提交表单");
+    a11y_btn.layout(BoxConstraints::tight(Vec2{100.0f, 32.0f}));
+    RenderCheckbox a11y_chk;
+    a11y_chk.set_checked(true);
+    a11y_chk.layout(BoxConstraints::tight(Vec2{120.0f, 24.0f}));
+    assert(a11y_chk.is_focusable);
+    a11y_root.append_child(&a11y_btn);
+    a11y_root.append_child(&a11y_chk);
+
+    auto a11y_tree = AccessibilityService::build_tree(&a11y_root, &a11y_btn);
+    assert(a11y_tree.children.size() == 2);
+    assert(a11y_tree.children[0].props.role == AccessibilityRole::Button);
+    assert(a11y_tree.children[0].props.name == "提交表单");
+    assert(a11y_tree.children[0].props.focused == true);
+    assert(a11y_tree.children[1].props.role == AccessibilityRole::CheckBox);
+    assert(a11y_tree.children[1].props.checked.has_value() && *a11y_tree.children[1].props.checked == true);
+
+    AccessibilityService::global().announce("已保存更改", LiveRegionSetting::Polite);
+    assert(AccessibilityService::global().last_announcement() == "已保存更改");
+
+    a11y_root.remove_child(&a11y_btn);
+    a11y_root.remove_child(&a11y_chk);
+
+    std::cout << "All 41 KTUI widget, overlay & architecture tests passed!" << std::endl;
     return 0;
 }

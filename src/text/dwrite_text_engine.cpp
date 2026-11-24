@@ -68,8 +68,8 @@ public:
         m_factory->GetGdiInterop(&m_gdi);
     }
 
-    FontMetrics get_metrics(float size, std::string_view family) override {
-        auto layout = make_layout(L"M", size, family);
+    FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {
+        auto layout = make_layout(L"M", size, family, font_weight, italic);
         DWRITE_LINE_METRICS line{};
         UINT32 count = 0;
         if (layout && SUCCEEDED(layout->GetLineMetrics(&line, 1, &count)) && count)
@@ -77,14 +77,14 @@ public:
         return {size, size * 0.8f, -size * 0.2f, size};
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family) override {
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
         TextLayoutResult result;
-        result.metrics = get_metrics(size, family);
+        result.metrics = get_metrics(size, family, font_weight, italic);
         result.total_height = result.metrics.line_height;
         if (text.empty()) { result.carets.push_back({0, 0}); return result; }
         const auto wide = utf16(text);
         const auto offsets = byte_offsets(wide);
-        auto layout = make_layout(wide, size, family);
+        auto layout = make_layout(wide, size, family, font_weight, italic);
         if (!layout) return result;
         DWRITE_TEXT_METRICS metrics{};
         if (SUCCEEDED(layout->GetMetrics(&metrics))) {
@@ -206,14 +206,17 @@ private:
         return glyph_marker + static_cast<uint32_t>(m_glyphs.size() - 1);
     }
 
-    ComPtr<IDWriteTextLayout> make_layout(std::wstring_view text, float size, std::string_view family) {
+    ComPtr<IDWriteTextLayout> make_layout(std::wstring_view text, float size, std::string_view family, uint16_t font_weight, bool italic) {
         const auto name = family.empty() ? std::wstring(m_font.lfFaceName) : utf16(family);
         wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
         GetUserDefaultLocaleName(locale, static_cast<int>(std::size(locale)));
         ComPtr<IDWriteTextFormat> format;
+        const auto weight = static_cast<DWRITE_FONT_WEIGHT>(
+            font_weight > 0 ? std::clamp<uint16_t>(font_weight, 100, 950)
+                            : (m_font.lfWeight ? m_font.lfWeight : FW_NORMAL));
         if (FAILED(m_factory->CreateTextFormat(name.c_str(), nullptr,
-            static_cast<DWRITE_FONT_WEIGHT>(m_font.lfWeight ? m_font.lfWeight : FW_NORMAL),
-            m_font.lfItalic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
+            weight,
+            (italic || m_font.lfItalic) ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, size, locale, &format))) return {};
         format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         ComPtr<IDWriteTextLayout> layout;

@@ -776,7 +776,7 @@ private:
 
         if (!m_data.header.empty()) {
             ctx.draw_text(m_data.header, PointF{std::round(surf.min_x + 24.0f), std::round(surf.min_y + 14.0f)},
-                          style.page_header_font_size, style.page_header_text);
+                          style.page_header_font_size, style.page_header_text, FontWeight::SemiBold);
         }
 
         if (m_content_box) {
@@ -885,11 +885,12 @@ private:
             if (!m_data.pane_title.empty() && m_pane_open_anim > 0.45f) {
                 float ta = std::clamp((m_pane_open_anim - 0.45f) / 0.55f, 0.0f, 1.0f);
                 Color tc = style.item_selected_text; tc.a *= ta;
-                Vec2 ts = TextMeasure::measure(m_data.pane_title, 13.5f);
+                Vec2 ts = TextMeasure::measure(m_data.pane_title, 13.5f, FontWeight::SemiBold);
                 float clip_w = std::max(0.0f, pane_w - title_x - 8.0f);
                 if (clip_w > 2.0f) {
                     ctx.push_clip(Rect::from_xywh(title_x, cy, clip_w, 36.0f), 0.0f);
-                    ctx.draw_text(m_data.pane_title, PointF{title_x, std::round(cy + (36.0f - ts.y) * 0.5f)}, 13.5f, tc);
+                    ctx.draw_text(m_data.pane_title, PointF{title_x, std::round(cy + (36.0f - ts.y) * 0.5f)},
+                                  13.5f, tc, FontWeight::SemiBold);
                     ctx.pop_clip();
                 }
             }
@@ -1006,6 +1007,11 @@ private:
             m_pill_in_menu = target_pill_in_menu;
             m_pill_target_pos = target_pill_y;
             m_pill_target_size = 16.0f;
+            if (std::abs(m_pill_head - m_pill_target_pos) > 0.25f ||
+                std::abs(m_pill_tail - m_pill_target_pos) > 0.25f ||
+                std::abs(m_pill_size - m_pill_target_size) > 0.25f) {
+                mark_needs_paint();
+            }
             float pill_top = std::min(m_pill_head, m_pill_tail);
             float pill_bot = std::max(m_pill_head, m_pill_tail) + m_pill_size;
             if (target_pill_in_menu) {
@@ -1214,6 +1220,11 @@ private:
             }
             m_pill_target_pos = target_pill_x;
             m_pill_target_size = target_pill_w;
+            if (std::abs(m_pill_head - m_pill_target_pos) > 0.25f ||
+                std::abs(m_pill_tail - m_pill_target_pos) > 0.25f ||
+                std::abs(m_pill_size - m_pill_target_size) > 0.25f) {
+                mark_needs_paint();
+            }
             float pill_l = std::min(m_pill_head, m_pill_tail);
             float pill_r = std::max(m_pill_head, m_pill_tail) + m_pill_size;
             ctx.draw_rect(Rect::from_xywh(pill_l, 41.0f, std::max(16.0f, pill_r - pill_l), 3.0f),
@@ -1332,7 +1343,9 @@ private:
                 if (mi.effective_id() == item.effective_id()) {
                     mi.expanded = !mi.expanded;
                     rebuild_flat_items();
+                    m_last_anim_time = std::chrono::steady_clock::now();
                     mark_needs_layout();
+                    mark_needs_paint();
                     return;
                 }
             }

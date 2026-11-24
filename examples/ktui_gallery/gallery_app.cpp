@@ -183,10 +183,11 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "8", .expanded = false,
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "9", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
                     NavigationViewItem{ .id = "teaching_tip",   .label = "TeachingTip" },
+                    NavigationViewItem{ .id = "tooltip",        .label = "Tooltip",        .badge = "New" },
                     NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
                     NavigationViewItem{ .id = "info_badge",     .label = "InfoBadge",     .badge = "New" },
                     NavigationViewItem{ .id = "person_picture", .label = "PersonPicture", .badge = "New" },
@@ -249,6 +250,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "menu_flyout")     return pages::build_menu_flyout_page(*this);
             if (page_id == "content_dialog")       return pages::build_content_dialog_page(*this);
             if (page_id == "teaching_tip")         return pages::build_teaching_tip_page(*this);
+            if (page_id == "tooltip")              return pages::build_tooltip_page(*this);
             if (page_id == "info_bar")        return pages::build_info_bar_page(*this);
             if (page_id == "info_badge")      return pages::build_info_badge_page(*this);
             if (page_id == "person_picture")  return pages::build_person_picture_page(*this);

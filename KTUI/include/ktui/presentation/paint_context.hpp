@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ktui/animation/frame_clock.hpp>
+#include <ktui/pal/font_resolver.hpp>
 #include <ktui/pal/platform_types.hpp>
 #include <kernetile/renderer.hpp>
 #include <algorithm>
@@ -122,11 +123,13 @@ public:
                           Vec2{direction_offset.x * amb_dist, direction_offset.y * amb_dist});
     }
 
-    // 绘制文本
-    void draw_text(std::string_view text, PointF pos, float font_size, Color color) {
+    // 绘制文本 (支持 WinUI 3 字重与斜体)
+    void draw_text(std::string_view text, PointF pos, float font_size, Color color,
+                   FontWeight weight = FontWeight::Regular, bool italic = false) {
         PointF abs_pos = pos + m_current_offset;
         if (m_renderer) {
-            m_renderer->draw_text_scaled(text, abs_pos.x, abs_pos.y, font_size, color, m_render_scale);
+            m_renderer->draw_text_scaled(text, abs_pos.x, abs_pos.y, font_size, color,
+                                         m_render_scale, static_cast<uint16_t>(weight), italic);
         }
         m_primitive_count++;
     }

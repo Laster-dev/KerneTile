@@ -56,6 +56,15 @@ public:
     [[nodiscard]] bool checked() const noexcept { return m_checked; }
     [[nodiscard]] const std::shared_ptr<RenderButton>& button() const noexcept { return m_btn; }
 
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = AccessibilityRole::ToggleButton;
+        if (p.name.empty() && m_btn) p.name = m_btn->text();
+        p.checked = m_checked;
+        p.disabled = m_disabled;
+        return p;
+    }
+
     void toggle() {
         if (m_disabled) return;
         m_checked = !m_checked;

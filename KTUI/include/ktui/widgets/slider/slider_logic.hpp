@@ -32,6 +32,16 @@ public:
     [[nodiscard]] float value() const noexcept { return m_data.value; }
     [[nodiscard]] float min_value() const noexcept { return m_data.min_value; }
     [[nodiscard]] float max_value() const noexcept { return m_data.max_value; }
+
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = AccessibilityRole::Slider;
+        p.range_min = m_data.min_value;
+        p.range_max = m_data.max_value;
+        p.range_value = m_data.value;
+        p.disabled = m_state.is_disabled;
+        return p;
+    }
     [[nodiscard]] float step() const noexcept { return m_data.step; }
     [[nodiscard]] bool disabled() const noexcept { return m_state.is_disabled; }
     [[nodiscard]] const SliderData& data() const noexcept { return m_data; }

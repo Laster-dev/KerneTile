@@ -87,6 +87,15 @@ public:
     [[nodiscard]] size_t line_count() const noexcept { return std::max<size_t>(1, m_lines.size()); }
     [[nodiscard]] size_t caret() const noexcept { return m_caret; }
 
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = AccessibilityRole::TextArea;
+        if (p.name.empty()) p.name = !m_header.empty() ? m_header : m_placeholder;
+        p.value = m_text;
+        p.disabled = m_disabled;
+        return p;
+    }
+
     // ==================== 选区与撤销/重做公共接口 ====================
     [[nodiscard]] bool has_selection() const noexcept { return m_sel_anchor != m_caret; }
     [[nodiscard]] size_t sel_start() const noexcept { return std::min(m_sel_anchor, m_caret); }

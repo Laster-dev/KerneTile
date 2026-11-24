@@ -21,6 +21,7 @@ namespace ktui {
 class RenderCheckbox : public RenderBox {
 public:
     RenderCheckbox() noexcept {
+        is_focusable = true;
         cursor_shape = CursorShape::PointingHand;
         setup_behavior();
         m_last_tick_time = std::chrono::steady_clock::now();
@@ -52,6 +53,15 @@ public:
     // 状态访问与设置
     [[nodiscard]] bool checked() const noexcept {
         return m_data.state == CheckState::Checked;
+    }
+
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = AccessibilityRole::CheckBox;
+        if (p.name.empty()) p.name = m_data.label;
+        p.checked = (m_data.state == CheckState::Checked);
+        p.disabled = m_state.is_disabled;
+        return p;
     }
 
     void set_checked(bool is_chk) {

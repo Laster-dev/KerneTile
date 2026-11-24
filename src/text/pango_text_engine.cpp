@@ -42,13 +42,13 @@ public:
         }
     }
 
-    FontMetrics get_metrics(float size, std::string_view family) override {
-        auto layout = make_layout("M", size, family);
+    FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {
+        auto layout = make_layout("M", size, family, font_weight, italic);
         return metrics(layout.get(), size);
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family) override {
-        auto layout = make_layout(text, size, family);
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
+        auto layout = make_layout(text, size, family, font_weight, italic);
         TextLayoutResult result;
         result.metrics = metrics(layout.get(), size);
         PangoRectangle logical{};
@@ -87,7 +87,7 @@ public:
         if (id < glyph_base) {
             char text[6]{};
             int length = g_unichar_to_utf8(id, text);
-            auto shaped = shape_text({text, static_cast<size_t>(length)}, size, {});
+            auto shaped = shape_text({text, static_cast<size_t>(length)}, size, {}, 400, false);
             if (shaped.glyphs.empty()) return {};
             id = shaped.glyphs.front().glyph_id;
         }
@@ -140,10 +140,12 @@ private:
         return glyph_base + static_cast<uint32_t>(m_glyphs.size() - 1);
     }
 
-    GObjectPtr<PangoLayout> make_layout(std::string_view text, float size, std::string_view family) {
+    GObjectPtr<PangoLayout> make_layout(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) {
         GObjectPtr<PangoLayout> layout(pango_layout_new(m_context.get()), unref<PangoLayout>);
         auto* desc = pango_font_description_copy(pango_context_get_font_description(m_context.get()));
         if (!family.empty()) pango_font_description_set_family(desc, std::string(family).c_str());
+        pango_font_description_set_weight(desc, static_cast<PangoWeight>(font_weight > 0 ? font_weight : 400));
+        pango_font_description_set_style(desc, italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
         pango_font_description_set_absolute_size(desc, size * PANGO_SCALE);
         pango_layout_set_font_description(layout.get(), desc);
         pango_font_description_free(desc);

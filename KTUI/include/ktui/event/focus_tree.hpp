@@ -18,9 +18,17 @@ public:
         return m_focused_node;
     }
 
+    // 仅在通过键盘 Tab/Shift+Tab 导航获得焦点时显示 WinUI 3 键盘焦点环 (鼠标点击不显示)
+    [[nodiscard]] bool is_keyboard_focus_visible() const noexcept {
+        return m_keyboard_focus_visible && m_focused_node != nullptr;
+    }
+
     // 请求将焦点转移到指定节点
-    void request_focus(RenderBox* node) {
-        if (m_focused_node == node) return;
+    void request_focus(RenderBox* node, bool from_keyboard = false) {
+        if (m_focused_node == node) {
+            m_keyboard_focus_visible = from_keyboard && (node != nullptr);
+            return;
+        }
 
         // 旧节点失去焦点
         if (m_focused_node) {
@@ -31,6 +39,7 @@ public:
         }
 
         m_focused_node = node;
+        m_keyboard_focus_visible = from_keyboard && (node != nullptr);
 
         // 新节点获得焦点
         if (m_focused_node) {
@@ -45,12 +54,14 @@ public:
     void forget_node(RenderBox* node) noexcept {
         if (m_focused_node == node) {
             m_focused_node = nullptr;
+            m_keyboard_focus_visible = false;
         }
     }
 
     // 清除焦点
     void clear_focus() {
-        request_focus(nullptr);
+        m_keyboard_focus_visible = false;
+        request_focus(nullptr, false);
     }
 
     // 处理 Tab / Shift+Tab 导航键
@@ -88,17 +99,17 @@ public:
             }
         }
 
-        request_focus(focusable_nodes[next_idx]);
+        request_focus(focusable_nodes[next_idx], true);
         return true;
     }
 
 private:
-    // 递归先序遍历收集所有可聚焦节点
+    // 递归先序遍历收集所有可见的可聚焦节点
     void collect_focusable_nodes(RenderNode* current, std::vector<RenderBox*>& out_list) {
         if (!current) return;
 
         if (auto* box = dynamic_cast<RenderBox*>(current)) {
-            if (box->is_focusable) {
+            if (box->is_focusable && box->size().x > 0.5f && box->size().y > 0.5f) {
                 out_list.push_back(box);
             }
         }
@@ -109,6 +120,7 @@ private:
     }
 
     RenderBox* m_focused_node{nullptr};
+    bool m_keyboard_focus_visible{false};
 };
 
 } // namespace ktui

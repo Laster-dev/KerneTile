@@ -77,6 +77,16 @@ public:
     [[nodiscard]] const TextBoxInteractiveState& state() const noexcept { return m_state; }
 
     [[nodiscard]] const std::string& text() const noexcept { return m_data.text; }
+
+    [[nodiscard]] AccessibilityProperties compute_accessibility() const override {
+        auto p = RenderBox::compute_accessibility();
+        p.role = m_data.is_password ? AccessibilityRole::PasswordBox : AccessibilityRole::TextBox;
+        if (p.name.empty()) p.name = m_data.placeholder;
+        p.is_password = m_data.is_password;
+        p.value = (m_data.is_password && !m_data.is_password_revealed) ? std::string{} : m_data.text;
+        p.disabled = m_state.is_disabled;
+        return p;
+    }
     void set_text(std::string text) {
         if (m_data.text != text) {
             m_data.text = std::move(text);
