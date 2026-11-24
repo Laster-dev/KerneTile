@@ -74,6 +74,7 @@ public:
         instance.enabledExtensionCount = 2;
         instance.ppEnabledExtensionNames = instance_ext;
         check(vkCreateInstance(&instance, nullptr, &m_instance), "Vulkan instance");
+        if (m_failed) return;
 #if defined(__ANDROID__)
         VkAndroidSurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
         surface.window = static_cast<ANativeWindow*>(window);
@@ -84,7 +85,9 @@ public:
         surface.window = reinterpret_cast<uintptr_t>(window);
         check(vkCreateXlibSurfaceKHR(m_instance, &surface, nullptr, &m_surface), "X11 Vulkan surface");
 #endif
+        if (m_failed) return;
         pick_device();
+        if (m_failed || m_physical == VK_NULL_HANDLE) return;
         const float priority = 1.0f;
         VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         queue.queueFamilyIndex = m_family;
@@ -97,20 +100,25 @@ public:
         device.enabledExtensionCount = 1;
         device.ppEnabledExtensionNames = &device_ext;
         check(vkCreateDevice(m_physical, &device, nullptr, &m_device), "Vulkan device");
+        if (m_failed || m_device == VK_NULL_HANDLE) return;
         vkGetDeviceQueue(m_device, m_family, 0, &m_queue);
         vkGetPhysicalDeviceMemoryProperties(m_physical, &m_memory);
 
         VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         pool.queueFamilyIndex = m_family;
         check(vkCreateCommandPool(m_device, &pool, nullptr, &m_pool), "Vulkan command pool");
+        if (m_failed) return;
         VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         allocation.commandPool = m_pool;
         allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocation.commandBufferCount = 1;
         check(vkAllocateCommandBuffers(m_device, &allocation, &m_cmd), "Vulkan command buffer");
+        if (m_failed) return;
         VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         check(vkCreateSemaphore(m_device, &semaphore, nullptr, &m_acquired), "Vulkan acquire semaphore");
+        if (m_failed) return;
         check(vkCreateSemaphore(m_device, &semaphore, nullptr, &m_finished), "Vulkan present semaphore");
+        if (m_failed) return;
         create_pipeline();
     }
 

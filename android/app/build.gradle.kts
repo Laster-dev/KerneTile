@@ -32,12 +32,12 @@ android {
         }
     }
 
-    // 按 ABI 拆分独立 APK，不将多架构打包进同一个肥大 APK
+    // 按 ABI 拆分独立 APK，仅保留主流 ARM64 (arm64-v8a) 与老设备 ARM32 (armeabi-v7a)
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
         }
     }

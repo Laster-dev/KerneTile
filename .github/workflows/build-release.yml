@@ -96,7 +96,9 @@ jobs:
           path: dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
 
   # ============================================================================
-  # Linux Native: x64 (x86_64) & arm64 (aarch64) — zig c++ (glibc 2.28, -Oz)
+  # Linux Native: x64 (x86_64) & arm64 (aarch64)
+  #   使用 ubuntu-22.04 (glibc 2.35，兼容 Debian 12 / Ubuntu 22.04+ / Arch / Fedora)
+  #   原生 Clang + LLD (-Oz -flto=thin -Wl,--icf=all -Wl,--strip-all) 实现最小体积 (~750 KB)
   # ============================================================================
   build-linux-native:
     name: Linux (${{ matrix.arch }})
@@ -106,54 +108,34 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubuntu-24.04
-            zig_target: x86_64-linux-gnu.2.28
-            multiarch: x86_64-linux-gnu
+            runner: ubuntu-22.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
-            zig_target: aarch64-linux-gnu.2.28
-            multiarch: aarch64-linux-gnu
+            runner: ubuntu-22.04-arm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Zig 0.14.0
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.0
-
       - name: Setup ccache (Incremental C++ Cache)
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: linux-zig-${{ matrix.arch }}
+          key: linux-clang22-${{ matrix.arch }}
           max-size: 300M
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config \
+            cmake ninja-build clang lld pkg-config \
             libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
             libvulkan-dev glslang-tools
 
-      - name: Create zig c++ Compiler Wrappers (${{ matrix.zig_target }})
-        run: |
-          sudo bash scripts/make_zig_wrappers.sh "$(which zig)" "${{ matrix.zig_target }}" "${{ matrix.multiarch }}" /usr/local/bin
-
-      - name: Configure & Build (Linux ${{ matrix.arch }} zig c++ glibc 2.28 -Oz)
+      - name: Configure & Build (Linux ${{ matrix.arch }} Clang -Oz ThinLTO + LLD ICF)
         run: |
           cmake -B build-linux-${{ matrix.arch }} -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
-            -DKERNETILE_ZIG_CXX=ON \
-            -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
-            -DCMAKE_AR=/usr/local/bin/zig-ar \
-            -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
-            -DCMAKE_LIBRARY_PATH="/usr/lib/${{ matrix.multiarch }};/usr/lib" \
-            -DVulkan_INCLUDE_DIR=/usr/include \
-            -DVulkan_LIBRARY="/usr/lib/${{ matrix.multiarch }}/libvulkan.so" \
-            -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/${{ matrix.multiarch }}"
+            -DCMAKE_CXX_COMPILER=clang++
           cmake --build build-linux-${{ matrix.arch }} --target ktui_gallery
           mkdir -p dist/linux-${{ matrix.arch }}
           cp build-linux-${{ matrix.arch }}/ktui_gallery dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
@@ -169,85 +151,12 @@ jobs:
           path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
 
   # ============================================================================
-  # Linux 32-bit: x86 (i686) via native i386 Debian container + zig c++ (glibc 2.28)
-  # ============================================================================
-  build-linux-x86:
-    name: Linux (x86)
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Restore ccache & Zig (Linux x86)
-        uses: actions/cache@v4
-        with:
-          path: |
-            .ccache-linux-x86
-            .zig-linux-x86
-          key: ccache-zig-linux-x86-${{ github.sha }}
-          restore-keys: |
-            ccache-zig-linux-x86-
-
-      - name: Build inside i386/debian:bookworm (zig c++ glibc 2.28 -Oz)
-        run: |
-          mkdir -p "${{ github.workspace }}/.ccache-linux-x86" "${{ github.workspace }}/.zig-linux-x86"
-          docker run --rm --platform linux/386 \
-            -e CCACHE_ENABLE=1 \
-            -e CCACHE_DIR=/ccache \
-            -e CCACHE_MAXSIZE=300M \
-            -e CCACHE_COMPRESS=true \
-            -e CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime \
-            -v "${{ github.workspace }}:/src" \
-            -v "${{ github.workspace }}/.ccache-linux-x86:/ccache" \
-            -v "${{ github.workspace }}/.zig-linux-x86:/zig" \
-            -w /src \
-            i386/debian:bookworm \
-            bash -exc '
-              apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                cmake ninja-build ccache pkg-config curl xz-utils ca-certificates binutils \
-                libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
-                libvulkan-dev glslang-tools
-              if [ ! -x /zig/zig ]; then
-                curl -fsSL https://ziglang.org/download/0.14.0/zig-linux-x86-0.14.0.tar.xz | tar -xJ --strip-components=1 -C /zig
-              fi
-              bash /src/scripts/make_zig_wrappers.sh /zig/zig x86-linux-gnu.2.28 i386-linux-gnu /usr/local/bin
-              cmake -B /tmp/build-linux -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DBUILD_TESTING=OFF \
-                -DKERNETILE_ZIG_CXX=ON \
-                -DCMAKE_CXX_COMPILER=/usr/local/bin/zig-cxx \
-                -DCMAKE_AR=/usr/local/bin/zig-ar \
-                -DCMAKE_RANLIB=/usr/local/bin/zig-ranlib \
-                -DCMAKE_LIBRARY_PATH="/usr/lib/i386-linux-gnu;/usr/lib" \
-                -DVulkan_INCLUDE_DIR=/usr/include \
-                -DVulkan_LIBRARY="/usr/lib/i386-linux-gnu/libvulkan.so" \
-                -DCMAKE_EXE_LINKER_FLAGS="-L/usr/lib/i386-linux-gnu"
-              cmake --build /tmp/build-linux --target ktui_gallery
-              ccache -s || true
-              mkdir -p /src/dist/linux-x86
-              cp /tmp/build-linux/ktui_gallery /src/dist/linux-x86/ktui_gallery-linux-x86
-              chmod +x /src/dist/linux-x86/ktui_gallery-linux-x86
-              ls -lh /src/dist/linux-x86/
-              objdump -T /src/dist/linux-x86/ktui_gallery-linux-x86 | grep -oE "GLIBC_[0-9.]+" | sort -uV || true
-            '
-
-      - name: Upload Artifact (Linux x86)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ktui_gallery-linux-x86
-          path: dist/linux-x86/ktui_gallery-linux-x86
-
-  # ============================================================================
-  # Android: 按 ABI 拆分为 4 个独立最小体积 APK + Gradle/ccache 增量缓存
-  #   - arm64-v8a  (64位 ARM / ARMv8，主流安卓手机)
+  # Android: 按 ABI 拆分为 2 个独立最小体积 APK
+  #   - arm64-v8a   (64位 ARM / ARMv8，主流安卓手机)
   #   - armeabi-v7a (32位 ARM / ARMv7，老款安卓设备)
-  #   - x86_64     (64位 x86，现代模拟器 / Chromebook)
-  #   - x86        (32位 x86，老款模拟器)
   # ============================================================================
   build-android:
-    name: Android (Per-ABI APKs)
+    name: Android (ARM64 & ARMv7 APKs)
     runs-on: ubuntu-24.04
 
     steps:
@@ -266,8 +175,8 @@ jobs:
       - name: Setup ccache (Incremental Android NDK C++ Cache)
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: android-all-abis
-          max-size: 500M
+          key: android-arm-abis
+          max-size: 300M
 
       - name: Install Android CMake 3.22.1 & SDK 34
         run: |
@@ -283,7 +192,7 @@ jobs:
       - name: Collect & Inspect Per-ABI APKs
         run: |
           mkdir -p dist/android
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+          for abi in arm64-v8a armeabi-v7a; do
             src="android/app/build/outputs/apk/release/app-${abi}-release.apk"
             if [ ! -f "$src" ]; then
               echo "Missing expected ABI APK: $src"
@@ -305,18 +214,6 @@ jobs:
         with:
           name: ktui_gallery-android-armeabi-v7a
           path: dist/android/ktui_gallery-android-armeabi-v7a.apk
-
-      - name: Upload Android x86_64 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ktui_gallery-android-x86_64
-          path: dist/android/ktui_gallery-android-x86_64.apk
-
-      - name: Upload Android x86 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ktui_gallery-android-x86
-          path: dist/android/ktui_gallery-android-x86.apk
 
   # ============================================================================
   # Web (WebAssembly): 打包为单一离线的 ktui_gallery-web.html（内置 JS + WASM + 壁纸）
@@ -367,7 +264,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: github.event_name != 'pull_request'
-    needs: [build-windows, build-linux-native, build-linux-x86, build-android, build-web]
+    needs: [build-windows, build-linux-native, build-android, build-web]
     runs-on: ubuntu-24.04
     steps:
       - name: Download All Artifacts
@@ -388,7 +285,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Build (main)
-          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`/`x86`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`/`x86_64`/`x86`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
+          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
           prerelease: true
           make_latest: false
           files: release-assets/*
