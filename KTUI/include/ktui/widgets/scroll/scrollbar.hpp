@@ -3,6 +3,7 @@
 #include "smooth_scroll_physics.hpp"
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/presentation/paint_context.hpp>
+#include <ktui/presentation/svg_engine.hpp>
 #include <ktui/theme/theme.hpp>
 
 #include <algorithm>
@@ -218,6 +219,78 @@ public:
         return was_active;
     }
 
+    // 零动画直连滚动接口 (供 HexViewer / InspectorGrid 等追求零延迟瞬时滚动的高性能控件复用)
+    bool handle_pointer_move_direct(PointF local_pos,
+                                    Rect viewport_rect,
+                                    float content_height,
+                                    float& scroll_offset,
+                                    float max_scroll,
+                                    bool& out_consumed) noexcept {
+        out_consumed = false;
+        Metrics m = compute_metrics(viewport_rect, content_height, scroll_offset);
+        if (!m.visible) {
+            m_bar_hovered = false;
+            m_hover_part = HitPart::None;
+            m_dragging = false;
+            return false;
+        }
+        if (m_dragging) {
+            float lane_span = std::max(1.0f, m.thumb_lane_rect.height() - m.thumb_rect.height());
+            float dy = local_pos.y - m_drag_start_y;
+            scroll_offset = std::clamp(m_drag_start_offset + (dy / lane_span) * max_scroll, 0.0f, max_scroll);
+            notify_activity();
+            out_consumed = true;
+            return true;
+        }
+        HitPart part = hit_test(local_pos, m);
+        bool now_hovered = (part != HitPart::None);
+        bool changed = (now_hovered != m_bar_hovered || part != m_hover_part);
+        m_bar_hovered = now_hovered;
+        m_hover_part = part;
+        if (now_hovered) {
+            notify_activity();
+            out_consumed = true;
+        }
+        if (changed) m_last_anim_time = std::chrono::steady_clock::now();
+        return changed || now_hovered;
+    }
+
+    bool handle_pointer_down_direct(PointF local_pos,
+                                    Rect viewport_rect,
+                                    float content_height,
+                                    float& scroll_offset,
+                                    float max_scroll,
+                                    float line_step = 32.0f) noexcept {
+        Metrics m = compute_metrics(viewport_rect, content_height, scroll_offset);
+        HitPart part = hit_test(local_pos, m);
+        if (part == HitPart::None) return false;
+        m_pressed_part = part;
+        notify_activity();
+        m_last_anim_time = std::chrono::steady_clock::now();
+        switch (part) {
+            case HitPart::Thumb:
+                m_dragging = true;
+                m_drag_start_y = local_pos.y;
+                m_drag_start_offset = scroll_offset;
+                break;
+            case HitPart::TopArrow:
+                scroll_offset = std::clamp(scroll_offset - line_step, 0.0f, max_scroll);
+                break;
+            case HitPart::BottomArrow:
+                scroll_offset = std::clamp(scroll_offset + line_step, 0.0f, max_scroll);
+                break;
+            case HitPart::TrackAbove:
+                scroll_offset = std::clamp(scroll_offset - std::max(line_step, viewport_rect.height() * 0.85f), 0.0f, max_scroll);
+                break;
+            case HitPart::TrackBelow:
+                scroll_offset = std::clamp(scroll_offset + std::max(line_step, viewport_rect.height() * 0.85f), 0.0f, max_scroll);
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
+
     // 推进展开/收起和自动淡出动画，返回 true 表示仍需重绘下一帧
     bool update_animations(bool viewport_hovered) noexcept {
         auto now = std::chrono::steady_clock::now();
@@ -269,8 +342,8 @@ public:
         // 1. 展开态背景槽 (WinUI 3 ScrollBarTrackFill: 12px 宽，6px 圆角胶囊)
         if (m_expand_progress > 0.01f) {
             Color track_bg = theme.is_dark
-                ? Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 0.88f * m_expand_progress * eff_alpha}
-                : Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.90f * m_expand_progress * eff_alpha};
+                ? Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 0.94f * m_expand_progress * eff_alpha}
+                : Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.94f * m_expand_progress * eff_alpha};
             Color track_border = theme.is_dark
                 ? Color{1.0f, 1.0f, 1.0f, 0.06f * m_expand_progress * eff_alpha}
                 : Color{0.0f, 0.0f, 0.0f, 0.06f * m_expand_progress * eff_alpha};
@@ -279,46 +352,43 @@ public:
             ctx.draw_rect(m.track_rect, track_border, kTrackWidth * 0.5f, 1.0f);
         }
 
-        // 2. 顶部与底部 WinUI 3 三角箭头按钮 (展开态淡入)
+        // 2. 顶部与底部 WinUI 3 实心圆角小三角箭头 (Segoe Fluent Icons 像素级对齐)
         if (m_expand_progress > 0.05f && m.top_arrow_rect.height() > 0.0f) {
-            auto arrow_color = [&](HitPart part) {
+            static constexpr const char* kArrowUpSvg =
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>"
+                "<path fill='#FFFFFF' d='M6 3.05c.26 0 .5.13.64.35l3.05 4.55a.68.68 0 0 1-.57 1.05H2.88a.68.68 0 0 1-.57-1.05l3.05-4.55c.14-.22.38-.35.64-.35z'/>"
+                "</svg>";
+            static constexpr const char* kArrowDownSvg =
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'>"
+                "<path fill='#FFFFFF' d='M6 8.95a.76.76 0 0 1-.64-.35L2.31 4.05A.68.68 0 0 1 2.88 3h6.24a.68.68 0 0 1 .57 1.05L6.64 8.6a.76.76 0 0 1-.64.35z'/>"
+                "</svg>";
+
+            auto draw_arrow = [&](Rect r, HitPart part, const char* svg, float y_nudge) {
                 bool pressed = (m_pressed_part == part);
                 bool hovered = (m_hover_part == part);
-                float base_a = pressed ? 0.85f : (hovered ? 0.78f : 0.54f);
-                return theme.is_dark
+                float base_a = pressed ? 0.88f : (hovered ? 0.78f : 0.54f);
+                Color col = theme.is_dark
                     ? Color{1.0f, 1.0f, 1.0f, base_a * m_expand_progress * eff_alpha}
-                    : Color{0.0f, 0.0f, 0.0f, base_a * m_expand_progress * eff_alpha};
+                    : Color{0.0f, 0.0f, 0.0f, (base_a * 0.90f) * m_expand_progress * eff_alpha};
+                float sz = pressed ? 6.0f : 7.0f;
+                Rect ir = Rect::from_xywh(std::round(r.min_x + (r.width() - sz) * 0.5f),
+                                          std::round(r.min_y + (r.height() - sz) * 0.5f + y_nudge),
+                                          sz, sz);
+                SvgEngine::draw_svg_xml(ctx, svg, ir, col);
             };
 
-            // 顶部向上小三角 (▲)
-            {
-                Color col = arrow_color(HitPart::TopArrow);
-                float cx = m.top_arrow_rect.min_x + m.top_arrow_rect.width() * 0.5f;
-                float cy = m.top_arrow_rect.min_y + m.top_arrow_rect.height() * 0.5f + 1.0f;
-                ctx.draw_line(PointF{cx - 2.6f, cy + 1.2f}, PointF{cx, cy - 1.5f}, col, 1.3f);
-                ctx.draw_line(PointF{cx, cy - 1.5f}, PointF{cx + 2.6f, cy + 1.2f}, col, 1.3f);
-                ctx.draw_line(PointF{cx - 1.5f, cy + 1.0f}, PointF{cx + 1.5f, cy + 1.0f}, col, 1.2f);
-            }
-
-            // 底部向下小三角 (▼)
-            {
-                Color col = arrow_color(HitPart::BottomArrow);
-                float cx = m.bottom_arrow_rect.min_x + m.bottom_arrow_rect.width() * 0.5f;
-                float cy = m.bottom_arrow_rect.min_y + m.bottom_arrow_rect.height() * 0.5f - 1.0f;
-                ctx.draw_line(PointF{cx - 2.6f, cy - 1.2f}, PointF{cx, cy + 1.5f}, col, 1.3f);
-                ctx.draw_line(PointF{cx, cy + 1.5f}, PointF{cx + 2.6f, cy - 1.2f}, col, 1.3f);
-                ctx.draw_line(PointF{cx - 1.5f, cy - 1.0f}, PointF{cx + 1.5f, cy - 1.0f}, col, 1.2f);
-            }
+            draw_arrow(m.top_arrow_rect, HitPart::TopArrow, kArrowUpSvg, 1.0f);
+            draw_arrow(m.bottom_arrow_rect, HitPart::BottomArrow, kArrowDownSvg, -1.0f);
         }
 
         // 3. 胶囊滑块 (收起态 2px -> 展开态 6px，圆角严格等于 width * 0.5)
-        float thumb_a = 0.48f;
+        float thumb_a = 0.50f;
         if (m_dragging || m_pressed_part == HitPart::Thumb) {
-            thumb_a = 0.85f;
+            thumb_a = 0.64f;
         } else if (m_hover_part == HitPart::Thumb) {
-            thumb_a = 0.72f;
+            thumb_a = 0.78f;
         } else if (m_expand_progress > 0.01f) {
-            thumb_a = 0.48f + 0.08f * m_expand_progress;
+            thumb_a = 0.50f + 0.08f * m_expand_progress;
         }
 
         Color thumb_col = theme.is_dark

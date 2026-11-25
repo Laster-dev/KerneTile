@@ -231,10 +231,12 @@ private:
         };
 
         on_pointer_move = [this](PointerEvent& ev) {
-            // 鼠标滚轮直接微调数值
-            if (ev.type == PlatformEventType::PointerScroll && !m_editing) {
-                float dir = (ev.delta.y > 0.0f) ? 1.0f : (ev.delta.y < 0.0f ? -1.0f : 0.0f);
+            // 鼠标滚轮直接微调数值 (悬停态与聚焦编辑态均支持，且阻止冒泡避免外层页面误滚动)
+            if (ev.type == PlatformEventType::PointerScroll) {
+                float delta = (std::abs(ev.delta.y) > 0.0001f) ? ev.delta.y : ev.delta.x;
+                float dir = (delta > 0.0f) ? 1.0f : (delta < 0.0f ? -1.0f : 0.0f);
                 if (dir != 0.0f) {
+                    if (m_editing) commit_edit();
                     double mult = ev.modifiers.shift ? 10.0 : (ev.modifiers.alt ? 0.1 : 1.0);
                     set_value(m_value + dir * m_step * mult, true);
                     ev.stop_propagation();

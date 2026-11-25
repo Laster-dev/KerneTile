@@ -806,12 +806,51 @@ WidgetPtr build_tree_view_page(GalleryApp& app) {
         }
     };
 
+    std::vector<TreeViewNode> tree_list_nodes = {
+        TreeViewNode{
+            .id = "tl_engine", .label = "KerneTile.Core", .svg_path = kFolderSvg, .is_expanded = true,
+            .children = {
+                TreeViewNode{ .id = "tl_bin", .label = "tile_binner.cpp", .svg_path = kFileSvg, .sub_columns = {"C++20", "18.4 KB", "0.12 ms"} },
+                TreeViewNode{ .id = "tl_sdf", .label = "sdf_rasterizer.hlsl", .svg_path = kFileSvg, .sub_columns = {"HLSL SM6", "11.2 KB", "0.28 ms"} },
+                TreeViewNode{ .id = "tl_atl", .label = "dynamic_atlas.cpp", .svg_path = kFileSvg, .sub_columns = {"C++20", "9.6 KB", "0.04 ms"} }
+            },
+            .sub_columns = {"模块", "39.2 KB", "0.44 ms"}
+        },
+        TreeViewNode{
+            .id = "tl_ui", .label = "KTUI.Widgets", .svg_path = kFolderSvg, .is_expanded = true,
+            .children = {
+                TreeViewNode{ .id = "tl_tv", .label = "tree_view.hpp", .svg_path = kFileSvg, .sub_columns = {"Header", "22.1 KB", "120 FPS"} },
+                TreeViewNode{ .id = "tl_dg", .label = "data_grid.hpp", .svg_path = kFileSvg, .sub_columns = {"Header", "19.8 KB", "120 FPS"} }
+            },
+            .sub_columns = {"模块", "41.9 KB", "120 FPS"}
+        }
+    };
+
     return app.make_scroll_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("TreeView", 22.0f),
-            app.make_muted("WinUI 3 层级树形视图，支持单选指示条、多选父子三态复选框联动、自定义节点图标与滚动。", 12.5f),
+            app.make_muted("WinUI 3 层级树形视图：平滑展开/折叠高度与箭头旋转动画、单选/多选三态联动、以及多列可调宽 TreeListView 模式。", 12.5f),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "多列树形表格 (TreeListView，支持表头拖拽调列宽 + 平滑折叠)", .font_size = 14.0f },
+                    TreeView {
+                        .nodes = std::move(tree_list_nodes),
+                        .selection_mode = TreeViewSelectionMode::Single,
+                        .selected_id = "tl_bin",
+                        .height = 240.0f,
+                        .columns = {
+                            TreeListColumn{ .title = "名称", .width = 240.0f },
+                            TreeListColumn{ .title = "类型", .width = 110.0f },
+                            TreeListColumn{ .title = "体积", .width = 100.0f },
+                            TreeListColumn{ .title = "耗时 / 帧率", .width = 0.0f }
+                        }
+                    }
+                }
+            }),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -1194,12 +1233,33 @@ WidgetPtr build_data_grid_page(GalleryApp& app) {
         return r;
     }();
 
+    auto dg_overflow = std::make_shared<Property<DataGridCellOverflow>>(DataGridCellOverflow::Ellipsis);
+
     return app.make_full_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("DataGrid", 22.0f),
-            app.make_muted("高性能虚拟化数据表格：支持 5,000+ 行 O(1) 视口裁剪滚动、固定表头、点击列头数值/字典序升降排序与行选中反馈。", 12.5f),
+            HStack {
+                .align_items = AlignItems::Center,
+                .spacing = 12.0f,
+                .content = {
+                    Expanded {
+                        .flex = 1.0f,
+                        .child = app.make_muted("高性能虚拟化数据表格：支持拖拽调列宽、平滑行选中、Win32 拉框多选 (Ctrl/Shift) 及省略号/裁剪溢出模式切换。", 12.5f)
+                    },
+                    SegmentedControl {
+                        .items = {
+                            SegmentedItem{ .label = "省略号 (...)" },
+                            SegmentedItem{ .label = "直接裁剪" }
+                        },
+                        .selected_index = 0,
+                        .on_selected_index_changed = [dg_overflow](int idx) {
+                            dg_overflow->set(idx == 0 ? DataGridCellOverflow::Ellipsis : DataGridCellOverflow::Clip);
+                        }
+                    }
+                }
+            },
             Expanded {
                 .flex = 1.0f,
                 .child = DataGrid {
@@ -1211,7 +1271,7 @@ WidgetPtr build_data_grid_page(GalleryApp& app) {
                         app.datagrid_status.set("已选中原始行 #" + std::to_string(orig_idx + 1) +
                                                 " (" + kRows[orig_idx][1] + " · " + kRows[orig_idx][3] + " ms)");
                     }
-                }
+                }.bind(&RenderDataGrid::set_cell_overflow, *dg_overflow)
             },
             app.make_accent(app.datagrid_status, 12.5f)
         }

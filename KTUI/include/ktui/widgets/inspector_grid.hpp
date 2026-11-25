@@ -2,6 +2,7 @@
 
 #include "checkbox.hpp"
 #include "number_box.hpp"
+#include "scroll/scrollbar.hpp"
 #include "textbox.hpp"
 #include <ktui/app/window.hpp>
 #include <ktui/pal/clipboard.hpp>
@@ -323,12 +324,10 @@ public:
             context.draw_rect(Rect::from_xywh(split_x, 0.0f, 1.0f, m_size.y), line, 0.0f, 0.0f);
         }
 
-        // 垂直滚动条
-        if (max_scroll() > 0.5f) {
-            Rect tr = scrollbar_thumb_rect();
-            Color tc = is_dark ? Color{1, 1, 1, 0.28f} : Color{0, 0, 0, 0.26f};
-            context.draw_rect(tr, tc, tr.width() * 0.5f, 0.0f);
-        }
+        // 统一复用 WinUIScrollBar 控件 (绝不自绘滚动条)
+        if (m_scrollbar.update_animations(m_viewport_hovered)) mark_needs_paint();
+        float total_h = static_cast<float>(m_rows.size()) * kRowH + 2.0f;
+        m_scrollbar.paint(context, bounds(), total_h, m_scroll_y, t);
 
         context.pop_clip();
         context.draw_rect(bounds(), bd, 6.0f, 1.0f);
@@ -542,19 +541,34 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_enter = [this](PointerEvent&) {
+            m_viewport_hovered = true;
+            mark_needs_paint();
+        };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_hovered_row != -1 || m_divider_hovered) {
-                m_hovered_row = -1;
-                m_divider_hovered = false;
-                mark_needs_paint();
-            }
+            m_viewport_hovered = false;
+            m_scrollbar.handle_pointer_exit();
+            m_hovered_row = -1;
+            m_divider_hovered = false;
+            mark_needs_paint();
         };
         on_pointer_move = [this](PointerEvent& ev) {
+            float total_h = static_cast<float>(m_rows.size()) * kRowH + 2.0f;
             if (ev.type == PlatformEventType::PointerScroll) {
                 m_scroll_y -= ev.delta.y * 28.0f;
                 clamp_scroll();
+                m_scrollbar.notify_activity();
                 layout_children();
                 mark_needs_paint();
+                ev.stop_propagation();
+                return;
+            }
+            bool sb_consumed = false;
+            if (m_scrollbar.handle_pointer_move_direct(ev.local_position, bounds(), total_h, m_scroll_y, max_scroll(), sb_consumed)) {
+                layout_children();
+                mark_needs_paint();
+            }
+            if (sb_consumed) {
                 ev.stop_propagation();
                 return;
             }
@@ -570,6 +584,7 @@ private:
                 m_touch_prev_y = ev.local_position.y;
                 m_scroll_y -= dy;
                 clamp_scroll();
+                m_scrollbar.notify_activity();
                 layout_children();
                 mark_needs_paint();
                 ev.stop_propagation();
@@ -585,6 +600,13 @@ private:
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
+            float total_h = static_cast<float>(m_rows.size()) * kRowH + 2.0f;
+            if (m_scrollbar.handle_pointer_down_direct(ev.local_position, bounds(), total_h, m_scroll_y, max_scroll(), kRowH * 2.0f)) {
+                layout_children();
+                mark_needs_paint();
+                ev.stop_propagation();
+                return;
+            }
             if (is_on_divider(ev.local_position.x)) {
                 m_resizing_col = true;
                 mark_needs_paint();
@@ -623,6 +645,7 @@ private:
             }
         };
         on_pointer_up = [this](PointerEvent&) {
+            if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
             m_touch_dragging = false;
             if (m_resizing_col) { m_resizing_col = false; mark_needs_paint(); }
         };
@@ -634,8 +657,10 @@ private:
     std::shared_ptr<RenderTextBox> m_text_editor;
     std::shared_ptr<RenderNumberBox> m_num_editor;
     std::vector<BoolCell> m_bool_boxes;
+    WinUIScrollBar m_scrollbar;
 
     float m_scroll_y{0.0f};
+    bool m_viewport_hovered{false};
     int m_hovered_row{-1};
     int m_editing_row{-1};
     bool m_editing_is_num{false};

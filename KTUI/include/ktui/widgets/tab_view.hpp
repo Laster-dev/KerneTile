@@ -11,6 +11,7 @@
 #include <ktui/tree/render_box.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -79,6 +80,7 @@ public:
     void set_selected_index_value(int idx) {
         int clamped = m_tabs.empty() ? -1 : std::clamp(idx, 0, static_cast<int>(m_tabs.size()) - 1);
         if (m_selected_index != clamped) {
+            trigger_tab_switch_anim(m_selected_index, clamped);
             m_selected_index = clamped;
             rebuild_active_content();
             mark_needs_layout();
@@ -127,6 +129,40 @@ public:
         const float w = size().x;
         const float h = size().y;
 
+        // 推进标签滑块与内容方向滑入动效
+        auto now = std::chrono::steady_clock::now();
+        float dt = m_has_anim_time
+            ? std::clamp(std::chrono::duration<float>(now - m_last_anim_time).count(), 0.001f, 0.05f)
+            : (1.0f / 60.0f);
+        m_last_anim_time = now;
+        m_has_anim_time = true;
+
+        bool animating = false;
+        if (m_selected_index >= 0 && m_selected_index < static_cast<int>(m_tab_rects.size())) {
+            const Rect& target = m_tab_rects[static_cast<size_t>(m_selected_index)];
+            if (!m_ind_init) {
+                m_ind_x = target.min_x;
+                m_ind_w = target.width();
+                m_ind_init = true;
+            } else if (std::abs(m_ind_x - target.min_x) > 0.2f || std::abs(m_ind_w - target.width()) > 0.2f) {
+                float k = 1.0f - std::exp(-dt * 24.0f);
+                m_ind_x += (target.min_x - m_ind_x) * k;
+                m_ind_w += (target.width() - m_ind_w) * k;
+                animating = true;
+            } else {
+                m_ind_x = target.min_x;
+                m_ind_w = target.width();
+            }
+        }
+        if (std::abs(m_content_slide_x) > 0.2f) {
+            m_content_slide_x *= std::exp(-dt * 20.0f);
+            animating = true;
+        } else {
+            m_content_slide_x = 0.0f;
+        }
+        if (animating) mark_needs_paint();
+        else m_has_anim_time = false;
+
         Color strip_bg = theme.is_dark
             ? Color{1.0f, 1.0f, 1.0f, 0.022f}
             : Color{0.0f, 0.0f, 0.0f, 0.032f};
@@ -153,7 +189,22 @@ public:
         ctx.draw_rounded_rect(body_rect, active_bg, 0.0f, 0.0f, 8.0f, 8.0f);
         ctx.draw_rounded_rect(body_rect, border, 0.0f, 0.0f, 8.0f, 8.0f, 0.0f, Vec2{0.0f, 0.0f}, 1.0f);
 
-        // 3. 绘制所有标签项
+        // 3. 平滑滑动的激活标签融底壳体 + 顶部主题色微指示条
+        if (m_ind_init && m_selected_index >= 0 && m_selected_index < static_cast<int>(m_tab_rects.size())) {
+            Rect glide_r = Rect::from_xywh(m_ind_x, 4.0f, m_ind_w, kStripH - 4.0f);
+            Rect sel_fill = Rect::from_xywh(glide_r.min_x, glide_r.min_y, glide_r.width(), glide_r.height() + 2.0f);
+            ctx.draw_rounded_rect(sel_fill, active_bg, 6.0f, 6.0f, 0.0f, 0.0f);
+            ctx.push_clip(glide_r, 0.0f);
+            ctx.draw_rounded_rect(Rect::from_xywh(glide_r.min_x, glide_r.min_y, glide_r.width(), glide_r.height() + 4.0f),
+                                  border, 6.0f, 6.0f, 0.0f, 0.0f, 0.0f, Vec2{0.0f, 0.0f}, 1.0f);
+            ctx.pop_clip();
+            float ind_bar_w = std::max(16.0f, glide_r.width() - 24.0f);
+            ctx.draw_rect(Rect::from_xywh(glide_r.min_x + (glide_r.width() - ind_bar_w) * 0.5f,
+                                          glide_r.min_y + 1.0f, ind_bar_w, 2.5f),
+                          theme.colors.primary, 1.25f, 0.0f);
+        }
+
+        // 4. 绘制所有标签项
         for (size_t i = 0; i < m_tabs.size() && i < m_tab_rects.size(); ++i) {
             const auto& tab = m_tabs[i];
             const Rect& tr = m_tab_rects[i];
@@ -167,15 +218,7 @@ public:
                 ctx.draw_rect(Rect::from_xywh(std::round(tr.min_x), 11.0f, 1.0f, 16.0f), sep_col, 0.0f, 0.0f);
             }
 
-            if (is_sel) {
-                // 选中标签无缝向下覆盖内容区顶部 1px 边框，形成 Windows Terminal / WinUI 3 融底效果
-                Rect sel_fill = Rect::from_xywh(tr.min_x, tr.min_y, tr.width(), tr.height() + 2.0f);
-                ctx.draw_rounded_rect(sel_fill, active_bg, 6.0f, 6.0f, 0.0f, 0.0f);
-                ctx.push_clip(Rect::from_xywh(tr.min_x, tr.min_y, tr.width(), tr.height()), 0.0f);
-                ctx.draw_rounded_rect(Rect::from_xywh(tr.min_x, tr.min_y, tr.width(), tr.height() + 4.0f),
-                                      border, 6.0f, 6.0f, 0.0f, 0.0f, 0.0f, Vec2{0.0f, 0.0f}, 1.0f);
-                ctx.pop_clip();
-            } else if (is_hov) {
+            if (!is_sel && is_hov) {
                 Rect hov_r = Rect::from_xywh(tr.min_x + 2.0f, tr.min_y + 2.0f, tr.width() - 4.0f, tr.height() - 4.0f);
                 ctx.draw_rect(hov_r, hov_bg, 5.0f, 0.0f);
             }
@@ -209,7 +252,7 @@ public:
             }
         }
 
-        // 4. 尾部新建标签 (+) 按钮
+        // 5. 尾部新建标签 (+) 按钮
         if (m_show_add_button && m_add_btn_rect.width() > 0.0f) {
             if (m_add_hovered) {
                 ctx.draw_rect(m_add_btn_rect, hov_bg, 5.0f, 0.0f);
@@ -220,14 +263,16 @@ public:
             ctx.draw_line(PointF{px, py - 4.5f}, PointF{px, py + 4.5f}, text_active, 1.4f);
         }
 
-        // 5. 绘制当前激活标签的内容视图
+        // 6. 绘制当前激活标签的内容视图 (带方向微滑入过渡)
         if (m_active_content_box) {
             Rect content_clip = Rect::from_xywh(1.0f, kStripH + 1.0f,
                                                 std::max(0.0f, w - 2.0f),
                                                 std::max(0.0f, h - kStripH - 2.0f));
             ctx.push_clip(content_clip, 0.0f);
             {
-                PaintContext::OffsetScope scope(ctx, m_active_content_box->offset());
+                Vec2 off = m_active_content_box->offset();
+                off.x += m_content_slide_x;
+                PaintContext::OffsetScope scope(ctx, off);
                 m_active_content_box->paint(ctx);
             }
             ctx.pop_clip();
@@ -324,6 +369,7 @@ private:
                     if (m_tabs[i].is_closable && close_rect_for(m_tab_rects[i]).contains(e.local_position)) {
                         if (m_on_tab_close) m_on_tab_close(static_cast<int>(i));
                     } else if (static_cast<int>(i) != m_selected_index) {
+                        trigger_tab_switch_anim(m_selected_index, static_cast<int>(i));
                         m_selected_index = static_cast<int>(i);
                         rebuild_active_content();
                         mark_needs_layout();
@@ -334,6 +380,15 @@ private:
                 }
             }
         };
+    }
+
+    void trigger_tab_switch_anim(int old_idx, int new_idx) noexcept {
+        if (old_idx >= 0 && new_idx >= 0 && old_idx != new_idx) {
+            m_content_slide_x = (new_idx > old_idx ? 1.0f : -1.0f) * 18.0f;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            m_has_anim_time = true;
+            mark_needs_paint();
+        }
     }
 
     std::vector<TabViewItem> m_tabs;
@@ -350,6 +405,12 @@ private:
     int m_hovered_tab{-1};
     int m_hovered_close{-1};
     bool m_add_hovered{false};
+    float m_ind_x{0.0f};
+    float m_ind_w{0.0f};
+    bool m_ind_init{false};
+    float m_content_slide_x{0.0f};
+    bool m_has_anim_time{false};
+    std::chrono::steady_clock::time_point m_last_anim_time{};
     WidgetPtr m_active_content_widget;
     std::shared_ptr<RenderBox> m_active_content_box;
 

@@ -116,15 +116,14 @@ public:
             const bool hovered = (page == m_hover_page);
             const bool is_edge = ((i == 0 && win_start > 0) || (i == vis - 1 && win_start + vis < m_pages));
 
-            float target_d = active
-                ? (kActiveRestD + (kActiveExpandedD - kActiveRestD) * (m_badge_active ? 1.0f : 0.0f))
-                : (is_edge ? 4.5f : (hovered ? 7.0f : 5.5f));
-            float target_slot = active
-                ? (kPipStep + (kExpandedSlotW - kPipStep) * (m_badge_active ? 1.0f : 0.0f))
-                : kPipStep;
+            const bool show_num = (active && (m_badge_active || hovered)) || hovered;
+            float target_d = show_num
+                ? (active ? kActiveExpandedD : 20.0f)
+                : (active ? kActiveRestD : (is_edge ? 4.5f : 5.5f));
+            float target_slot = show_num ? kExpandedSlotW : kPipStep;
             float target_blend = active ? 1.0f : 0.0f;
 
-            float k_d = std::min(1.0f, dt * (m_badge_active ? 18.0f : 12.0f));
+            float k_d = std::min(1.0f, dt * (show_num ? 18.0f : 12.0f));
             float k_s = std::min(1.0f, dt * 15.0f);
 
             if (std::abs(m_pip_diameters[idx] - target_d) > 0.03f) {
@@ -221,13 +220,15 @@ public:
             Rect dot_r = Rect::from_xywh(cx - d * 0.5f, cy - d * 0.5f, d, d);
             ctx.draw_rect(dot_r, dot_c, d * 0.5f, 0.0f);
 
-            // 当前激活圆点在放大期间平滑显示 1-based 页码数字
-            if (active && m_badge_alpha > 0.02f && d >= 13.0f) {
+            // 当前激活圆点或鼠标悬停圆点在放大期间平滑显示 1-based 页码数字
+            const bool show_label = (active && (m_badge_alpha > 0.02f || hovered)) || hovered;
+            if (show_label && d >= 13.0f) {
                 std::string label = std::to_string(page + 1);
                 float font_sz = (label.size() >= 2) ? 10.0f : 11.0f;
                 Vec2 ts = TextMeasure::measure(label, font_sz);
-                Color tc = num_c;
-                tc.a = m_badge_alpha * std::clamp((d - 13.0f) / 6.0f, 0.0f, 1.0f);
+                float base_a = (active && !hovered) ? m_badge_alpha : 1.0f;
+                Color tc = active ? num_c : (theme.is_dark ? Color{0.08f, 0.10f, 0.14f, 1.0f} : Color{1.0f, 1.0f, 1.0f, 1.0f});
+                tc.a = base_a * std::clamp((d - 13.0f) / 5.0f, 0.0f, 1.0f);
                 ctx.draw_text(label,
                               PointF{std::round(cx - ts.x * 0.5f), std::round(cy - ts.y * 0.5f)},
                               font_sz, tc);

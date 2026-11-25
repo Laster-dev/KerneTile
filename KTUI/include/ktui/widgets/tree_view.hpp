@@ -2,6 +2,8 @@
 
 #include "checkbox.hpp"
 #include "common/fluent_icons.hpp"
+#include "scroll/scrollbar.hpp"
+#include "scroll/smooth_scroll_physics.hpp"
 #include "widget.hpp"
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
@@ -12,6 +14,7 @@
 #include <ktui/tree/render_box.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -27,6 +30,11 @@ enum class TreeViewSelectionMode : uint8_t {
     None = 2
 };
 
+struct TreeListColumn {
+    std::string title;
+    float width{0.0f}; // <= 0 表示自动均分剩余宽度
+};
+
 struct TreeViewNode {
     std::string id;
     std::string label;
@@ -34,6 +42,7 @@ struct TreeViewNode {
     bool is_expanded{false};
     bool is_checked{false};
     std::vector<TreeViewNode> children;
+    std::vector<std::string> sub_columns; // TreeListView 模式下的附加列数据 (对应第 2..N 列)
 
     bool operator==(const TreeViewNode&) const = default;
 };
@@ -55,14 +64,18 @@ public:
                         float width,
                         float height,
                         Fn<void(const std::string&, const std::string&)> on_selection_changed,
-                        Fn<void(const std::vector<std::string>&)> on_checked_changed) {
+                        Fn<void(const std::vector<std::string>&)> on_checked_changed,
+                        std::vector<TreeListColumn> columns = {}) {
         m_nodes = std::move(nodes);
+        m_columns = std::move(columns);
         m_selection_mode = selection_mode;
         m_selected_id = std::move(selected_id);
         m_width = width;
         m_height = height;
         m_on_selection_changed = std::move(on_selection_changed);
         m_on_checked_changed = std::move(on_checked_changed);
+        m_user_resized = false;
+        sync_expand_anim_targets(m_nodes, true);
         rebuild_flat_rows();
         mark_needs_layout();
     }
@@ -74,13 +87,21 @@ public:
         }
     }
 
-    [[nodiscard]] size_t visible_row_count() const noexcept { return m_rows.size(); }
+    [[nodiscard]] size_t visible_row_count() const noexcept {
+        size_t cnt = 0;
+        for (const auto& r : m_rows) {
+            if (!r.collapsing) ++cnt;
+        }
+        return cnt;
+    }
     [[nodiscard]] const std::string& selected_id() const noexcept { return m_selected_id; }
 
     bool toggle_expand_by_id(const std::string& id) {
         if (TreeViewNode* n = find_node(m_nodes, id)) {
             if (!n->children.empty()) {
                 n->is_expanded = !n->is_expanded;
+                m_expand_anim_active = true;
+                m_last_expand_time = std::chrono::steady_clock::now();
                 rebuild_flat_rows();
                 mark_needs_layout();
                 return true;
@@ -112,9 +133,10 @@ public:
         float w = (m_width > 0.0f)
             ? m_width
             : (std::isfinite(m_constraints.max_width) ? m_constraints.max_width : 320.0f);
-        float content_h = static_cast<float>(m_rows.size()) * kRowH + 8.0f;
+        float content_h = header_height() + total_rows_height() + 8.0f;
         float h = (m_height > 0.0f) ? m_height : std::max(44.0f, content_h);
         set_size(m_constraints.constrain(Vec2{w, h}));
+        if (!m_user_resized) compute_column_widths();
         clamp_scroll();
     }
 
@@ -123,6 +145,17 @@ public:
         const float w = size().x;
         const float h = size().y;
 
+        // 推进折叠/展开平滑高度动画、惯性平滑滚动与滚动条淡入淡出
+        bool anim_exp = step_expand_animations();
+        if (anim_exp) {
+            rebuild_flat_rows();
+        }
+        bool anim_scroll = m_physics.update();
+        bool anim_bar = m_scrollbar.update_animations(m_viewport_hovered);
+        if (anim_exp || anim_scroll || anim_bar) {
+            mark_needs_paint();
+        }
+
         Color panel_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.025f} : Color{0.0f, 0.0f, 0.0f, 0.018f};
         Color border = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.08f};
         Rect panel = Rect::from_xywh(0.0f, 0.0f, w, h);
@@ -130,72 +163,149 @@ public:
         ctx.draw_rect(panel, border, 6.0f, 1.0f);
 
         Color text_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.94f} : Color{0.0f, 0.0f, 0.0f, 0.90f};
-        Color chev_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.62f} : Color{0.0f, 0.0f, 0.0f, 0.58f};
+        Color sub_col  = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.70f} : Color{0.0f, 0.0f, 0.0f, 0.65f};
+        Color chev_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.64f} : Color{0.0f, 0.0f, 0.0f, 0.60f};
         Color hov_bg   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.055f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
         Color sel_bg   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.085f} : Color{0.0f, 0.0f, 0.0f, 0.058f};
 
-        ctx.push_clip(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, w - 2.0f), std::max(0.0f, h - 2.0f)));
+        const float hdr_h = header_height();
+        if (!m_columns.empty()) {
+            Color head_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.042f} : Color{0.0f, 0.0f, 0.0f, 0.032f};
+            ctx.push_clip(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, w - 2.0f), hdr_h), 5.0f);
+            ctx.draw_rect(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, w - 2.0f), hdr_h), head_bg, 0.0f, 0.0f);
+            float cx = 4.0f;
+            for (size_t c = 0; c < m_columns.size(); ++c) {
+                float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 140.0f;
+                ctx.push_clip(Rect::from_xywh(cx + 6.0f, 1.0f, std::max(0.0f, cw - 12.0f), hdr_h));
+                Vec2 ts = TextMeasure::measure(m_columns[c].title, 12.0f, FontWeight::SemiBold);
+                ctx.draw_text(m_columns[c].title,
+                              PointF{std::round(cx + 10.0f), std::round(1.0f + (hdr_h - ts.y) * 0.5f)},
+                              12.0f, sub_col, FontWeight::SemiBold);
+                ctx.pop_clip();
+                if (c + 1 < m_columns.size()) {
+                    bool div_hot = (m_resizing_col == static_cast<int>(c) || m_hover_divider == static_cast<int>(c));
+                    Color dc = div_hot ? theme.colors.primary : theme.colors.divider_stroke;
+                    ctx.draw_rect(Rect::from_xywh(cx + cw - 1.0f, div_hot ? 2.0f : 7.0f,
+                                                  div_hot ? 2.0f : 1.0f, hdr_h - (div_hot ? 4.0f : 14.0f)),
+                                  dc, 0.0f, 0.0f);
+                }
+                cx += cw;
+            }
+            ctx.pop_clip();
+            ctx.draw_rect(Rect::from_xywh(1.0f, hdr_h, std::max(0.0f, w - 2.0f), 1.0f),
+                          theme.colors.divider_stroke, 0.0f, 0.0f);
+        }
+
+        Rect body_vp = body_rect();
+        ctx.push_clip(body_vp);
 
         bool any_cb_animating = false;
-        float y = 4.0f - m_scroll_offset;
+        const float scroll_y = m_physics.offset();
+        float y = body_vp.min_y + 4.0f - scroll_y;
         for (size_t i = 0; i < m_rows.size(); ++i) {
             const FlatRow& row = m_rows[i];
-            Rect rr = Rect::from_xywh(4.0f, y, std::max(0.0f, w - 8.0f), kRowH);
-            if (rr.max_y >= 0.0f && rr.min_y <= h) {
+            float rh = kRowH * row.height_scale;
+            if (rh < 0.5f) continue;
+
+            Rect rr = Rect::from_xywh(4.0f, y, std::max(0.0f, w - 8.0f), rh);
+            if (rr.max_y >= body_vp.min_y && rr.min_y <= body_vp.max_y) {
+                bool clip_row = (row.height_scale < 0.99f);
+                if (clip_row) ctx.push_clip(rr);
+
+                float alpha_s = std::clamp(row.height_scale, 0.0f, 1.0f);
                 bool is_sel = (m_selection_mode == TreeViewSelectionMode::Single &&
                                !m_selected_id.empty() && row.node->id == m_selected_id);
                 bool is_hov = (static_cast<int>(i) == m_hovered_row);
 
                 if (is_sel) {
-                    ctx.draw_rect(rr, sel_bg, 4.0f, 0.0f);
-                    ctx.draw_rect(Rect::from_xywh(rr.min_x + 2.0f, rr.min_y + 8.0f, 3.0f, kRowH - 16.0f),
-                                  theme.colors.primary, 1.5f, 0.0f);
+                    Color sb = sel_bg; sb.a *= alpha_s;
+                    Color ac = theme.colors.primary; ac.a *= alpha_s;
+                    ctx.draw_rect(rr, sb, 4.0f, 0.0f);
+                    ctx.draw_rect(Rect::from_xywh(rr.min_x + 2.0f, rr.min_y + 8.0f, 3.0f, std::max(4.0f, rh - 16.0f)),
+                                  ac, 1.5f, 0.0f);
                 } else if (is_hov) {
-                    ctx.draw_rect(rr, hov_bg, 4.0f, 0.0f);
+                    Color hb = hov_bg; hb.a *= alpha_s;
+                    ctx.draw_rect(rr, hb, 4.0f, 0.0f);
+                } else if (!m_columns.empty() && (i & 1u) != 0) {
+                    Color zb = theme.is_dark ? Color{1, 1, 1, 0.016f * alpha_s} : Color{0, 0, 0, 0.016f * alpha_s};
+                    ctx.draw_rect(rr, zb, 0.0f, 0.0f);
                 }
 
+                float col0_max_x = (!m_columns.empty() && !m_col_widths.empty()) ? (4.0f + m_col_widths[0] - 6.0f) : (rr.max_x - 6.0f);
+                float row_cy = rr.min_y + kRowH * 0.5f;
                 float x = rr.min_x + 10.0f + static_cast<float>(row.depth) * kIndent;
 
+                // 平滑旋转折叠箭头 (0° = 右指 >, 90° = 下指 v)
                 if (!row.node->children.empty()) {
-                    Rect cr = Rect::from_xywh(std::round(x + 2.0f), std::round(rr.min_y + (kRowH - 12.0f) * 0.5f), 12.0f, 12.0f);
-                    SvgEngine::draw_svg_xml(ctx, row.node->is_expanded ? fluent_icons::kChevronDown : fluent_icons::kChevronRight, cr, chev_col);
+                    float exp_p = get_expand_anim(row.node->id, row.node->is_expanded);
+                    float ang = exp_p * 1.5707963f; // 0 .. pi/2
+                    float ca = std::cos(ang);
+                    float sa = std::sin(ang);
+                    float cx = x + 7.0f;
+                    float cy = row_cy;
+                    auto rot = [&](float px, float py) -> PointF {
+                        return PointF{cx + px * ca - py * sa, cy + px * sa + py * ca};
+                    };
+                    Color cc = chev_col; cc.a *= alpha_s;
+                    PointF p0 = rot(-1.8f, -3.5f);
+                    PointF p1 = rot(2.0f, 0.0f);
+                    PointF p2 = rot(-1.8f, 3.5f);
+                    ctx.draw_line(p0, p1, cc, 1.35f);
+                    ctx.draw_line(p1, p2, cc, 1.35f);
                 }
                 x += 22.0f;
 
-                // 复用现有 RenderCheckbox 控件 (自带 CUI 三态样式、对勾生长与半选横杠动效)
+                // 复用现有 RenderCheckbox 控件
                 if (m_selection_mode == TreeViewSelectionMode::Multiple) {
                     if (auto* cb = find_checkbox(row.node->id)) {
                         cb->clear_needs_paint();
-                        PaintContext::OffsetScope scope(ctx, Vec2{std::round(x), std::round(rr.min_y + (kRowH - 18.0f) * 0.5f)});
+                        PaintContext::OffsetScope scope(ctx, Vec2{std::round(x), std::round(row_cy - 9.0f)});
                         cb->paint(ctx);
                         if (cb->needs_paint()) any_cb_animating = true;
                     }
                     x += 26.0f;
                 }
 
+                Color tc = text_col; tc.a *= alpha_s;
                 if (!row.node->svg_path.empty()) {
-                    Rect ir = Rect::from_xywh(std::round(x), std::round(rr.min_y + (kRowH - 15.0f) * 0.5f), 15.0f, 15.0f);
-                    SvgEngine::draw_svg_path(ctx, row.node->svg_path, 24.0f, 24.0f, ir, is_sel ? theme.colors.primary : text_col);
+                    Rect ir = Rect::from_xywh(std::round(x), std::round(row_cy - 7.5f), 15.0f, 15.0f);
+                    Color ic = is_sel ? theme.colors.primary : text_col;
+                    ic.a *= alpha_s;
+                    SvgEngine::draw_svg_path(ctx, row.node->svg_path, 24.0f, 24.0f, ir, ic);
                     x += 22.0f;
                 }
 
+                float label_w = std::max(8.0f, col0_max_x - x);
+                ctx.push_clip(Rect::from_xywh(x, rr.min_y, label_w, rh));
                 Vec2 ts = TextMeasure::measure(row.node->label, 13.5f);
-                ctx.draw_text(row.node->label,
-                              PointF{std::round(x), std::round(rr.min_y + (kRowH - ts.y) * 0.5f)},
-                              13.5f, text_col);
+                ctx.draw_text(row.node->label, PointF{std::round(x), std::round(row_cy - ts.y * 0.5f)}, 13.5f, tc);
+                ctx.pop_clip();
+
+                // TreeListView 附加列绘制
+                if (!m_columns.empty()) {
+                    float col_x = 4.0f + (!m_col_widths.empty() ? m_col_widths[0] : 180.0f);
+                    Color sc = sub_col; sc.a *= alpha_s;
+                    for (size_t c = 1; c < m_columns.size(); ++c) {
+                        float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
+                        if (c - 1 < row.node->sub_columns.size() && !row.node->sub_columns[c - 1].empty()) {
+                            const std::string& cell = row.node->sub_columns[c - 1];
+                            ctx.push_clip(Rect::from_xywh(col_x + 6.0f, rr.min_y, std::max(0.0f, cw - 12.0f), rh));
+                            Vec2 cs = TextMeasure::measure(cell, 12.5f);
+                            ctx.draw_text(cell, PointF{std::round(col_x + 10.0f), std::round(row_cy - cs.y * 0.5f)}, 12.5f, sc);
+                            ctx.pop_clip();
+                        }
+                        col_x += cw;
+                    }
+                }
+
+                if (clip_row) ctx.pop_clip();
             }
-            y += kRowH;
+            y += rh;
         }
 
-        float content_h = static_cast<float>(m_rows.size()) * kRowH + 8.0f;
-        if (content_h > h + 1.0f) {
-            float ratio = h / content_h;
-            float thumb_h = std::max(24.0f, (h - 8.0f) * ratio);
-            float max_scroll = content_h - h;
-            float thumb_y = 4.0f + (m_scroll_offset / max_scroll) * (h - 8.0f - thumb_h);
-            Color sb_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f} : Color{0.0f, 0.0f, 0.0f, 0.26f};
-            ctx.draw_rect(Rect::from_xywh(w - 5.0f, thumb_y, 3.0f, thumb_h), sb_col, 1.5f, 0.0f);
-        }
+        // 统一复用 WinUIScrollBar 控件
+        float total_h = total_rows_height() + 8.0f;
+        m_scrollbar.paint(ctx, body_vp, total_h, scroll_y, theme);
 
         ctx.pop_clip();
         if (any_cb_animating) mark_needs_paint();
@@ -203,13 +313,115 @@ public:
 
 private:
     static constexpr float kRowH = 34.0f;
+    static constexpr float kHeaderH = 32.0f;
     static constexpr float kIndent = 20.0f;
 
     struct FlatRow {
         TreeViewNode* node{nullptr};
         int depth{0};
         CheckState check_state{CheckState::Unchecked};
+        float height_scale{1.0f};
+        bool collapsing{false};
     };
+
+    [[nodiscard]] float header_height() const noexcept {
+        return m_columns.empty() ? 0.0f : kHeaderH;
+    }
+
+    [[nodiscard]] Rect body_rect() const noexcept {
+        float hh = header_height();
+        return Rect::from_xywh(1.0f, 1.0f + hh, std::max(0.0f, size().x - 2.0f), std::max(0.0f, size().y - hh - 2.0f));
+    }
+
+    [[nodiscard]] float total_rows_height() const noexcept {
+        float sum = 0.0f;
+        for (const auto& r : m_rows) sum += kRowH * r.height_scale;
+        return sum;
+    }
+
+    void compute_column_widths() {
+        m_col_widths.assign(m_columns.size(), 120.0f);
+        if (m_columns.empty()) return;
+        float avail = std::max(60.0f, size().x - 18.0f);
+        float fixed_sum = 0.0f;
+        int flex_cnt = 0;
+        for (size_t i = 0; i < m_columns.size(); ++i) {
+            if (m_columns[i].width > 0.0f) {
+                m_col_widths[i] = m_columns[i].width;
+                fixed_sum += m_columns[i].width;
+            } else {
+                ++flex_cnt;
+            }
+        }
+        if (flex_cnt > 0) {
+            float flex_w = std::max(80.0f, (avail - fixed_sum) / static_cast<float>(flex_cnt));
+            for (size_t i = 0; i < m_columns.size(); ++i) {
+                if (m_columns[i].width <= 0.0f) m_col_widths[i] = flex_w;
+            }
+        }
+    }
+
+    int hit_header_divider(Vec2 local) const noexcept {
+        if (m_columns.empty() || local.y < 1.0f || local.y > kHeaderH + 2.0f) return -1;
+        float x = 4.0f;
+        for (size_t i = 0; i + 1 < m_col_widths.size(); ++i) {
+            x += m_col_widths[i];
+            if (std::abs(local.x - x) <= 4.5f) return static_cast<int>(i);
+        }
+        return -1;
+    }
+
+    float get_expand_anim(const std::string& id, bool fallback_expanded) const noexcept {
+        for (const auto& kv : m_expand_anim) {
+            if (kv.first == id) return kv.second;
+        }
+        return fallback_expanded ? 1.0f : 0.0f;
+    }
+
+    void set_expand_anim(const std::string& id, float v) {
+        for (auto& kv : m_expand_anim) {
+            if (kv.first == id) { kv.second = v; return; }
+        }
+        m_expand_anim.emplace_back(id, v);
+    }
+
+    void sync_expand_anim_targets(const std::vector<TreeViewNode>& list, bool snap) {
+        for (const auto& n : list) {
+            if (!n.children.empty()) {
+                if (snap) set_expand_anim(n.id, n.is_expanded ? 1.0f : 0.0f);
+                sync_expand_anim_targets(n.children, snap);
+            }
+        }
+    }
+
+    bool step_expand_recursive(const std::vector<TreeViewNode>& list, float k) {
+        bool moving = false;
+        for (const auto& n : list) {
+            if (!n.children.empty()) {
+                float target = n.is_expanded ? 1.0f : 0.0f;
+                float cur = get_expand_anim(n.id, n.is_expanded);
+                if (std::abs(cur - target) > 0.008f) {
+                    set_expand_anim(n.id, cur + (target - cur) * k);
+                    moving = true;
+                } else if (cur != target) {
+                    set_expand_anim(n.id, target);
+                }
+                if (step_expand_recursive(n.children, k)) moving = true;
+            }
+        }
+        return moving;
+    }
+
+    bool step_expand_animations() {
+        if (!m_expand_anim_active) return false;
+        auto now = std::chrono::steady_clock::now();
+        float dt = std::clamp(std::chrono::duration<float>(now - m_last_expand_time).count(), 0.001f, 0.05f);
+        m_last_expand_time = now;
+        float k = 1.0f - std::exp(-dt * 18.0f);
+        bool moving = step_expand_recursive(m_nodes, k);
+        m_expand_anim_active = moving;
+        return moving;
+    }
 
     static TreeViewNode* find_node(std::vector<TreeViewNode>& list, const std::string& id) {
         for (auto& n : list) {
@@ -270,68 +482,96 @@ private:
         }
     }
 
-    void flatten_recursive(std::vector<TreeViewNode>& list, int depth, bool animate_cb) {
+    void flatten_recursive(std::vector<TreeViewNode>& list, int depth, bool animate_cb, float parent_scale, bool parent_collapsing) {
         for (auto& n : list) {
             CheckState cs = (m_selection_mode == TreeViewSelectionMode::Multiple)
                 ? compute_check_state(n) : CheckState::Unchecked;
             if (m_selection_mode == TreeViewSelectionMode::Multiple) {
                 sync_checkbox_node(n.id, cs, animate_cb);
             }
-            m_rows.push_back(FlatRow{&n, depth, cs});
-            if (n.is_expanded && !n.children.empty()) {
-                flatten_recursive(n.children, depth + 1, animate_cb);
+            m_rows.push_back(FlatRow{&n, depth, cs, parent_scale, parent_collapsing});
+            if (!n.children.empty()) {
+                float anim = get_expand_anim(n.id, n.is_expanded);
+                if (n.is_expanded || anim > 0.01f) {
+                    float child_scale = parent_scale * (n.is_expanded ? std::max(0.02f, anim) : anim);
+                    flatten_recursive(n.children, depth + 1, animate_cb, child_scale, parent_collapsing || !n.is_expanded);
+                }
             }
         }
     }
 
     void rebuild_flat_rows(bool animate_cb = false) {
         m_rows.clear();
-        flatten_recursive(m_nodes, 0, animate_cb);
+        flatten_recursive(m_nodes, 0, animate_cb, 1.0f, false);
         clamp_scroll();
     }
 
     void clamp_scroll() {
-        float content_h = static_cast<float>(m_rows.size()) * kRowH + 8.0f;
-        float max_scroll = std::max(0.0f, content_h - size().y);
-        m_scroll_offset = std::clamp(m_scroll_offset, 0.0f, max_scroll);
+        float body_h = std::max(1.0f, size().y - header_height() - 2.0f);
+        float max_scroll = std::max(0.0f, total_rows_height() + 8.0f - body_h);
+        m_physics.set_max_scroll(max_scroll);
     }
 
     int hit_row(Vec2 local) const noexcept {
-        if (local.x < 0.0f || local.x > size().x || local.y < 4.0f || local.y > size().y - 4.0f) return -1;
-        int idx = static_cast<int>(std::floor((local.y - 4.0f + m_scroll_offset) / kRowH));
-        if (idx < 0 || idx >= static_cast<int>(m_rows.size())) return -1;
-        return idx;
+        Rect vp = body_rect();
+        if (!vp.contains(local)) return -1;
+        float target_y = local.y - vp.min_y - 4.0f + m_physics.offset();
+        if (target_y < 0.0f) return -1;
+        float acc = 0.0f;
+        for (size_t i = 0; i < m_rows.size(); ++i) {
+            float rh = kRowH * m_rows[i].height_scale;
+            if (target_y >= acc && target_y < acc + rh) return static_cast<int>(i);
+            acc += rh;
+        }
+        return -1;
     }
 
     void setup_behavior() {
+        on_pointer_enter = [this](PointerEvent&) {
+            m_viewport_hovered = true;
+            mark_needs_paint();
+        };
         on_pointer_move = [this](PointerEvent& e) {
+            Rect vp = body_rect();
+            float total_h = total_rows_height() + 8.0f;
+
             if (e.type == PlatformEventType::PointerScroll) {
-                float content_h = static_cast<float>(m_rows.size()) * kRowH + 8.0f;
-                if (content_h > size().y) {
-                    float prev = m_scroll_offset;
-                    m_scroll_offset -= e.delta.y * 34.0f;
-                    clamp_scroll();
-                    if (std::abs(m_scroll_offset - prev) > 0.01f) {
-                        mark_needs_paint();
-                        e.stop_propagation();
-                    }
+                if (m_physics.max_scroll() > 0.5f) {
+                    m_physics.add_wheel_delta(e.delta.y);
+                    m_scrollbar.notify_activity();
+                    mark_needs_paint();
+                    e.stop_propagation();
                 }
                 return;
             }
+            if (m_resizing_col >= 0 && m_resizing_col < static_cast<int>(m_col_widths.size())) {
+                float dx = e.local_position.x - m_resize_start_x;
+                m_col_widths[static_cast<size_t>(m_resizing_col)] = std::max(64.0f, m_resize_start_w + dx);
+                m_user_resized = true;
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
+            bool sb_consumed = false;
+            if (m_scrollbar.handle_pointer_move(e.local_position, vp, total_h, m_physics, sb_consumed)) {
+                mark_needs_paint();
+            }
+            if (sb_consumed) { e.stop_propagation(); return; }
+
             if (m_touch_dragging && e.device_kind == PointerDeviceKind::Touch) {
                 float dy = e.local_position.y - m_touch_last_y;
                 m_touch_last_y = e.local_position.y;
-                if (std::abs(e.local_position.y - m_touch_start_y) > 6.0f) {
-                    m_touch_moved = true;
-                }
-                m_scroll_offset -= dy;
-                clamp_scroll();
+                if (std::abs(e.local_position.y - m_touch_start_y) > 6.0f) m_touch_moved = true;
+                m_physics.apply_touch_drag(dy);
+                m_scrollbar.notify_activity();
                 mark_needs_paint();
                 return;
             }
-            int idx = hit_row(e.local_position);
-            cursor_shape = (idx >= 0) ? CursorShape::PointingHand : CursorShape::Arrow;
-            if (idx != m_hovered_row) {
+            int hdiv = hit_header_divider(e.local_position);
+            int idx = (hdiv >= 0) ? -1 : hit_row(e.local_position);
+            cursor_shape = (hdiv >= 0) ? CursorShape::ResizeEW : ((idx >= 0) ? CursorShape::PointingHand : CursorShape::Arrow);
+            if (hdiv != m_hover_divider || idx != m_hovered_row) {
+                m_hover_divider = hdiv;
                 update_checkbox_hover(m_hovered_row, false);
                 m_hovered_row = idx;
                 update_checkbox_hover(m_hovered_row, true);
@@ -339,24 +579,49 @@ private:
             }
         };
         on_pointer_exit = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_scrollbar.handle_pointer_exit();
+            m_hover_divider = -1;
             if (m_hovered_row != -1) {
                 update_checkbox_hover(m_hovered_row, false);
                 m_hovered_row = -1;
-                mark_needs_paint();
             }
             m_touch_dragging = false;
+            mark_needs_paint();
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
+            int hdiv = hit_header_divider(e.local_position);
+            if (hdiv >= 0 && hdiv < static_cast<int>(m_col_widths.size())) {
+                m_resizing_col = hdiv;
+                m_resize_start_x = e.local_position.x;
+                m_resize_start_w = m_col_widths[static_cast<size_t>(hdiv)];
+                e.stop_propagation();
+                return;
+            }
+            Rect vp = body_rect();
+            float total_h = total_rows_height() + 8.0f;
+            if (m_scrollbar.handle_pointer_down(e.local_position, vp, total_h, m_physics, kRowH * 2.0f)) {
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
             if (e.device_kind == PointerDeviceKind::Touch) {
                 m_touch_dragging = true;
                 m_touch_moved = false;
                 m_touch_start_y = e.local_position.y;
                 m_touch_last_y = e.local_position.y;
+                m_physics.begin_touch_drag();
             }
         };
         on_pointer_up = [this](PointerEvent& e) {
+            if (m_resizing_col >= 0) { m_resizing_col = -1; mark_needs_paint(); return; }
+            if (m_scrollbar.handle_pointer_up()) { mark_needs_paint(); return; }
             bool was_drag = m_touch_dragging && m_touch_moved;
+            if (m_touch_dragging && e.device_kind == PointerDeviceKind::Touch) {
+                m_physics.end_touch_drag();
+                mark_needs_paint();
+            }
             m_touch_dragging = false;
             m_touch_moved = false;
             if (was_drag || e.button != PointerButton::Primary) return;
@@ -370,6 +635,8 @@ private:
 
             if (!row.node->children.empty() && e.local_position.x >= chev_x0 - 4.0f && e.local_position.x <= chev_x1) {
                 row.node->is_expanded = !row.node->is_expanded;
+                m_expand_anim_active = true;
+                m_last_expand_time = std::chrono::steady_clock::now();
                 rebuild_flat_rows();
                 mark_needs_layout();
                 e.stop_propagation();
@@ -406,18 +673,30 @@ private:
     }
 
     std::vector<TreeViewNode> m_nodes;
+    std::vector<TreeListColumn> m_columns;
+    std::vector<float> m_col_widths;
     std::vector<FlatRow> m_rows;
     std::vector<std::pair<std::string, std::shared_ptr<RenderCheckbox>>> m_checkboxes;
+    std::vector<std::pair<std::string, float>> m_expand_anim;
+    bool m_expand_anim_active{false};
+    std::chrono::steady_clock::time_point m_last_expand_time{};
     TreeViewSelectionMode m_selection_mode{TreeViewSelectionMode::Single};
     std::string m_selected_id;
     float m_width{0.0f};
     float m_height{0.0f};
-    float m_scroll_offset{0.0f};
+    bool m_viewport_hovered{false};
     int m_hovered_row{-1};
+    int m_hover_divider{-1};
+    int m_resizing_col{-1};
+    float m_resize_start_x{0.0f};
+    float m_resize_start_w{0.0f};
+    bool m_user_resized{false};
     bool m_touch_dragging{false};
     bool m_touch_moved{false};
     float m_touch_start_y{0.0f};
     float m_touch_last_y{0.0f};
+    SmoothScrollPhysics m_physics;
+    WinUIScrollBar m_scrollbar;
 
     Fn<void(const std::string&, const std::string&)> m_on_selection_changed;
     Fn<void(const std::vector<std::string>&)> m_on_checked_changed;
@@ -432,7 +711,7 @@ public:
     }
 };
 
-// C++20 指定初始化器声明式 WinUI 3 TreeView
+// C++20 指定初始化器声明式 WinUI 3 TreeView (支持 TreeListView 多列模式)
 struct TreeView : BindableMixin<TreeView, RenderTreeView> {
     std::vector<TreeViewNode> nodes;
     TreeViewSelectionMode selection_mode{TreeViewSelectionMode::Single};
@@ -441,6 +720,7 @@ struct TreeView : BindableMixin<TreeView, RenderTreeView> {
     float height{0.0f};
     Fn<void(const std::string&, const std::string&)> on_selection_changed{nullptr};
     Fn<void(const std::vector<std::string>&)> on_checked_changed{nullptr};
+    std::vector<TreeListColumn> columns{}; // 非空时自动启用多列 TreeListView 模式
 
     operator WidgetPtr() const&;
 
@@ -491,7 +771,8 @@ private:
             m_desc.width,
             m_desc.height,
             m_desc.on_selection_changed,
-            m_desc.on_checked_changed);
+            m_desc.on_checked_changed,
+            m_desc.columns);
     }
 
     TreeView m_desc;

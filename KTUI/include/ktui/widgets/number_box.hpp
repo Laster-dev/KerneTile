@@ -241,10 +241,14 @@ public:
             auto paint_spin = [&](Rect r, SpinPart part, bool at_limit, const char* svg) {
                 bool hov = (m_hover_spin == part && !at_limit);
                 bool prs = (m_press_spin == part && !at_limit);
+                float r_top = (part == SpinPart::Up) ? 4.0f : 0.0f;
+                float r_bot = (part == SpinPart::Down) ? 4.0f : 0.0f;
                 if (prs) {
-                    ctx.draw_rect(r, theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.06f}, 3.0f, 0.0f);
+                    Color bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.06f};
+                    ctx.draw_rounded_rect(r, bg, r_top, r_top, r_bot, r_bot);
                 } else if (hov) {
-                    ctx.draw_rect(r, theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.06f} : Color{0.0f, 0.0f, 0.0f, 0.04f}, 3.0f, 0.0f);
+                    Color bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.06f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
+                    ctx.draw_rounded_rect(r, bg, r_top, r_top, r_bot, r_bot);
                 }
                 Color ic = theme.is_dark
                     ? Color{1.0f, 1.0f, 1.0f, at_limit ? 0.25f : 0.80f}

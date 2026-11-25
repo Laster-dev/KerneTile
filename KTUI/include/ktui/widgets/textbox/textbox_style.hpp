@@ -104,7 +104,13 @@ public:
         }
 
         // 覆盖自定义显式参数 (若外部显式传入边框，才启用四周描边)
-        if (custom_bg) idle_bg = *custom_bg;
+        if (custom_bg) {
+            idle_bg  = *custom_bg;
+            hover_bg = *custom_bg;
+            focus_bg = *custom_bg;
+            hover_bg.a = std::min(1.0f, hover_bg.a + 0.06f);
+            focus_bg.a = std::min(1.0f, focus_bg.a + 0.12f);
+        }
         if (custom_border) {
             style.border = *custom_border;
             style.border_width = 1.0f;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scroll/scrollbar.hpp"
 #include "widget.hpp"
 #include <ktui/binding/binding.hpp>
 #include <ktui/event/event_types.hpp>
@@ -165,16 +166,10 @@ public:
             }
         }
 
-        // 垂直滚动条
-        float ms = max_scroll();
-        if (ms > 0.5f) {
-            float track_h = std::max(1.0f, body.height() - 8.0f);
-            float content_h = static_cast<float>(total_rows) * kRowH;
-            float thumb_h = std::clamp(track_h * (body.height() / std::max(1.0f, content_h)), 24.0f, track_h);
-            float ty = kHeaderH + 4.0f + (m_scroll_y / ms) * (track_h - thumb_h);
-            context.draw_rect(Rect::from_xywh(m_size.x - 8.0f, ty, 5.0f, thumb_h),
-                              is_dark ? Color{1, 1, 1, 0.28f} : Color{0, 0, 0, 0.25f}, 2.5f, 0.0f);
-        }
+        // 统一复用 WinUIScrollBar 控件 (瞬时零动画直连滚动，不自绘滚动条)
+        if (m_scrollbar.update_animations(m_viewport_hovered)) mark_needs_paint();
+        float content_h = static_cast<float>(total_rows) * kRowH;
+        m_scrollbar.paint(context, body, content_h, m_scroll_y, t);
 
         context.pop_clip();
 
@@ -318,14 +313,33 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_enter = [this](PointerEvent&) {
+            m_viewport_hovered = true;
+            mark_needs_paint();
+        };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_hovered != -1) { m_hovered = -1; mark_needs_paint(); }
+            m_viewport_hovered = false;
+            m_scrollbar.handle_pointer_exit();
+            if (m_hovered != -1) m_hovered = -1;
+            mark_needs_paint();
         };
         on_pointer_move = [this](PointerEvent& ev) {
+            Rect body = Rect::from_xywh(0.0f, kHeaderH, m_size.x, std::max(0.0f, m_size.y - kHeaderH - kFooterH));
+            float content_h = static_cast<float>((m_bytes.size() + m_cols - 1) / m_cols) * kRowH;
             if (ev.type == PlatformEventType::PointerScroll) {
+                // 零动画瞬时滚动 (高性能字节视图)
                 m_scroll_y -= ev.delta.y * 28.0f;
                 clamp_scroll();
+                m_scrollbar.notify_activity();
                 mark_needs_paint();
+                ev.stop_propagation();
+                return;
+            }
+            bool sb_consumed = false;
+            if (m_scrollbar.handle_pointer_move_direct(ev.local_position, body, content_h, m_scroll_y, max_scroll(), sb_consumed)) {
+                mark_needs_paint();
+            }
+            if (sb_consumed) {
                 ev.stop_propagation();
                 return;
             }
@@ -333,6 +347,7 @@ private:
                 m_scroll_y -= (ev.local_position.y - m_touch_prev_y);
                 m_touch_prev_y = ev.local_position.y;
                 clamp_scroll();
+                m_scrollbar.notify_activity();
                 mark_needs_paint();
                 ev.stop_propagation();
                 return;
@@ -352,6 +367,13 @@ private:
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
+            Rect body = Rect::from_xywh(0.0f, kHeaderH, m_size.x, std::max(0.0f, m_size.y - kHeaderH - kFooterH));
+            float content_h = static_cast<float>((m_bytes.size() + m_cols - 1) / m_cols) * kRowH;
+            if (m_scrollbar.handle_pointer_down_direct(ev.local_position, body, content_h, m_scroll_y, max_scroll(), kRowH * 3.0f)) {
+                mark_needs_paint();
+                ev.stop_propagation();
+                return;
+            }
             if (ev.device_kind == PointerDeviceKind::Touch) {
                 m_touch_dragging = true;
                 m_touch_prev_y = ev.local_position.y;
@@ -392,6 +414,7 @@ private:
             }
         };
         on_pointer_up = [this](PointerEvent&) {
+            if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
             m_touch_dragging = false;
             m_mouse_selecting = false;
         };
@@ -455,6 +478,8 @@ private:
     int m_hovered{-1};
     bool m_nibble_high{true};
     bool m_mouse_selecting{false};
+    bool m_viewport_hovered{false};
+    WinUIScrollBar m_scrollbar;
     float m_scroll_y{0.0f};
     bool m_touch_dragging{false};
     float m_touch_prev_y{0.0f};
