@@ -315,13 +315,14 @@ struct Toast {
             [overlay_id, on_close]() {
                 uint64_t id = *overlay_id;
                 *overlay_id = 0;
+                auto user_cb = on_close; // 先拷贝至栈上，防止 hide_overlay 销毁 RenderToast 与当前 lambda 后悬空
                 auto& slots = live_slots();
                 slots.erase(std::remove_if(slots.begin(), slots.end(),
                     [id](const Slot& s) { return s.overlay_id == id; }), slots.end());
                 if (Window* w = Window::active_window(); w && id != 0) {
                     w->hide_overlay(id);
                 }
-                if (on_close) on_close();
+                if (user_cb) user_cb();
             });
 
         Vec2 sz = toast->compute_size();

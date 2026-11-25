@@ -72,4 +72,13 @@ ktui::WidgetPtr build_layout_split_view_page(GalleryApp& app);
 ktui::WidgetPtr build_layout_dock_panel_page(GalleryApp& app);
 ktui::WidgetPtr build_layout_visibility_page(GalleryApp& app);
 
+// ==================== 高级交互控件 (Pro Controls - 每种控件独立页面) ====================
+ktui::WidgetPtr build_query_filter_page(GalleryApp& app);
+ktui::WidgetPtr build_scrub_number_box_page(GalleryApp& app);
+ktui::WidgetPtr build_hold_confirm_button_page(GalleryApp& app);
+ktui::WidgetPtr build_ghost_text_box_page(GalleryApp& app);
+ktui::WidgetPtr build_minimap_timeline_page(GalleryApp& app);
+ktui::WidgetPtr build_ip_port_input_page(GalleryApp& app);
+ktui::WidgetPtr build_spotlight_tour_page(GalleryApp& app);
+
 } // namespace gallery::pages

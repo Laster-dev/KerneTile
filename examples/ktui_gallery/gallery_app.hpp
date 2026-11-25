@@ -133,6 +133,7 @@ struct GalleryApp {
 
     [[nodiscard]] ktui::WidgetPtr make_card(ktui::WidgetPtr child);
     [[nodiscard]] ktui::WidgetPtr make_scroll_page(ktui::WidgetPtr body);
+    [[nodiscard]] ktui::WidgetPtr make_page_title(const std::string& title, float font_size = 22.0f);
 
     void setup(ktui::Application& application, std::shared_ptr<ktui::Window> win);
 };

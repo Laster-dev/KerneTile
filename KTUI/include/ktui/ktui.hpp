@@ -117,3 +117,10 @@
 #include <ktui/widgets/segmented_control.hpp>
 #include <ktui/widgets/toggle_button.hpp>
 #include <ktui/widgets/navigation_view.hpp>
+#include <ktui/widgets/query_filter_builder.hpp>
+#include <ktui/widgets/scrub_number_box.hpp>
+#include <ktui/widgets/hold_confirm_button.hpp>
+#include <ktui/widgets/ghost_text_box.hpp>
+#include <ktui/widgets/minimap_timeline_slider.hpp>
+#include <ktui/widgets/ip_port_input.hpp>
+#include <ktui/widgets/spotlight_tour.hpp>

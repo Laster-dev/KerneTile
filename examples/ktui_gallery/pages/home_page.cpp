@@ -1,4 +1,4 @@
-#include "gallery_pages.hpp"
+﻿#include "gallery_pages.hpp"
 
 using namespace ktui;
 
@@ -28,7 +28,7 @@ WidgetPtr build_svg_page(GalleryApp& app) {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
-            Text { .text = "NanoSVG 矢量图形", .font_size = 22.0f },
+            app.make_page_title("NanoSVG 矢量图形", 22.0f),
             Text { .text = "由 NanoSVG 解析光栅化并缓存至 KerneTile DynamicAtlas，全后端单图元 80B 硬件加速渲染。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -76,7 +76,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .align_items = AlignItems::Stretch,
         .spacing = 14.0f,
         .content = {
-            Text { .text = "KTUI Gallery", .font_size = 24.0f, .font_weight = FontWeight::SemiBold },
+            app.make_page_title("KTUI Gallery", 24.0f),
             Text { .text = "对标 Windows 11 WinUI 3 Gallery · 49 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,

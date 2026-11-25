@@ -24,6 +24,7 @@ struct OverlayEntry {
     Vec2 size{0.0f, 0.0f};
     bool dismiss_on_outside_click{true};
     bool is_modal{false};
+    bool allow_hit_passthrough{false}; // true 时若 content->hit_test 返回 false，则放行事件穿透到底层真实控件（如聚光灯镂空区）
     Color barrier_color{Color{0.0f, 0.0f, 0.0f, 0.50f}};
     Fn<void()> on_dismiss{nullptr};
 };
@@ -139,8 +140,9 @@ public:
             }
         }
 
-        // 2. 依次在最顶层绘制各个浮层
-        for (auto& entry : m_entries) {
+        // 2. 快照后依次在最顶层绘制各个浮层（防止 Toast 等在 paint 中调用 hide_overlay 导致迭代器失效与野指针）
+        std::vector<OverlayEntry> snapshot = m_entries;
+        for (auto& entry : snapshot) {
             if (!entry.content) continue;
 
             // 布局浮层内容
@@ -173,11 +175,13 @@ public:
             Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
 
             if (entry_rect.contains(pos)) {
-                m_captured_id = entry.id;
-                // 点击在浮层内部：进行命中测试并派发事件
+                auto content_guard = entry.content; // 持有强引用，防止回调内 hide_overlay 导致野指针
+                bool passthrough = entry.allow_hit_passthrough;
+                uint64_t eid = entry.id;
                 HitTestResult hit_res;
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                if (entry.content->hit_test(hit_res, local_p)) {
+                if (content_guard->hit_test(hit_res, local_p)) {
+                    m_captured_id = eid;
                     PointerEvent ev(PlatformEventType::PointerDown, pos, button);
                     ev.device_kind = device_kind;
                     for (const auto& h : hit_res.path()) {
@@ -188,7 +192,10 @@ public:
                             if (tev.is_propagation_stopped()) break;
                         }
                     }
+                    return true;
                 }
+                if (passthrough) continue;
+                m_captured_id = eid;
                 return true;
             } else {
                 // 点击在浮层外部
@@ -243,7 +250,9 @@ public:
                             if (tev.is_propagation_stopped()) break;
                         }
                     }
+                    return true;
                 }
+                if (entry.allow_hit_passthrough) continue;
                 return true;
             } else if (entry.content->on_pointer_exit) {
                 PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
@@ -302,9 +311,11 @@ public:
             Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
 
             if (entry_rect.contains(pos) || entry.id == captured) {
+                auto content_guard = entry.content; // 持有强引用，防止回调内 hide_overlay 导致野指针
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
+                bool passthrough = entry.allow_hit_passthrough && entry.id != captured;
                 HitTestResult hit_res;
-                if (entry_rect.contains(pos) && entry.content->hit_test(hit_res, local_p)) {
+                if (entry_rect.contains(pos) && content_guard->hit_test(hit_res, local_p)) {
                     PointerEvent ev(PlatformEventType::PointerUp, pos, button);
                     for (const auto& h : hit_res.path()) {
                         if (h.target && h.target->on_pointer_up) {
@@ -314,10 +325,13 @@ public:
                             if (tev.is_propagation_stopped()) break;
                         }
                     }
-                } else if (entry.content->on_pointer_up) {
+                    return true;
+                }
+                if (passthrough) continue;
+                if (content_guard->on_pointer_up) {
                     PointerEvent ev(PlatformEventType::PointerUp, pos, button);
                     ev.local_position = local_p;
-                    entry.content->on_pointer_up(ev);
+                    content_guard->on_pointer_up(ev);
                 }
                 return true;
             }

@@ -12,7 +12,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .align_items = AlignItems::Stretch,
         .spacing = 4.0f,
         .content = {
-            Text { .text = title, .font_size = 22.0f, .font_weight = FontWeight::SemiBold },
+            app.make_page_title(title, 22.0f),
             Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
         }
     };

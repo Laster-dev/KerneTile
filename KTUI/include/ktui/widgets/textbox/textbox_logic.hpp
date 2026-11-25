@@ -277,7 +277,7 @@ public:
 
     void perform_layout() override {
         auto style = resolve_current_style();
-        float desired_w = 120.0f; // 默认紧凑最小宽度
+        float desired_w = m_preferred_width; // 默认紧凑最小宽度 120px，派生控件可按需指定
         float desired_h = style.height;
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
         ensure_cursor_visible();
@@ -379,7 +379,7 @@ public:
         Color before_col = m_state.is_disabled
             ? style.underline
             : lerp_color(style.underline, style.focus_indicator, m_before_progress);
-        if (before_col.a > 0.001f && style.underline_height > 0.0f) {
+        if (!m_borderless_inline && before_col.a > 0.001f && style.underline_height > 0.0f) {
             context.draw_rect(Rect::from_xywh(bounds().min_x, resting_line_y, bounds().width(), style.underline_height),
                               before_col, 0.0f, 0.0f);
         }
@@ -433,6 +433,14 @@ public:
             context.draw_text(m_data.placeholder, PointF{start_x, text_y}, font_sz, ph_col);
         }
 
+        // 7.5 增量式幽灵补全后缀 (紧跟真实文本之后，复用原生 TextBox 排版与裁剪)
+        if (!m_ghost_suffix.empty() && m_ime_preedit.empty() && !display_text.empty()) {
+            float ghost_x = start_x + TextMeasure::measure_width(display_text, font_sz);
+            Color ghost_col = style.placeholder;
+            ghost_col.a = std::min(ghost_col.a, 0.45f);
+            context.draw_text(m_ghost_suffix, PointF{ghost_x, text_y}, font_sz, ghost_col);
+        }
+
         // 8. 绘制 IME 输入法预编辑组合态下划线 (如拼音 "nihao")
         if (!m_ime_preedit.empty()) {
             float preedit_start_x = start_x + TextMeasure::cursor_x(display_text, font_sz, preedit_start);
@@ -453,11 +461,29 @@ public:
         context.pop_clip();
 
         // 10. 底部 2px 动态聚焦展开条 (:after, transform: scaleX(0) -> scaleX(1), 250ms)
-        if (m_after_scale > 0.001f && !m_state.is_disabled) {
+        if (!m_borderless_inline && m_after_scale > 0.001f && !m_state.is_disabled) {
             float active_w = bounds().width() * m_after_scale;
             float active_x = bounds().min_x + (bounds().width() - active_w) * 0.5f;
             float line_y = bounds().max_y - style.focus_line_height;
             context.draw_rect(Rect::from_xywh(active_x, line_y, active_w, style.focus_line_height), style.focus_indicator, 0.0f, 0.0f);
+        }
+
+        // 10.5 幽灵补全右侧按键提示胶囊 (如 "Tab 补词") 或状态指示圆点 (如 IP 校验状态)
+        if (!m_ghost_suffix.empty() && !m_ghost_badge.empty()) {
+            const Theme& t = ThemeContext::current();
+            Vec2 bs = TextMeasure::measure(m_ghost_badge, 10.5f, FontWeight::Medium);
+            float bw = bs.x + 12.0f;
+            Rect br = Rect::from_xywh(bounds().max_x - bw - 6.0f, (bounds().height() - 20.0f) * 0.5f, bw, 20.0f);
+            context.draw_rect(br, t.is_dark ? Color{1, 1, 1, 0.08f} : Color{0, 0, 0, 0.05f}, 4.0f, 0.0f);
+            context.draw_rect(br, t.is_dark ? Color{1, 1, 1, 0.14f} : Color{0, 0, 0, 0.12f}, 4.0f, 1.0f);
+            context.draw_text(m_ghost_badge,
+                              PointF{std::round(br.min_x + 6.0f), std::round(br.min_y + (20.0f - bs.y) * 0.5f)},
+                              10.5f, style.placeholder, FontWeight::Medium);
+        } else if (m_show_status_dot) {
+            float r = 3.5f;
+            float cx = bounds().max_x - 11.0f;
+            float cy = bounds().min_y + bounds().height() * 0.5f;
+            context.draw_rect(Rect::from_xywh(cx - r, cy - r, r * 2.0f, r * 2.0f), m_status_dot_color, r, 0.0f);
         }
 
         // 11. 密码模式显隐切换眼睛图标
@@ -784,6 +810,7 @@ private:
         };
 
         on_key = [this](KeyEvent& ev) {
+            if (m_key_intercept && m_key_intercept(ev)) return;
             handle_text_key(ev);
         };
     }
@@ -890,12 +917,15 @@ private:
 
     void ensure_cursor_visible() {
         auto style = resolve_current_style();
+        if (m_size.x <= 1.0f) { m_scroll_offset_x = 0.0f; return; }
         float font_sz = style.font_size;
         float reveal_btn_w = (m_data.is_password && m_data.show_reveal_button) ? 22.0f : 0.0f;
         float avail_w = std::max(10.0f, m_size.x - style.padding.horizontal() - reveal_btn_w);
 
         const auto display_text = composed_display_text();
         const size_t cursor = to_display_offset(m_cursor_index) + std::min(m_ime_preedit_cursor, m_ime_preedit.size());
+        const float max_scroll = std::max(0.0f, TextMeasure::measure_width(display_text, font_sz) - avail_w + 12.0f);
+        m_scroll_offset_x = std::clamp(m_scroll_offset_x, 0.0f, max_scroll);
         float cursor_rel_x = TextMeasure::cursor_x(display_text, font_sz, cursor);
         if (cursor_rel_x - m_scroll_offset_x > avail_w - 4.0f) {
             m_scroll_offset_x = cursor_rel_x - avail_w + 12.0f;
@@ -1124,6 +1154,25 @@ public:
     void set_custom_font_size(float fs) { m_custom_font_size = (fs > 0.0f) ? std::optional<float>(fs) : std::nullopt; mark_needs_layout(); }
     void set_show_reveal_button(bool show) { m_data.show_reveal_button = show; mark_needs_paint(); }
     void set_on_change(Fn<void(const std::string&)> cb) { m_data.on_change = std::move(cb); }
+    void set_preferred_width(float w) { m_preferred_width = std::max(40.0f, w); mark_needs_layout(); }
+    void set_ghost_suffix(std::string suffix) { if (m_ghost_suffix != suffix) { m_ghost_suffix = std::move(suffix); mark_needs_paint(); } }
+    void set_ghost_badge(std::string badge) { if (m_ghost_badge != badge) { m_ghost_badge = std::move(badge); mark_needs_paint(); } }
+    void set_status_dot(bool show, Color color = Color{0.10f, 0.72f, 0.45f, 1.0f}) {
+        m_show_status_dot = show;
+        m_status_dot_color = color;
+        mark_needs_paint();
+    }
+    void set_key_intercept(Fn<bool(KeyEvent&)> cb) { m_key_intercept = std::move(cb); }
+    void set_borderless_inline(bool v) { if (m_borderless_inline != v) { m_borderless_inline = v; mark_needs_paint(); } }
+
+private:
+    bool m_borderless_inline{false};
+    float m_preferred_width{120.0f};
+    std::string m_ghost_suffix;
+    std::string m_ghost_badge;
+    bool m_show_status_dot{false};
+    Color m_status_dot_color{0.10f, 0.72f, 0.45f, 1.0f};
+    Fn<bool(KeyEvent&)> m_key_intercept;
 };
 
 class TextBoxWidget;

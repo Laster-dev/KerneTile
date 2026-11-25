@@ -390,6 +390,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/gallery_app.cpp
     examples/ktui_gallery/pages/home_page.cpp
     examples/ktui_gallery/pages/layout_pages.cpp
+    examples/ktui_gallery/pages/pro_controls_pages.cpp
     examples/ktui_gallery/pages/basic_input_pages.cpp
     examples/ktui_gallery/pages/progress_page.cpp
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
@@ -546,6 +547,7 @@ if (BUILD_TESTING)
     add_ktui_test(test_ktui_combobox         tests/test_ktui_combobox.cpp         ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_navigation_view  tests/test_ktui_navigation_view.cpp  ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_pro_controls     tests/test_ktui_pro_controls.cpp     ktui_pal kernetile_engine)
 endif()
 
 

@@ -205,8 +205,11 @@ private:
             m_pressed_index = -1;
             if (idx >= 0 && idx == pressed && !m_items[static_cast<size_t>(idx)].disabled) {
                 auto cb = m_items[static_cast<size_t>(idx)].on_click;
-                if (m_on_close) m_on_close();
+                auto close_cb = m_on_close;
+                e.stop_propagation();
+                if (close_cb) close_cb(); // 关闭浮层会移除当前节点，此后严禁再访问 this
                 if (cb) cb();
+                return;
             }
             mark_needs_paint();
             e.stop_propagation();

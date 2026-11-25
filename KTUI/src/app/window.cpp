@@ -168,42 +168,19 @@ void Window::advance_mica_animation() {
     }
 }
 
-void Window::paint_keyboard_focus_ring(PaintContext& ctx) {
-    if (!m_focus_manager.is_keyboard_focus_visible()) return;
-    RenderBox* f = m_focus_manager.focused_node();
-    if (!f || f->size().x <= 1.0f || f->size().y <= 1.0f) return;
-    Vec2 g = f->global_offset();
-    const bool is_dark = ThemeContext::current().is_dark;
-    Color outer_c = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.92f} : Color{0.0f, 0.0f, 0.0f, 0.88f};
-    Color inner_c = is_dark ? Color{0.0f, 0.0f, 0.0f, 0.72f} : Color{1.0f, 1.0f, 1.0f, 0.85f};
-    Rect outer_r = Rect::from_xywh(g.x - 2.0f, g.y - 2.0f, f->size().x + 4.0f, f->size().y + 4.0f);
-    Rect inner_r = Rect::from_xywh(g.x - 0.5f, g.y - 0.5f, f->size().x + 1.0f, f->size().y + 1.0f);
-    ctx.draw_rect(inner_r, inner_c, 4.5f, 1.0f);
-    ctx.draw_rect(outer_r, outer_c, 5.5f, 2.0f);
-}
-
 void Window::paint_scene(PaintContext& ctx, Vec2 sz, Vec2 client_sz, float tb_h, bool mica_flag) {
     if (tb_h > 0.0f) {
         ctx.push_clip(Rect::from_xywh(0.0f, tb_h, client_sz.x, client_sz.y), 0.0f);
         {
             PaintContext::OffsetScope client_offset(ctx, Vec2{0.0f, tb_h});
             m_root_render_box->paint(ctx);
-            if (!m_overlay_manager.has_modal_overlay()) {
-                paint_keyboard_focus_ring(ctx);
-            }
         }
         ctx.pop_clip();
         m_titlebar.paint(ctx, sz, title(), m_window_focused, is_resizable(), is_maximized(), is_always_on_top(), mica_flag);
     } else {
         m_root_render_box->paint(ctx);
-        if (!m_overlay_manager.has_modal_overlay()) {
-            paint_keyboard_focus_ring(ctx);
-        }
     }
     m_overlay_manager.layout_and_paint(ctx, sz);
-    if (m_overlay_manager.has_modal_overlay()) {
-        paint_keyboard_focus_ring(ctx);
-    }
     if (!is_decorated()) {
         m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
     }
@@ -572,23 +549,15 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
             break;
         }
         case PlatformEventType::KeyDown: {
-            constexpr uint32_t kKeyTab = 9;
             constexpr uint32_t kKeyEscape = 27;
-            if (pe.key_code == kKeyEscape) {
+            KeyEvent ev(PlatformEventType::KeyDown, pe.key_code, pe.text, pe.modifiers);
+            RenderBox* key_root = m_overlay_manager.top_modal_content();
+            if (!key_root) key_root = m_root_render_box.get();
+            m_event_dispatcher.dispatch_key_event(m_focus_manager.focused_node(), key_root, ev);
+            if (pe.key_code == kKeyEscape && !ev.is_propagation_stopped()) {
                 m_focus_manager.clear_focus();
-                sync_ime_state();
-            } else if (pe.key_code == kKeyTab) {
-                RenderBox* focus_scope = m_overlay_manager.top_modal_content();
-                if (!focus_scope) focus_scope = m_root_render_box.get();
-                m_focus_manager.handle_tab_navigation(focus_scope, pe.modifiers.shift);
-                sync_ime_state();
-            } else {
-                KeyEvent ev(PlatformEventType::KeyDown, pe.key_code, pe.text, pe.modifiers);
-                RenderBox* key_root = m_overlay_manager.top_modal_content();
-                if (!key_root) key_root = m_root_render_box.get();
-                m_event_dispatcher.dispatch_key_event(m_focus_manager.focused_node(), key_root, ev);
-                sync_ime_state();
             }
+            sync_ime_state();
             request_redraw();
             if (m_platform_window) m_platform_window->invalidate();
             break;

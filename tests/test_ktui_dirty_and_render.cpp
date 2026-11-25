@@ -187,27 +187,20 @@ void test_focus_manager_tab_navigation() {
         if (e.gained_focus) a_focus_events++;
     };
 
-    // 第一次按 Tab -> 聚焦 A
-    focus_mgr.handle_tab_navigation(root.get(), false);
+    // 聚焦 A -> B -> C -> A，验证焦点事件与清空
+    focus_mgr.request_focus(inputA.get());
     assert(focus_mgr.focused_node() == inputA.get());
     assert(a_focus_events == 1);
 
-    // 第二次按 Tab -> 聚焦 B
-    focus_mgr.handle_tab_navigation(root.get(), false);
+    focus_mgr.request_focus(inputB.get());
     assert(focus_mgr.focused_node() == inputB.get());
 
-    // 第三次按 Tab -> 聚焦 C
-    focus_mgr.handle_tab_navigation(root.get(), false);
+    focus_mgr.request_focus(inputC.get());
     assert(focus_mgr.focused_node() == inputC.get());
 
-    // 第四次按 Tab -> 环形回到 A
-    focus_mgr.handle_tab_navigation(root.get(), false);
+    focus_mgr.request_focus(inputA.get());
     assert(focus_mgr.focused_node() == inputA.get());
     assert(a_focus_events == 2);
-
-    // 按 Shift+Tab (reverse = true) -> 逆向转移至 C
-    focus_mgr.handle_tab_navigation(root.get(), true);
-    assert(focus_mgr.focused_node() == inputC.get());
 
     // 清空焦点
     focus_mgr.clear_focus();

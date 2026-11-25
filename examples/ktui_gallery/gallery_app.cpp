@@ -21,6 +21,103 @@ WidgetPtr GalleryApp::make_card(WidgetPtr child) {
     };
 }
 
+namespace {
+
+// Fluent 2 极简图标复制按钮（双叠纸矢量图标，点击复制到剪贴板并切换为绿色 ✓ 反馈 1.5s）
+class RenderCopyIconButton : public RenderBox {
+public:
+    explicit RenderCopyIconButton(std::string copy_text) : m_copy_text(std::move(copy_text)) {
+        cursor_shape = CursorShape::PointingHand;
+        on_pointer_enter = [this](PointerEvent&) { m_hovered = true; mark_needs_paint(); };
+        on_pointer_exit = [this](PointerEvent&) { m_hovered = false; m_pressed = false; mark_needs_paint(); };
+        on_pointer_down = [this](PointerEvent& ev) {
+            if (ev.button == PointerButton::Primary) {
+                m_pressed = true;
+                mark_needs_paint();
+                ev.stop_propagation();
+            }
+        };
+        on_pointer_up = [this](PointerEvent& ev) {
+            if (m_pressed) {
+                m_pressed = false;
+                if (bounds().contains(ev.local_position)) {
+                    Clipboard::set_text(m_copy_text);
+                    m_copied_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+                    Toast::show(ToastDesc{ .title = "已复制到剪贴板", .message = m_copy_text, .severity = ToastSeverity::Success });
+                }
+                mark_needs_paint();
+                ev.stop_propagation();
+            }
+        };
+    }
+
+    void perform_layout() override {
+        m_size = m_constraints.constrain(Vec2{26.0f, 26.0f});
+    }
+
+    void paint(PaintContext& context) override {
+        auto now = std::chrono::steady_clock::now();
+        bool copied = (m_copied_until.time_since_epoch().count() != 0 && now < m_copied_until);
+        if (copied) mark_needs_paint();
+
+        const Theme& t = ThemeContext::current();
+        const bool is_dark = t.is_dark;
+        if (m_hovered || m_pressed || copied) {
+            Color bg = copied
+                ? Color{0x10 / 255.0f, 0x89 / 255.0f, 0x3E / 255.0f, is_dark ? 0.22f : 0.14f}
+                : (is_dark ? Color{1, 1, 1, m_pressed ? 0.05f : 0.09f}
+                           : Color{0, 0, 0, m_pressed ? 0.04f : 0.06f});
+            context.draw_rect(bounds(), bg, 4.0f, 0.0f);
+        }
+
+        const float cx = m_size.x * 0.5f;
+        const float cy = m_size.y * 0.5f;
+        if (copied) {
+            Color ok{0x10 / 255.0f, 0x89 / 255.0f, 0x3E / 255.0f, 1.0f};
+            context.draw_line(PointF{cx - 4.5f, cy + 0.5f}, PointF{cx - 1.2f, cy + 3.8f}, ok, 1.6f);
+            context.draw_line(PointF{cx - 1.2f, cy + 3.8f}, PointF{cx + 5.0f, cy - 3.5f}, ok, 1.6f);
+        } else {
+            Color ic = m_hovered ? t.colors.primary : t.colors.text_secondary;
+            // 后方纸张轮廓 + 前方纸张轮廓（Fluent 2 标准 Copy 图标）
+            context.draw_rect(Rect::from_xywh(cx - 2.5f, cy - 5.5f, 8.5f, 9.5f), ic, 1.5f, 1.1f);
+            Color fill_bg = is_dark ? Color{0x22 / 255.0f, 0x23 / 255.0f, 0x26 / 255.0f, 1.0f}
+                                    : Color{0xF5 / 255.0f, 0xF7 / 255.0f, 0xFA / 255.0f, 1.0f};
+            context.draw_rect(Rect::from_xywh(cx - 5.5f, cy - 2.5f, 8.5f, 9.5f), fill_bg, 1.5f, 0.0f);
+            context.draw_rect(Rect::from_xywh(cx - 5.5f, cy - 2.5f, 8.5f, 9.5f), ic, 1.5f, 1.1f);
+        }
+    }
+
+private:
+    std::string m_copy_text;
+    bool m_hovered{false};
+    bool m_pressed{false};
+    std::chrono::steady_clock::time_point m_copied_until{};
+};
+
+class CopyIconButtonWidget : public Widget {
+public:
+    explicit CopyIconButtonWidget(std::string text) : m_text(std::move(text)) {}
+    std::shared_ptr<RenderBox> create_render_node() override {
+        return make_render_node<RenderCopyIconButton>(m_text);
+    }
+    void update_render_node(std::shared_ptr<RenderBox>) override {}
+private:
+    std::string m_text;
+};
+
+} // namespace
+
+WidgetPtr GalleryApp::make_page_title(const std::string& title, float font_size) {
+    return HStack {
+        .align_items = AlignItems::Center,
+        .spacing = 8.0f,
+        .content = {
+            Text { .text = title, .font_size = font_size, .font_weight = FontWeight::SemiBold },
+            make_widget<CopyIconButtonWidget>(title)
+        }
+    };
+}
+
 WidgetPtr GalleryApp::make_scroll_page(WidgetPtr body) {
     return ScrollView {
         .child = Box {
@@ -131,7 +228,19 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "8", .expanded = true,
+                .id = "cat_pro", .label = "高级交互", .icon = NavigationIcon::Controls, .badge = "7", .expanded = true,
+                .children = {
+                    NavigationViewItem{ .id = "pro_query_filter",    .label = "QueryFilter 查询胶囊", .badge = "New" },
+                    NavigationViewItem{ .id = "pro_scrub_number",    .label = "ScrubNumber 微调数字", .badge = "New" },
+                    NavigationViewItem{ .id = "pro_hold_confirm",    .label = "HoldConfirm 长按确认", .badge = "New" },
+                    NavigationViewItem{ .id = "pro_ghost_text",      .label = "GhostText 幽灵补全",   .badge = "New" },
+                    NavigationViewItem{ .id = "pro_minimap_time",    .label = "MinimapTimeline 范围", .badge = "New" },
+                    NavigationViewItem{ .id = "pro_ip_port",         .label = "IpPortInput IP端口",   .badge = "New" },
+                    NavigationViewItem{ .id = "pro_spotlight_tour",  .label = "SpotlightTour 聚光灯", .badge = "New" }
+                }
+            },
+            NavigationViewItem{
+                .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "8", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "layout_flex",       .label = "Flex (HStack/VStack)" },
                     NavigationViewItem{ .id = "layout_wrap",       .label = "Wrap 流式换行" },
@@ -227,6 +336,13 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .search_placeholder = "搜索控件",
         .open_pane_length = 236.0f,
         .page_builder = [this](const std::string& page_id) -> WidgetPtr {
+            if (page_id == "pro_query_filter")     return pages::build_query_filter_page(*this);
+            if (page_id == "pro_scrub_number")     return pages::build_scrub_number_box_page(*this);
+            if (page_id == "pro_hold_confirm")     return pages::build_hold_confirm_button_page(*this);
+            if (page_id == "pro_ghost_text")       return pages::build_ghost_text_box_page(*this);
+            if (page_id == "pro_minimap_time")     return pages::build_minimap_timeline_page(*this);
+            if (page_id == "pro_ip_port")          return pages::build_ip_port_input_page(*this);
+            if (page_id == "pro_spotlight_tour")   return pages::build_spotlight_tour_page(*this);
             if (page_id == "layout_flex")          return pages::build_layout_flex_page(*this);
             if (page_id == "layout_wrap")          return pages::build_layout_wrap_page(*this);
             if (page_id == "layout_grid")          return pages::build_layout_grid_page(*this);

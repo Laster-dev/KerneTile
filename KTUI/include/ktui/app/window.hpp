@@ -219,7 +219,6 @@ private:
     void sync_ime_state();
     void init_internal_hooks();
     void advance_mica_animation();
-    void paint_keyboard_focus_ring(PaintContext& ctx);
     void paint_scene(PaintContext& ctx, Vec2 sz, Vec2 client_sz, float tb_h, bool mica_flag);
     bool route_overlay_event(const PlatformEvent& pe);
     bool route_titlebar_event(const PlatformEvent& pe, float tb_h);

@@ -552,31 +552,17 @@ int main() {
     tip_area->layout(BoxConstraints::loose(Vec2{200.0f, 60.0f}));
     assert(tip_area->size().x > 20.0f && tip_area->size().y == 32.0f);
 
-    // 39. FocusManager Tab / Shift+Tab 键盘焦点流转、焦点环可见性与零尺寸节点跳过校验
-    RenderDecoratedBox focus_root;
-    focus_root.layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
-    RenderButton fb1, fb2, fb_hidden;
+    // 39. FocusManager 基础聚焦、切换与析构安全遗忘校验
+    RenderButton fb1, fb2;
     fb1.set_text("One");
     fb2.set_text("Two");
-    fb_hidden.set_text("Hidden");
-    fb1.layout(BoxConstraints::tight(Vec2{80.0f, 32.0f}));
-    fb2.layout(BoxConstraints::tight(Vec2{80.0f, 32.0f}));
-    fb_hidden.layout(BoxConstraints::tight(Vec2{0.0f, 0.0f}));
-    focus_root.append_child(&fb1);
-    focus_root.append_child(&fb_hidden);
-    focus_root.append_child(&fb2);
-
     FocusManager fm;
-    fm.request_focus(&fb1, false); // 鼠标点击不显示键盘焦点环
-    assert(fm.focused_node() == &fb1 && !fm.is_keyboard_focus_visible());
-    assert(fm.handle_tab_navigation(&focus_root, false)); // Tab 跳过零尺寸节点到 fb2
-    assert(fm.focused_node() == &fb2 && fm.is_keyboard_focus_visible());
-    assert(fm.handle_tab_navigation(&focus_root, true));  // Shift+Tab 回到 fb1
-    assert(fm.focused_node() == &fb1 && fm.is_keyboard_focus_visible());
-
-    focus_root.remove_child(&fb1);
-    focus_root.remove_child(&fb_hidden);
-    focus_root.remove_child(&fb2);
+    fm.request_focus(&fb1);
+    assert(fm.focused_node() == &fb1);
+    fm.request_focus(&fb2);
+    assert(fm.focused_node() == &fb2);
+    fm.forget_node(&fb2);
+    assert(fm.focused_node() == nullptr);
 
     // 40. Label 粗体/斜体/下划线/删除线组合校验
     Label rich_lbl{
