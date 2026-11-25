@@ -23,26 +23,29 @@ EM_JS(size_t, segment, (const char* source, size_t length, size_t* boundaries), 
     return chunks.length + 1;
 });
 
-EM_JS(void, measure, (const char* source, float size, int weight, int italic, float* values), {
+EM_JS(void, measure, (const char* source, float size, int weight, int italic, int mono, float* values), {
     var canvas = Module['ktTextCanvas'];
     if (!canvas && typeof document !== 'undefined')
         canvas = Module['ktTextCanvas'] = document.createElement('canvas');
     var text = UTF8ToString(source);
     var ctx = canvas && canvas.getContext('2d', {willReadFrequently: true});
     if (ctx) {
-        ctx.font = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+        var fam = mono
+            ? '"Cascadia Mono", "Cascadia Code", Consolas, "Courier New", ui-monospace, monospace'
+            : '"Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+        ctx.font = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px ' + fam;
         var metrics = ctx.measureText(text);
         HEAPF32[values >> 2] = metrics.width;
         HEAPF32[(values >> 2) + 1] = metrics.fontBoundingBoxAscent ?? size * 0.8;
         HEAPF32[(values >> 2) + 2] = metrics.fontBoundingBoxDescent ?? size * 0.2;
     } else {
-        HEAPF32[values >> 2] = Array.from(text).length * size * 0.55;
+        HEAPF32[values >> 2] = Array.from(text).length * size * (mono ? 0.6 : 0.55);
         HEAPF32[(values >> 2) + 1] = size * 0.8;
         HEAPF32[(values >> 2) + 2] = size * 0.2;
     }
 });
 
-EM_JS(int, raster, (const char* source, float size, int weight, int italic, int* box, uint8_t* dest, size_t capacity), {
+EM_JS(int, raster, (const char* source, float size, int weight, int italic, int mono, int* box, uint8_t* dest, size_t capacity), {
     var canvas = Module['ktTextCanvas'];
     if (!canvas && typeof document !== 'undefined')
         canvas = Module['ktTextCanvas'] = document.createElement('canvas');
@@ -50,7 +53,10 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int*
     var text = UTF8ToString(source);
     var ctx = canvas.getContext('2d', {willReadFrequently: true});
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    var fontSpec = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+    var fam = mono
+        ? '"Cascadia Mono", "Cascadia Code", Consolas, "Courier New", ui-monospace, monospace'
+        : '"Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+    var fontSpec = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px ' + fam;
     ctx.font = fontSpec;
     var m = ctx.measureText(text);
     var left = Math.floor(-m.actualBoundingBoxLeft);
@@ -108,14 +114,16 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int*
 
 class BrowserTextEngine final : public ITextEngine {
 public:
-    FontMetrics get_metrics(float size, std::string_view, uint16_t font_weight, bool italic) override {
+    FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {
+        const int mono = (family == "monospace") ? 1 : 0;
         float values[3]{};
-        measure("M", size, static_cast<int>(font_weight > 0 ? font_weight : 400), italic ? 1 : 0, values);
+        measure("M", size, static_cast<int>(font_weight > 0 ? font_weight : 400), italic ? 1 : 0, mono, values);
         return {size, values[1], -values[2], values[1] + values[2]};
     }
 
     TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
         const uint16_t w = font_weight > 0 ? font_weight : 400;
+        const bool mono = (family == "monospace");
         TextLayoutResult result;
         result.metrics = get_metrics(size, family, w, italic);
         result.total_height = result.metrics.line_height;
@@ -123,11 +131,11 @@ public:
         for (size_t i = 1; i < stops.size(); ++i) {
             const auto offset = stops[i - 1];
             const std::string cluster(text.substr(offset, stops[i] - offset));
-            std::string key = std::to_string(w) + (italic ? 'I' : 'N') + '\x1F' + cluster;
+            std::string key = std::to_string(w) + (italic ? 'I' : 'N') + (mono ? 'M' : 'P') + '\x1F' + cluster;
             auto [it, inserted] = m_ids.try_emplace(key, glyph_base + static_cast<uint32_t>(m_clusters.size()));
-            if (inserted) m_clusters.push_back(ClusterKey{cluster, w, italic});
+            if (inserted) m_clusters.push_back(ClusterKey{cluster, w, italic, mono});
             float values[3]{};
-            measure(cluster.c_str(), size, static_cast<int>(w), italic ? 1 : 0, values);
+            measure(cluster.c_str(), size, static_cast<int>(w), italic ? 1 : 0, mono ? 1 : 0, values);
             result.carets.push_back({offset, result.total_width});
             GlyphPlacement glyph{};
             glyph.glyph_id = it->second;
@@ -146,25 +154,27 @@ public:
         std::string text;
         uint16_t weight = 400;
         bool italic = false;
+        bool mono = false;
         if (id >= glyph_base && id - glyph_base < m_clusters.size()) {
             text = m_clusters[id - glyph_base].text;
             weight = m_clusters[id - glyph_base].weight;
             italic = m_clusters[id - glyph_base].italic;
+            mono = m_clusters[id - glyph_base].mono;
         } else if (id > 0 && id < 128) {
             text.push_back(static_cast<char>(id));
         }
         if (text.empty()) return {};
         int box[4]{};
-        const int count = raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, box, nullptr, 0);
+        const int count = raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, box, nullptr, 0);
         if (!count) return {};
         FontRasterResult result{static_cast<uint32_t>(box[0]), static_cast<uint32_t>(box[1]),
                                 box[2], box[3], std::vector<uint8_t>(count)};
-        raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, box, result.r8_bitmap.data(), result.r8_bitmap.size());
+        raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, box, result.r8_bitmap.data(), result.r8_bitmap.size());
         return result;
     }
 
 private:
-    struct ClusterKey { std::string text; uint16_t weight; bool italic; };
+    struct ClusterKey { std::string text; uint16_t weight; bool italic; bool mono; };
     static constexpr uint32_t glyph_base = 1u << 31;
     std::unordered_map<std::string, uint32_t> m_ids;
     std::vector<ClusterKey> m_clusters;

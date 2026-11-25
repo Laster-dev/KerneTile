@@ -7,6 +7,7 @@ namespace gallery::pages {
 // ==================== 首页与系统页 ====================
 ktui::WidgetPtr build_home_page(GalleryApp& app);
 ktui::WidgetPtr build_settings_page(GalleryApp& app);
+ktui::WidgetPtr build_settings_card_page(GalleryApp& app);
 ktui::WidgetPtr build_about_page(GalleryApp& app);
 
 // ==================== 基础输入 (Basic Input) ====================
