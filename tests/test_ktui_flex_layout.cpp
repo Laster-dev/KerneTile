@@ -5,6 +5,7 @@
 #include <ktui/widgets/wrap.hpp>
 #include <ktui/widgets/grid.hpp>
 #include <ktui/widgets/zstack.hpp>
+#include <ktui/widgets/dock_panel.hpp>
 #include <ktui/widgets/layout_primitives.hpp>
 #include <iostream>
 #include <cstdlib>
@@ -382,6 +383,81 @@ void test_zstack_alignment_and_aspect_ratio() {
     std::cout << "  -> ZStack 九宫格对齐与 AspectRatio 16:9 约束验证通过！" << std::endl;
 }
 
+void test_positioned_dock_and_visibility() {
+    std::cout << "[Test 12] Positioned 边角锚定、DockPanel 五区停靠与 Visibility 显隐测试..." << std::endl;
+
+    // 1. ZStack + Positioned 在松有界约束 (min=0, max=200x120) 下也必须自动撑满可用区域
+    auto z = std::make_unique<RenderZStack>(Alignment::center(), StackFit::Loose, EdgeInsets::zero());
+    auto bg = make_render_node<RenderSizedBox>(Vec2{80.0f, 18.0f}); // 模拟单行文本，不撑满容器
+    auto tr = make_render_node<RenderPositioned>(std::nullopt, 8.0f, 12.0f, std::nullopt, 30.0f, 20.0f);
+    tr->set_child_box(make_render_node<RenderSizedBox>(Vec2{30.0f, 20.0f}));
+    auto bar = make_render_node<RenderPositioned>(10.0f, std::nullopt, 10.0f, 6.0f, std::nullopt, 24.0f);
+    bar->set_child_box(make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f}));
+    z->set_child_boxes({bg, tr, bar});
+    z->layout(BoxConstraints::loose(Vec2{200.0f, 120.0f}));
+    KT_EXPECT(std::abs(z->size().x - 200.0f) < 0.5f && std::abs(z->size().y - 120.0f) < 0.5f);
+    KT_EXPECT(std::abs(tr->offset().x - (200.0f - 12.0f - 30.0f)) < 0.5f);
+    KT_EXPECT(std::abs(tr->offset().y - 8.0f) < 0.5f);
+    KT_EXPECT(std::abs(bar->size().x - 180.0f) < 0.5f);
+    KT_EXPECT(std::abs(bar->offset().y - (120.0f - 6.0f - 24.0f)) < 0.5f);
+
+    // 2. Visual Studio 风格 DockPanel 动态停靠、独立窗口反复撕出/回停靠与重置压测
+    auto dock = std::make_unique<RenderDockPanel>(160.0f, 160.0f, 100.0f, 110.0f);
+    std::vector<RenderDockPanel::LivePane> panes;
+    panes.push_back({"p_left",   "Left",   DockZone::Left,   DockZone::Left,   false, false, false, make_render_node<RenderSizedBox>(Vec2{10, 10}), {}, {}});
+    panes.push_back({"p_center", "Center", DockZone::Center, DockZone::Center, false, false, false, make_render_node<RenderSizedBox>(Vec2{10, 10}), {}, {}});
+    panes.push_back({"p_bottom", "Bottom", DockZone::Bottom, DockZone::Bottom, false, false, false, make_render_node<RenderSizedBox>(Vec2{10, 10}), {}, {}});
+    dock->set_panes(std::move(panes));
+    dock->layout(BoxConstraints::tight(Vec2{600.0f, 400.0f}));
+    KT_EXPECT(!dock->zone_rect(DockZone::Left).is_empty());
+    KT_EXPECT(!dock->zone_rect(DockZone::Center).is_empty());
+    KT_EXPECT(dock->zone_rect(DockZone::Right).is_empty());
+
+    // 将 p_left 重新停靠至 Right -> Left 应清空，Right 应非空
+    KT_EXPECT(dock->dock_pane("p_left", DockZone::Right));
+    dock->layout(BoxConstraints::tight(Vec2{600.0f, 400.0f}));
+    KT_EXPECT(dock->pane_zone("p_left") == DockZone::Right);
+    KT_EXPECT(dock->zone_rect(DockZone::Left).is_empty());
+    KT_EXPECT(!dock->zone_rect(DockZone::Right).is_empty());
+
+    // 反复撕出/回停靠 5 轮压测，验证 RenderBox 父子关系与状态零损坏
+    Fn<void()> saved_redock;
+    dock->set_on_detach_pane([&](const std::string&, const std::string&, std::shared_ptr<RenderBox> box, Fn<void()> redock) -> bool {
+        KT_EXPECT(box != nullptr && box->parent() == nullptr);
+        saved_redock = std::move(redock);
+        return true;
+    });
+    for (int round = 0; round < 5; ++round) {
+        KT_EXPECT(dock->detach_pane("p_bottom"));
+        KT_EXPECT(dock->is_pane_detached("p_bottom"));
+        dock->layout(BoxConstraints::tight(Vec2{600.0f, 400.0f}));
+        KT_EXPECT(dock->zone_rect(DockZone::Bottom).is_empty());
+        saved_redock();
+        KT_EXPECT(!dock->is_pane_detached("p_bottom"));
+        KT_EXPECT(dock->pane_zone("p_bottom") == DockZone::Bottom);
+        dock->layout(BoxConstraints::tight(Vec2{600.0f, 400.0f}));
+        KT_EXPECT(!dock->zone_rect(DockZone::Bottom).is_empty());
+    }
+
+    // 一键恢复初始停靠布局
+    dock->reset_layout();
+    dock->layout(BoxConstraints::tight(Vec2{600.0f, 400.0f}));
+    KT_EXPECT(dock->pane_zone("p_left") == DockZone::Left);
+
+    // 3. Visibility: Collapse (0x0) vs Hidden (maintain_size=true -> 100x40)
+    auto vis_col = std::make_unique<RenderVisibility>(false, false);
+    vis_col->set_child_box(make_render_node<RenderSizedBox>(Vec2{100.0f, 40.0f}));
+    vis_col->layout(BoxConstraints::loose(Vec2{300.0f, 300.0f}));
+    KT_EXPECT(vis_col->size().x == 0.0f && vis_col->size().y == 0.0f);
+
+    auto vis_hid = std::make_unique<RenderVisibility>(false, true);
+    vis_hid->set_child_box(make_render_node<RenderSizedBox>(Vec2{100.0f, 40.0f}));
+    vis_hid->layout(BoxConstraints::loose(Vec2{300.0f, 300.0f}));
+    KT_EXPECT(std::abs(vis_hid->size().x - 100.0f) < 0.5f && std::abs(vis_hid->size().y - 40.0f) < 0.5f);
+
+    std::cout << "  -> Positioned、DockPanel 与 Visibility (Collapse/Hidden) 验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 5: RenderTree 与全布局系统测试       " << std::endl;
@@ -398,6 +474,7 @@ int main() {
     test_wrap_layout();
     test_grid_layout();
     test_zstack_alignment_and_aspect_ratio();
+    test_positioned_dock_and_visibility();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 5 RenderTree 与全布局系统 100% 通过! " << std::endl;

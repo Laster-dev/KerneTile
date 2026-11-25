@@ -585,4 +585,110 @@ private:
 inline Divider::operator WidgetPtr() const& { return make_widget<DividerWidget>(*this); }
 inline Divider::operator WidgetPtr() && { return make_widget<DividerWidget>(*this); }
 
+// ==================== 7. Visibility (响应式显隐容器: Collapse / Hidden) ====================
+class RenderVisibility : public RenderBox {
+public:
+    RenderVisibility(bool visible = true, bool maintain_size = false) noexcept
+        : m_visible(visible), m_maintain_size(maintain_size) {}
+
+    void set_visible(bool v) noexcept {
+        if (m_visible != v) {
+            m_visible = v;
+            mark_needs_layout();
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
+
+    void set_maintain_size(bool m) noexcept {
+        if (m_maintain_size != m) {
+            m_maintain_size = m;
+            mark_needs_layout();
+        }
+    }
+    [[nodiscard]] bool maintain_size() const noexcept { return m_maintain_size; }
+
+    void set_child_box(std::shared_ptr<RenderBox> child) {
+        if (m_child == child) return;
+        if (m_child) remove_child(m_child.get());
+        m_child = std::move(child);
+        if (m_child) append_child(m_child.get());
+        mark_needs_layout();
+    }
+
+    void perform_layout() override {
+        if (!m_child || (!m_visible && !m_maintain_size)) {
+            m_size = m_constraints.constrain(Vec2{0.0f, 0.0f});
+            return;
+        }
+        m_child->layout(m_constraints, true);
+        m_child->set_offset(Vec2{0.0f, 0.0f});
+        m_size = m_constraints.constrain(m_child->size());
+    }
+
+    void paint(PaintContext& context) override {
+        if (!m_visible) return;
+        RenderBox::paint(context);
+    }
+
+    bool hit_test(HitTestResult& result, PointF position) override {
+        if (!m_visible) return false;
+        return RenderBox::hit_test(result, position);
+    }
+
+private:
+    bool m_visible{true};
+    bool m_maintain_size{false};
+    std::shared_ptr<RenderBox> m_child;
+};
+
+struct Visibility : BindableMixin<Visibility, RenderVisibility> {
+    bool visible{true};
+    bool maintain_size{false};
+    WidgetPtr child{nullptr};
+
+    operator WidgetPtr() const&;
+    operator WidgetPtr() &&;
+};
+
+class VisibilityWidget : public Widget {
+public:
+    explicit VisibilityWidget(const Visibility& desc) : m_desc(desc) {}
+    explicit VisibilityWidget(Visibility&& desc) noexcept : m_desc(std::move(desc)) {}
+
+    std::shared_ptr<RenderBox> create_render_node() override {
+        auto node = make_render_node<RenderVisibility>(m_desc.visible, m_desc.maintain_size);
+        m_child_box = m_desc.child ? m_desc.child->create_render_node() : nullptr;
+        if (m_desc.child && m_child_box) m_desc.child->set_render_node(m_child_box);
+        node->set_child_box(m_child_box);
+        return node;
+    }
+
+    void update_render_node(std::shared_ptr<RenderBox> node) override {
+        if (auto v = std::static_pointer_cast<RenderVisibility>(node)) {
+            v->set_visible(m_desc.visible);
+            v->set_maintain_size(m_desc.maintain_size);
+            if (m_desc.child) {
+                if (!m_child_box) {
+                    m_child_box = m_desc.child->create_render_node();
+                    m_desc.child->set_render_node(m_child_box);
+                    v->set_child_box(m_child_box);
+                } else {
+                    m_desc.child->update_render_node(m_child_box);
+                }
+            } else if (m_child_box) {
+                m_child_box = nullptr;
+                v->set_child_box(nullptr);
+            }
+        }
+    }
+
+private:
+    Visibility m_desc;
+    std::shared_ptr<RenderBox> m_child_box;
+};
+
+inline Visibility::operator WidgetPtr() const& { return make_widget<VisibilityWidget>(*this); }
+inline Visibility::operator WidgetPtr() && { return make_widget<VisibilityWidget>(std::move(*this)); }
+
 } // namespace ktui

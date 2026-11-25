@@ -81,6 +81,8 @@ public:
     [[nodiscard]] bool show_titlebar() const noexcept { return m_show_titlebar; }
     [[nodiscard]] bool has_custom_titlebar() const { return m_show_titlebar && !is_decorated(); }
     [[nodiscard]] float titlebar_height() const { return has_custom_titlebar() ? m_titlebar.height() : 0.0f; }
+    // 允许自定义无边框浮窗（如 DockPanel 浮动工具窗）注册自定义非客户区命中测试（例如返回 MaximizeBtn 以对接 Win11 分屏布局 Snap Layouts）
+    void set_custom_hit_test(Fn<TitlebarHitTest(PointF)> cb) { m_custom_hit_test = std::move(cb); }
     void set_resizable(bool resizable) {
         if (m_platform_window) m_platform_window->set_resizable(resizable);
         request_redraw();
@@ -261,6 +263,7 @@ private:
     std::vector<Fn<bool()>> m_close_callbacks;
     std::vector<Fn<void(float)>> m_dpi_callbacks;
     std::vector<Fn<void(bool)>> m_focus_callbacks;
+    Fn<TitlebarHitTest(PointF)> m_custom_hit_test;
 };
 
 } // namespace ktui

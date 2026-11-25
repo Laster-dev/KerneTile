@@ -6,11 +6,121 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <optional>
 
 namespace ktui {
 
+// ZStack 内部边角/坐标独立定位包装节点 (RenderPositioned)
+class RenderPositioned : public RenderBox {
+public:
+    RenderPositioned(std::optional<float> left = std::nullopt,
+                     std::optional<float> top = std::nullopt,
+                     std::optional<float> right = std::nullopt,
+                     std::optional<float> bottom = std::nullopt,
+                     std::optional<float> width = std::nullopt,
+                     std::optional<float> height = std::nullopt) noexcept
+        : m_left(left), m_top(top), m_right(right), m_bottom(bottom),
+          m_width(width), m_height(height) {}
+
+    [[nodiscard]] RenderPositioned* as_positioned() noexcept override { return this; }
+    [[nodiscard]] const RenderPositioned* as_positioned() const noexcept override { return this; }
+
+    void set_edges(std::optional<float> left, std::optional<float> top,
+                   std::optional<float> right, std::optional<float> bottom,
+                   std::optional<float> width, std::optional<float> height) noexcept {
+        if (m_left != left || m_top != top || m_right != right || m_bottom != bottom ||
+            m_width != width || m_height != height) {
+            m_left = left; m_top = top; m_right = right; m_bottom = bottom;
+            m_width = width; m_height = height;
+            mark_needs_layout();
+        }
+    }
+
+    [[nodiscard]] std::optional<float> left() const noexcept { return m_left; }
+    [[nodiscard]] std::optional<float> top() const noexcept { return m_top; }
+    [[nodiscard]] std::optional<float> right() const noexcept { return m_right; }
+    [[nodiscard]] std::optional<float> bottom() const noexcept { return m_bottom; }
+    [[nodiscard]] std::optional<float> fixed_width() const noexcept { return m_width; }
+    [[nodiscard]] std::optional<float> fixed_height() const noexcept { return m_height; }
+
+    void set_child_box(std::shared_ptr<RenderBox> child) {
+        if (m_child == child) return;
+        if (m_child) remove_child(m_child.get());
+        m_child = std::move(child);
+        if (m_child) append_child(m_child.get());
+        mark_needs_layout();
+    }
+
+    void perform_layout() override {
+        if (!m_child) {
+            m_size = m_constraints.constrain(Vec2{0.0f, 0.0f});
+            return;
+        }
+        m_child->layout(m_constraints, true);
+        m_child->set_offset(Vec2{0.0f, 0.0f});
+        m_size = m_constraints.constrain(m_child->size());
+    }
+
+private:
+    std::optional<float> m_left, m_top, m_right, m_bottom, m_width, m_height;
+    std::shared_ptr<RenderBox> m_child;
+};
+
+struct Positioned : BindableMixin<Positioned, RenderPositioned> {
+    std::optional<float> left{std::nullopt};
+    std::optional<float> top{std::nullopt};
+    std::optional<float> right{std::nullopt};
+    std::optional<float> bottom{std::nullopt};
+    std::optional<float> width{std::nullopt};
+    std::optional<float> height{std::nullopt};
+    WidgetPtr child{nullptr};
+
+    operator WidgetPtr() const&;
+    operator WidgetPtr() &&;
+};
+
+class PositionedWidget : public Widget {
+public:
+    explicit PositionedWidget(const Positioned& desc) : m_desc(desc) {}
+    explicit PositionedWidget(Positioned&& desc) noexcept : m_desc(std::move(desc)) {}
+
+    std::shared_ptr<RenderBox> create_render_node() override {
+        auto node = make_render_node<RenderPositioned>(
+            m_desc.left, m_desc.top, m_desc.right, m_desc.bottom, m_desc.width, m_desc.height);
+        m_child_box = m_desc.child ? m_desc.child->create_render_node() : nullptr;
+        if (m_desc.child && m_child_box) m_desc.child->set_render_node(m_child_box);
+        node->set_child_box(m_child_box);
+        return node;
+    }
+
+    void update_render_node(std::shared_ptr<RenderBox> node) override {
+        if (auto p = std::static_pointer_cast<RenderPositioned>(node)) {
+            p->set_edges(m_desc.left, m_desc.top, m_desc.right, m_desc.bottom, m_desc.width, m_desc.height);
+            if (m_desc.child) {
+                if (!m_child_box) {
+                    m_child_box = m_desc.child->create_render_node();
+                    m_desc.child->set_render_node(m_child_box);
+                    p->set_child_box(m_child_box);
+                } else {
+                    m_desc.child->update_render_node(m_child_box);
+                }
+            } else if (m_child_box) {
+                m_child_box = nullptr;
+                p->set_child_box(nullptr);
+            }
+        }
+    }
+
+private:
+    Positioned m_desc;
+    std::shared_ptr<RenderBox> m_child_box;
+};
+
+inline Positioned::operator WidgetPtr() const& { return make_widget<PositionedWidget>(*this); }
+inline Positioned::operator WidgetPtr() && { return make_widget<PositionedWidget>(std::move(*this)); }
+
 // 层叠容器渲染盒 (RenderZStack)
-// 支持九宫格对齐 (Alignment)、Padding 与 Loose/Expand 约束模式
+// 支持九宫格对齐 (Alignment)、Padding、Loose/Expand 约束模式以及 Positioned 独立边角定位
 class RenderZStack : public RenderBox {
 public:
     RenderZStack(Alignment alignment = Alignment::top_left(),
@@ -65,13 +175,24 @@ public:
 
         float max_w = 0.0f;
         float max_h = 0.0f;
+        bool has_positioned = false;
 
+        // Pass 1: 先测量非 Positioned 子项确定基础容器尺寸
         for (auto& child : m_child_boxes) {
-            if (child) {
-                child->layout(child_constraints, true);
-                max_w = std::max(max_w, child->size().x);
-                max_h = std::max(max_h, child->size().y);
+            if (!child) continue;
+            if (child->as_positioned() != nullptr) {
+                has_positioned = true;
+                continue;
             }
+            child->layout(child_constraints, true);
+            max_w = std::max(max_w, child->size().x);
+            max_h = std::max(max_h, child->size().y);
+        }
+
+        // 若包含 Positioned 边角定位子项（或 Expand 模式），且父容器给出有界尺寸，则自动撑满可用区域
+        if (has_positioned || m_fit == StackFit::Expand) {
+            if (inner.has_bounded_width())  max_w = std::max(max_w, inner.max_width);
+            if (inner.has_bounded_height()) max_h = std::max(max_h, inner.max_height);
         }
 
         Vec2 pad_sz{m_padding.horizontal(), m_padding.vertical()};
@@ -81,8 +202,35 @@ public:
             std::max(0.0f, m_size.y - pad_sz.y)
         };
 
+        // Pass 2: 定位普通子项 & 按边角约束测量并定位 Positioned 子项
         for (auto& child : m_child_boxes) {
-            if (child) {
+            if (!child) continue;
+            if (auto* pos = child->as_positioned()) {
+                BoxConstraints pc = BoxConstraints::loose(inner_size);
+                if (pos->left().has_value() && pos->right().has_value()) {
+                    float w = std::max(0.0f, inner_size.x - *pos->left() - *pos->right());
+                    pc.min_width = w; pc.max_width = w;
+                } else if (pos->fixed_width().has_value()) {
+                    float w = std::max(0.0f, *pos->fixed_width());
+                    pc.min_width = w; pc.max_width = w;
+                }
+                if (pos->top().has_value() && pos->bottom().has_value()) {
+                    float h = std::max(0.0f, inner_size.y - *pos->top() - *pos->bottom());
+                    pc.min_height = h; pc.max_height = h;
+                } else if (pos->fixed_height().has_value()) {
+                    float h = std::max(0.0f, *pos->fixed_height());
+                    pc.min_height = h; pc.max_height = h;
+                }
+                pos->layout(pc, true);
+                Vec2 fallback = m_alignment.compute_offset(inner_size, pos->size());
+                float ox = fallback.x;
+                float oy = fallback.y;
+                if (pos->left().has_value())       ox = *pos->left();
+                else if (pos->right().has_value()) ox = inner_size.x - *pos->right() - pos->size().x;
+                if (pos->top().has_value())        oy = *pos->top();
+                else if (pos->bottom().has_value()) oy = inner_size.y - *pos->bottom() - pos->size().y;
+                pos->set_offset(Vec2{m_padding.left + ox, m_padding.top + oy});
+            } else {
                 Vec2 aligned = m_alignment.compute_offset(inner_size, child->size());
                 child->set_offset(Vec2{m_padding.left + aligned.x, m_padding.top + aligned.y});
             }
@@ -109,7 +257,6 @@ struct ZStack : BindableMixin<ZStack, RenderZStack> {
     operator WidgetPtr() &&;
 };
 
-// ZStackWidget 包装实现
 class ZStackWidget : public Widget {
 public:
     explicit ZStackWidget(const ZStack& desc) : m_desc(desc) {}

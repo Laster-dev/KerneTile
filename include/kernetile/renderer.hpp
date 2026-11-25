@@ -23,6 +23,7 @@ namespace kernetile {
 struct RendererConfig {
     uint32_t width{1920};
     uint32_t height{1080};
+    uint32_t atlas_size{1024};           // 动态字形/蒙版图集边长 (默认 1024x1024 仅 1MB，溢出自动驱逐；辅助/浮动窗可设为 512)
     bool prefer_warp{false};             // 是否优先使用 D3D12 WARP 软件适配器
     bool force_cpu_fallback{false};      // 是否强制使用纯 CPU 瓦片光栅器
     bool enable_occlusion_culling{true}; // 是否启用前端实心矩形遮挡剔除

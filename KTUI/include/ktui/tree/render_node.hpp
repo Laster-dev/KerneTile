@@ -8,6 +8,7 @@
 namespace ktui {
 
 class RenderBox;
+class RenderPositioned;
 class ITextInputClient;
 
 // 保留式场景图核心基类 (RenderNode - 侵入式四指针双向链表树)
@@ -34,6 +35,8 @@ public:
     // 零 RTTI 轻量类型转换钩子 (支持完全关闭 /GR- 与 -fno-rtti)
     [[nodiscard]] virtual RenderBox* as_render_box() noexcept { return nullptr; }
     [[nodiscard]] virtual const RenderBox* as_render_box() const noexcept { return nullptr; }
+    [[nodiscard]] virtual RenderPositioned* as_positioned() noexcept { return nullptr; }
+    [[nodiscard]] virtual const RenderPositioned* as_positioned() const noexcept { return nullptr; }
     [[nodiscard]] virtual ITextInputClient* as_text_input_client() noexcept { return nullptr; }
 
     RenderNode(const RenderNode&) = delete;

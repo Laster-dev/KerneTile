@@ -131,12 +131,16 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "4", .expanded = true,
+                .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "8", .expanded = true,
                 .children = {
-                    NavigationViewItem{ .id = "layout_flex",        .label = "Flex 弹性布局",     .badge = "New" },
-                    NavigationViewItem{ .id = "layout_wrap",        .label = "Wrap 流式换行",     .badge = "New" },
-                    NavigationViewItem{ .id = "layout_grid",        .label = "Grid 二维网格",     .badge = "New" },
-                    NavigationViewItem{ .id = "layout_stack_align", .label = "ZStack 与对齐容器", .badge = "New" }
+                    NavigationViewItem{ .id = "layout_flex",       .label = "Flex (HStack/VStack)" },
+                    NavigationViewItem{ .id = "layout_wrap",       .label = "Wrap 流式换行" },
+                    NavigationViewItem{ .id = "layout_grid",       .label = "Grid 二维网格" },
+                    NavigationViewItem{ .id = "layout_zstack",     .label = "ZStack & Positioned" },
+                    NavigationViewItem{ .id = "layout_align",      .label = "Align & AspectRatio" },
+                    NavigationViewItem{ .id = "layout_split_view", .label = "SplitView 可拖拽分隔" },
+                    NavigationViewItem{ .id = "layout_dock_panel", .label = "DockPanel 拖拽停靠", .badge = "New" },
+                    NavigationViewItem{ .id = "layout_visibility", .label = "Visibility 显隐控制" }
                 }
             },
             NavigationViewItem{
@@ -226,7 +230,11 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             if (page_id == "layout_flex")          return pages::build_layout_flex_page(*this);
             if (page_id == "layout_wrap")          return pages::build_layout_wrap_page(*this);
             if (page_id == "layout_grid")          return pages::build_layout_grid_page(*this);
-            if (page_id == "layout_stack_align")   return pages::build_layout_stack_align_page(*this);
+            if (page_id == "layout_zstack")        return pages::build_layout_zstack_page(*this);
+            if (page_id == "layout_align")         return pages::build_layout_align_page(*this);
+            if (page_id == "layout_split_view")    return pages::build_layout_split_view_page(*this);
+            if (page_id == "layout_dock_panel")    return pages::build_layout_dock_panel_page(*this);
+            if (page_id == "layout_visibility")    return pages::build_layout_visibility_page(*this);
             if (page_id == "button")               return pages::build_button_page(*this);
             if (page_id == "toggle_button")        return pages::build_toggle_button_page(*this);
             if (page_id == "segmented_control")    return pages::build_segmented_control_page(*this);

@@ -72,6 +72,8 @@
 #include <ktui/widgets/layout_primitives.hpp>
 #include <ktui/widgets/wrap.hpp>
 #include <ktui/widgets/grid.hpp>
+#include <ktui/widgets/split_view.hpp>
+#include <ktui/widgets/dock_panel.hpp>
 #include <ktui/widgets/text.hpp>
 #include <ktui/widgets/label.hpp>
 #include <ktui/widgets/button.hpp>

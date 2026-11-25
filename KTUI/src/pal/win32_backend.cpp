@@ -120,7 +120,7 @@ Win32Window::Win32Window(const WindowDesc& desc, HINSTANCE hinstance)
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
     }
 
-    DWORD ex_style = WS_EX_APPWINDOW;
+    DWORD ex_style = desc.parent_handle ? 0 : WS_EX_APPWINDOW;
     if (m_always_on_top) {
         ex_style |= WS_EX_TOPMOST;
     }

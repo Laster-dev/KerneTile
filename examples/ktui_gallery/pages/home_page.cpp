@@ -77,7 +77,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             Text { .text = "KTUI Gallery", .font_size = 24.0f, .font_weight = FontWeight::SemiBold },
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 45 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 49 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -87,10 +87,14 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         .spacing = 8.0f,
                         .run_spacing = 8.0f,
                         .content = {
-                            nav_chip(app, "Flex 弹性布局", "layout_flex", true),
-                            nav_chip(app, "Wrap 流式换行", "layout_wrap", true),
-                            nav_chip(app, "Grid 二维网格", "layout_grid", true),
-                            nav_chip(app, "ZStack 与对齐容器", "layout_stack_align", true)
+                            nav_chip(app, "Flex (HStack/VStack)", "layout_flex"),
+                            nav_chip(app, "Wrap 流式换行", "layout_wrap"),
+                            nav_chip(app, "Grid 二维网格", "layout_grid"),
+                            nav_chip(app, "ZStack & Positioned", "layout_zstack"),
+                            nav_chip(app, "Align & AspectRatio", "layout_align"),
+                            nav_chip(app, "SplitView 可拖拽分隔", "layout_split_view"),
+                            nav_chip(app, "DockPanel 拖拽停靠", "layout_dock_panel", true),
+                            nav_chip(app, "Visibility 显隐", "layout_visibility")
                         }
                     }
                 }
@@ -100,31 +104,19 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "基础输入 (Basic Input)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             nav_chip(app, "Button", "button", true),
                             nav_chip(app, "DropDown / SplitButton", "dropdown_button"),
                             nav_chip(app, "CheckBox", "checkbox"),
-                            nav_chip(app, "ToggleSwitch", "toggle_switch")
-                        }
-                    },
-                    HStack {
-                        .align_items = AlignItems::Center,
-                        .spacing = 8.0f,
-                        .content = {
+                            nav_chip(app, "ToggleSwitch", "toggle_switch"),
                             nav_chip(app, "RadioButton", "radio_button"),
                             nav_chip(app, "RadioCard", "radio_card"),
                             nav_chip(app, "ComboBox", "combobox"),
                             nav_chip(app, "Slider", "slider"),
-                            nav_chip(app, "CalendarDatePicker", "calendar_date_picker")
-                        }
-                    },
-                    HStack {
-                        .align_items = AlignItems::Center,
-                        .spacing = 8.0f,
-                        .content = {
+                            nav_chip(app, "CalendarDatePicker", "calendar_date_picker"),
                             nav_chip(app, "TimePicker", "time_picker"),
                             nav_chip(app, "ColorPicker", "color_picker"),
                             nav_chip(app, "RatingControl", "rating_control"),
@@ -139,9 +131,9 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "文本与数值 (Text & Numbers)", .font_size = 14.0f },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             nav_chip(app, "Label", "label"),
                             nav_chip(app, "TextBox", "textbox"),
@@ -158,9 +150,9 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "导航、容器与工具栏 (Navigation, Containers & Toolbars)", .font_size = 14.0f },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             nav_chip(app, "NavigationView", "navigation_view"),
                             nav_chip(app, "TabView", "tab_view"),
@@ -170,13 +162,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
                             nav_chip(app, "VirtualList", "virtual_list"),
                             nav_chip(app, "DataGrid", "data_grid"),
                             nav_chip(app, "FlipView", "flip_view", true),
-                            nav_chip(app, "PipsPager", "pips_pager", true)
-                        }
-                    },
-                    HStack {
-                        .align_items = AlignItems::Center,
-                        .spacing = 8.0f,
-                        .content = {
+                            nav_chip(app, "PipsPager", "pips_pager", true),
                             nav_chip(app, "CommandBar", "command_bar"),
                             nav_chip(app, "MenuFlyout / ContextMenu", "menu_flyout")
                         }
@@ -188,9 +174,9 @@ WidgetPtr build_home_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "弹窗、状态与图形 (Dialogs, Status & Vector)", .font_size = 14.0f },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             nav_chip(app, "ContentDialog", "content_dialog"),
                             nav_chip(app, "TeachingTip", "teaching_tip"),

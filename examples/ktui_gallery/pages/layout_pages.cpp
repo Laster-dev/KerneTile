@@ -411,8 +411,8 @@ WidgetPtr build_layout_grid_page(GalleryApp& app) {
     });
 }
 
-// ==================== 4. ZStack / Align / Center / AspectRatio / Divider 展示页 ====================
-WidgetPtr build_layout_stack_align_page(GalleryApp& app) {
+// ==================== 4. ZStack & Positioned 独立展示页 ====================
+WidgetPtr build_layout_zstack_page(GalleryApp& app) {
     static constexpr const char* kAlignNames[9] = {
         "TopLeft (-1, -1)", "TopCenter (0, -1)", "TopRight (1, -1)",
         "CenterLeft (-1, 0)", "Center (0, 0)", "CenterRight (1, 0)",
@@ -439,15 +439,73 @@ WidgetPtr build_layout_stack_align_page(GalleryApp& app) {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
-            Text { .text = "ZStack 层叠、九宫格对齐、AspectRatio 与 Divider", .font_size = 22.0f },
-            Text { .text = "通过 Alignment 锚点精确控制层叠与单子项定位，配合 AspectRatio 固定宽高比与 Divider 主题分隔线完成复杂卡片排版。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            Text { .text = "ZStack & Positioned 层叠与边角定位", .font_size = 22.0f },
+            Text { .text = "ZStack 按声明顺序从底到顶叠加多个图层；Positioned 可把任意子图层独立钉在父容器的四边或四角（例如商品/视频卡片上的左上角标签、右上角未读角标、底部半透明标题条）。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
 
-            // ZStack + 9-point Alignment
+            // 1. ZStack + Positioned 典型实战卡片
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "ZStack 九宫格交互对齐", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Text { .text = "Positioned 实战：媒体/信息卡片多图层独立锚定", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Box {
+                        .height = 176.0f,
+                        .background_color = Color{0.08f, 0.14f, 0.24f, 0.90f},
+                        .border_color = Color{1.0f, 1.0f, 1.0f, 0.12f},
+                        .border_width = 1.0f,
+                        .corner_radius = 8.0f,
+                        .child = ZStack {
+                            .alignment = Alignment::center(),
+                            .content = {
+                                VStack {
+                                    .align_items = AlignItems::Center,
+                                    .spacing = 4.0f,
+                                    .content = {
+                                        Text { .text = "底层主视觉内容 (居中对齐)", .font_size = 15.0f, .color = Color::white(), .font_weight = FontWeight::SemiBold },
+                                        Text { .text = "其余三个浮层由 Positioned 分别锚定在左上、右上和底部全宽", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text)
+                                    }
+                                },
+                                Positioned {
+                                    .left = 12.0f,
+                                    .top = 12.0f,
+                                    .child = make_demo_tile("LIVE · 4K 120Hz", kBlue, 124.0f, 28.0f)
+                                },
+                                Positioned {
+                                    .top = 12.0f,
+                                    .right = 12.0f,
+                                    .child = make_demo_tile("未读 99+", kCoral, 88.0f, 28.0f)
+                                },
+                                Positioned {
+                                    .left = 12.0f,
+                                    .right = 12.0f,
+                                    .bottom = 12.0f,
+                                    .height = 34.0f,
+                                    .child = Box {
+                                        .background_color = Color{0.0f, 0.0f, 0.0f, 0.55f},
+                                        .border_color = Color{1.0f, 1.0f, 1.0f, 0.14f},
+                                        .border_width = 1.0f,
+                                        .corner_radius = 6.0f,
+                                        .padding = EdgeInsets(0.0f, 12.0f),
+                                        .child = Text {
+                                            .text = "底部通栏标题条: Positioned { .left = 12, .right = 12, .bottom = 12, .height = 34 }",
+                                            .font_size = 12.0f,
+                                            .color = Color::white()
+                                        },
+                                        .alignment = Alignment::center_left()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+
+            // 2. ZStack 九宫格全局对齐交互
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "ZStack 九宫格全局对齐 (Alignment)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
                     Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_zstack_align_label).bind(&RenderText::set_color, app.accent_text),
                     HStack {
                         .align_items = AlignItems::Center,
@@ -493,44 +551,281 @@ WidgetPtr build_layout_stack_align_page(GalleryApp& app) {
                         }
                     }
                 }
-            }),
+            })
+        }
+    });
+}
 
-            // AspectRatio + Divider + Box min/max
+// ==================== 5. Align / Center / AspectRatio / Divider 独立展示页 ====================
+WidgetPtr build_layout_align_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "Align / Center / AspectRatio / Divider", .font_size = 22.0f },
+            Text { .text = "基础单子项几何约束与装饰原语：固定比例缩放容器、单子项对齐包装以及主题自适应横/竖分隔线。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "AspectRatio 固定宽高比 & Divider 分隔线", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
                     Divider {},
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 14.0f,
+                        .run_spacing = 12.0f,
+                        .cross_alignment = AlignItems::Center,
                         .content = {
                             Box {
-                                .width = 160.0f,
+                                .width = 176.0f,
                                 .child = AspectRatio {
                                     .ratio = 16.0f / 9.0f,
-                                    .child = make_demo_tile("16 : 9", kBlue, -1.0f, -1.0f)
+                                    .child = make_demo_tile("16 : 9 (宽屏视频)", kBlue, -1.0f, -1.0f)
                                 }
                             },
-                            Divider { .vertical = true, .length = 72.0f },
+                            Divider { .vertical = true, .length = 80.0f },
                             Box {
-                                .width = 120.0f,
+                                .width = 128.0f,
                                 .child = AspectRatio {
                                     .ratio = 4.0f / 3.0f,
-                                    .child = make_demo_tile("4 : 3", kTeal, -1.0f, -1.0f)
+                                    .child = make_demo_tile("4 : 3 (画布)", kTeal, -1.0f, -1.0f)
                                 }
                             },
-                            Divider { .vertical = true, .length = 72.0f },
+                            Divider { .vertical = true, .length = 80.0f },
                             Box {
-                                .width = 90.0f,
+                                .width = 96.0f,
                                 .child = AspectRatio {
                                     .ratio = 1.0f,
-                                    .child = make_demo_tile("1 : 1", kPurple, -1.0f, -1.0f)
+                                    .child = make_demo_tile("1 : 1 (头像)", kPurple, -1.0f, -1.0f)
                                 }
                             }
                         }
                     }
+                }
+            }),
+
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 8.0f,
+                .content = {
+                    Text { .text = "Center & Padding 居中包装", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    make_stage_box(
+                        Center {
+                            .child = Padding {
+                                .insets = EdgeInsets(10.0f, 18.0f),
+                                .child = make_demo_tile("Center { Padding { ... } }", kGreen, 210.0f, 38.0f)
+                            }
+                        },
+                        96.0f
+                    )
+                }
+            })
+        }
+    });
+}
+
+// ==================== 6. SplitView 可拖拽分隔独立展示页 ====================
+WidgetPtr build_layout_split_view_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "SplitView 可拖拽分隔面板", .font_size = 22.0f },
+            Text { .text = "支持水平与垂直双栏自由嵌套、悬停高亮 Fluent 把手、ResizeEW/ResizeNS 光标自动切换、最小尺寸保护与双击重置。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "水平 + 垂直嵌套可拖拽工作区", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_split_label).bind(&RenderText::set_color, app.accent_text),
+                    Box {
+                        .height = 300.0f,
+                        .background_color = Color{0.0f, 0.0f, 0.0f, 0.14f},
+                        .border_color = Color{1.0f, 1.0f, 1.0f, 0.10f},
+                        .border_width = 1.0f,
+                        .corner_radius = 6.0f,
+                        .padding = EdgeInsets(6.0f, 6.0f),
+                        .child = SplitView {
+                            .vertical = false,
+                            .ratio = app.layout_split_ratio.get(),
+                            .min_first = 110.0f,
+                            .min_second = 180.0f,
+                            .first = make_demo_tile("左侧导航 / 文件树", kPurple, -1.0f, -1.0f),
+                            .second = SplitView {
+                                .vertical = true,
+                                .ratio = 0.62f,
+                                .min_first = 72.0f,
+                                .min_second = 64.0f,
+                                .first = make_demo_tile("主视图 / 代码编辑器", kBlue, -1.0f, -1.0f),
+                                .second = make_demo_tile("底部控制台 / 调试输出", kTeal, -1.0f, -1.0f)
+                            },
+                            .on_ratio_changed = [&app](float r) {
+                                int p1 = static_cast<int>(std::lround(r * 100.0f));
+                                app.layout_split_label.set("当前分割比例: " + std::to_string(p1) + "% / " + std::to_string(100 - p1) + "% (拖拽中间分隔条调整，双击重置)");
+                            }
+                        }.bind_two_way(app.layout_split_ratio)
+                    }
+                }
+            })
+        }
+    });
+}
+
+// ==================== 7. Visual Studio + Fluent 2 可拖拽 DockPanel 独立展示页 ====================
+WidgetPtr build_layout_dock_panel_page(GalleryApp& app) {
+    auto zone_name = [](DockZone z) -> const char* {
+        switch (z) {
+            case DockZone::Left:   return "左侧 (Left)";
+            case DockZone::Right:  return "右侧 (Right)";
+            case DockZone::Top:    return "顶部 (Top)";
+            case DockZone::Bottom: return "底部 (Bottom)";
+            case DockZone::Center: return "中央工作区 (Center)";
+        }
+        return "";
+    };
+
+    auto make_pane_body = [&app](const std::string& heading, const std::string& line1, const std::string& line2) -> WidgetPtr {
+        return Box {
+            .padding = EdgeInsets(10.0f, 12.0f),
+            .child = VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 6.0f,
+                .content = {
+                    Text { .text = heading, .font_size = 13.0f, .font_weight = FontWeight::SemiBold },
+                    Text { .text = line1, .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                    Text { .text = line2, .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text)
+                }
+            }
+        };
+    };
+
+    WidgetPtr dock_widget = DockPanel {
+        .panes = {
+            DockPane {
+                .id = "explorer",
+                .title = "解决方案",
+                .zone = DockZone::Left,
+                .content = make_pane_body("KerneTile.sln", "├─ renderer.cpp", "└─ dock_panel.hpp")
+            },
+            DockPane {
+                .id = "editor",
+                .title = "renderer.cpp",
+                .zone = DockZone::Center,
+                .content = make_pane_body("主代码编辑区", "按住标题栏拖到中心五向指南针即可停靠。", "拖到另一面板标题栏可合并为多标签页。")
+            },
+            DockPane {
+                .id = "preview",
+                .title = "设计视图",
+                .zone = DockZone::Center,
+                .content = make_pane_body("可视化设计器 (同区标签 2)", "点击顶部标签切换，或拖出拆分停靠。", "拖拽相邻分隔条可实时调节面板宽高。"),
+                .closable = true
+            },
+            DockPane {
+                .id = "inspector",
+                .title = "属性",
+                .zone = DockZone::Right,
+                .content = make_pane_body("属性检查器", "Theme: Fluent 2", "FPS: VSync"),
+                .closable = true
+            },
+            DockPane {
+                .id = "output",
+                .title = "输出终端",
+                .zone = DockZone::Bottom,
+                .content = make_pane_body("构建输出", "[64/64] Linking ktui_gallery.exe", "100% tests passed (36/36)"),
+                .closable = true
+            }
+        },
+        .left_width = 185.0f,
+        .right_width = 185.0f,
+        .top_height = 115.0f,
+        .bottom_height = 115.0f,
+        .allow_detach_window = true,
+        .on_dock_changed = [&app, zone_name](const std::string& id, DockZone z) {
+            app.layout_dock_status.set("已将面板 [" + id + "] 停靠至: " + zone_name(z));
+        },
+        .on_detach_changed = [&app](const std::string& id, bool detached) {
+            app.layout_dock_status.set(detached
+                ? ("已将面板 [" + id + "] 撕出为独立窗口 (状态完整保留，关闭窗口或点顶部按钮自动停靠回原位)")
+                : ("面板 [" + id + "] 已停靠回主工作区"));
+        }
+    };
+
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            HStack {
+                .align_items = AlignItems::Center,
+                .spacing = 12.0f,
+                .content = {
+                    VStack {
+                        .spacing = 4.0f,
+                        .content = {
+                            Text { .text = "DockPanel (Visual Studio + Fluent 2 拖拽停靠)", .font_size = 22.0f },
+                            Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.layout_dock_status).bind(&RenderText::set_color, app.accent_text)
+                        }
+                    },
+                    Spacer {},
+                    Button {
+                        .text = "重置默认停靠",
+                        .variant = ButtonVariant::Accent,
+                        .on_click = [&app, dock_widget]() {
+                            if (auto rn = dock_widget->render_node()) {
+                                static_cast<RenderDockPanel*>(rn.get())->reset_layout();
+                                app.layout_dock_status.set("已恢复默认五区停靠布局与面板尺寸");
+                            }
+                        }
+                    }
+                }
+            },
+            Box {
+                .height = 460.0f,
+                .child = dock_widget
+            }
+        }
+    });
+}
+
+// ==================== 8. Visibility 显隐控制独立展示页 ====================
+WidgetPtr build_layout_visibility_page(GalleryApp& app) {
+    return app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 12.0f,
+        .content = {
+            Text { .text = "Visibility 响应式显隐控制", .font_size = 22.0f },
+            Text { .text = "无需重建控件树，通过绑定 Property<bool> 即可动态切换 Collapse（折叠不占空间）或 Hidden（隐藏绘制与命中但保留原布局占位）。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Text { .text = "Collapse 折叠 vs Hidden 保留占位对比", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Wrap {
+                        .spacing = 16.0f,
+                        .run_spacing = 8.0f,
+                        .content = {
+                            ToggleSwitch { .label = "显示 Collapse 项 (隐藏时折叠宽度为 0)" }.bind_two_way(app.layout_vis_collapse),
+                            ToggleSwitch { .label = "显示 Hidden 项 (隐藏时保留占位)" }.bind_two_way(app.layout_vis_hidden)
+                        }
+                    },
+                    make_stage_box(HStack {
+                        .spacing = 8.0f,
+                        .content = {
+                            make_demo_tile("固定项 1", kBlue, 96.0f, 40.0f),
+                            Visibility {
+                                .visible = app.layout_vis_collapse.get(),
+                                .maintain_size = false,
+                                .child = make_demo_tile("Collapse 折叠", kCoral, 124.0f, 40.0f)
+                            }.bind(&RenderVisibility::set_visible, app.layout_vis_collapse),
+                            Visibility {
+                                .visible = app.layout_vis_hidden.get(),
+                                .maintain_size = true,
+                                .child = make_demo_tile("Hidden 占位", kAmber, 124.0f, 40.0f)
+                            }.bind(&RenderVisibility::set_visible, app.layout_vis_hidden),
+                            make_demo_tile("固定项 2", kGreen, 96.0f, 40.0f)
+                        }
+                    })
                 }
             })
         }

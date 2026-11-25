@@ -116,6 +116,11 @@ struct GalleryApp {
     ktui::Property<int> layout_zstack_align_idx{4};
     ktui::Property<ktui::Alignment> layout_zstack_align{ktui::Alignment::center()};
     ktui::Property<std::string> layout_zstack_align_label{"当前对齐锚点: Center (0.0, 0.0)"};
+    ktui::Property<float> layout_split_ratio{0.34f};
+    ktui::Property<std::string> layout_split_label{"当前分割比例: 34% / 66% (拖拽中间分隔条调整，双击重置)"};
+    ktui::Property<std::string> layout_dock_status{"拖拽任意面板标题栏到中心五向指南针或四周边沿即可重新停靠，拖到其他面板标题栏可合并为标签页，拖拽分隔条可调尺寸"};
+    ktui::Property<bool> layout_vis_collapse{true};
+    ktui::Property<bool> layout_vis_hidden{true};
 
     ktui::Property<ktui::Color> window_bg{ktui::Color::transparent()};
     ktui::Property<ktui::Color> card_bg{ktui::Color{1.0f, 1.0f, 1.0f, 0.045f}};

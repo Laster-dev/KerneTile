@@ -96,6 +96,13 @@ void Window::close() {
     if (!m_is_closed) {
         m_is_closed = true;
         m_renderer.reset();
+        std::vector<uint8_t>().swap(m_framebuffer);
+        m_overlay_manager.dismiss_all();
+        m_event_dispatcher.clear();
+        m_focus_manager.clear_focus();
+        m_root_render_box.reset();
+        m_content_widget.reset();
+        m_custom_hit_test = nullptr;
         if (m_platform_window) {
             m_platform_window->close();
         }
@@ -111,6 +118,8 @@ void Window::ensure_renderer() {
     kernetile::RendererConfig cfg;
     cfg.width = w;
     cfg.height = h;
+    // 浮动/辅助窗口采用 512x512 紧凑图集 (仅 256KB)，主窗口采用 1024x1024 (1MB)，避免每窗 16MB 内存暴涨
+    cfg.atlas_size = (!has_custom_titlebar() || s_live_windows.size() > 1) ? 512u : 1024u;
     m_renderer = kernetile::KerneTileRenderer::create(cfg);
     m_last_native_handle = m_platform_window->get_native_handle();
     m_renderer->set_compute_target(m_last_native_handle,
@@ -647,8 +656,31 @@ void Window::init_internal_hooks() {
     };
 
     m_platform_window->set_titlebar_hit_test_callback([this](PointF local_pos) -> TitlebarHitTest {
-        if (!has_custom_titlebar()) return TitlebarHitTest::Client;
-        return m_titlebar.hit_test(local_pos, size(), is_resizable(), is_maximized());
+        if (has_custom_titlebar()) {
+            return m_titlebar.hit_test(local_pos, size(), is_resizable(), is_maximized());
+        }
+        if (m_custom_hit_test) {
+            TitlebarHitTest custom_ht = m_custom_hit_test(local_pos);
+            if (custom_ht != TitlebarHitTest::Client) return custom_ht;
+        }
+        // 无系统标题栏且关闭框架默认大标题栏的浮动工具窗，仍保留 5px 边缘 8 向缩放命中测试
+        if (!is_decorated() && is_resizable() && !is_maximized()) {
+            const Vec2 sz = size();
+            constexpr float kEdge = 5.0f;
+            const bool l = local_pos.x < kEdge;
+            const bool r = local_pos.x >= sz.x - kEdge;
+            const bool t = local_pos.y < kEdge;
+            const bool b = local_pos.y >= sz.y - kEdge;
+            if (t && l) return TitlebarHitTest::BorderTopLeft;
+            if (t && r) return TitlebarHitTest::BorderTopRight;
+            if (b && l) return TitlebarHitTest::BorderBottomLeft;
+            if (b && r) return TitlebarHitTest::BorderBottomRight;
+            if (l) return TitlebarHitTest::BorderLeft;
+            if (r) return TitlebarHitTest::BorderRight;
+            if (t) return TitlebarHitTest::BorderTop;
+            if (b) return TitlebarHitTest::BorderBottom;
+        }
+        return TitlebarHitTest::Client;
     });
 
     m_platform_window->on_paint_requested([this]() {
@@ -677,6 +709,14 @@ void Window::init_internal_hooks() {
         }
         if (allow_close) {
             m_is_closed = true;
+            m_renderer.reset();
+            std::vector<uint8_t>().swap(m_framebuffer);
+            m_overlay_manager.dismiss_all();
+            m_event_dispatcher.clear();
+            m_focus_manager.clear_focus();
+            m_root_render_box.reset();
+            m_content_widget.reset();
+            m_custom_hit_test = nullptr;
         }
         return allow_close;
     });
