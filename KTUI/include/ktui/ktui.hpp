@@ -124,3 +124,7 @@
 #include <ktui/widgets/minimap_timeline_slider.hpp>
 #include <ktui/widgets/ip_port_input.hpp>
 #include <ktui/widgets/spotlight_tour.hpp>
+#include <ktui/widgets/inspector_grid.hpp>
+#include <ktui/widgets/hex_viewer.hpp>
+#include <ktui/widgets/syntax_filter_bar.hpp>
+#include <ktui/widgets/status_bar.hpp>

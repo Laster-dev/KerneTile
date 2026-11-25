@@ -626,48 +626,42 @@ WidgetPtr build_layout_align_page(GalleryApp& app) {
 
 // ==================== 6. SplitView 可拖拽分隔独立展示页 ====================
 WidgetPtr build_layout_split_view_page(GalleryApp& app) {
-    return app.make_scroll_page(VStack {
+    return app.make_full_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("SplitView 可拖拽分隔面板", 22.0f),
             Text { .text = "支持水平与垂直双栏自由嵌套、悬停高亮 Fluent 把手、ResizeEW/ResizeNS 光标自动切换、最小尺寸保护与双击重置。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
-
-            app.make_card(VStack {
-                .align_items = AlignItems::Stretch,
-                .spacing = 10.0f,
-                .content = {
-                    Text { .text = "水平 + 垂直嵌套可拖拽工作区", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_split_label).bind(&RenderText::set_color, app.accent_text),
-                    Box {
-                        .height = 300.0f,
-                        .background_color = Color{0.0f, 0.0f, 0.0f, 0.14f},
-                        .border_color = Color{1.0f, 1.0f, 1.0f, 0.10f},
-                        .border_width = 1.0f,
-                        .corner_radius = 6.0f,
-                        .padding = EdgeInsets(6.0f, 6.0f),
-                        .child = SplitView {
-                            .vertical = false,
-                            .ratio = app.layout_split_ratio.get(),
-                            .min_first = 110.0f,
-                            .min_second = 180.0f,
-                            .first = make_demo_tile("左侧导航 / 文件树", kPurple, -1.0f, -1.0f),
-                            .second = SplitView {
-                                .vertical = true,
-                                .ratio = 0.62f,
-                                .min_first = 72.0f,
-                                .min_second = 64.0f,
-                                .first = make_demo_tile("主视图 / 代码编辑器", kBlue, -1.0f, -1.0f),
-                                .second = make_demo_tile("底部控制台 / 调试输出", kTeal, -1.0f, -1.0f)
-                            },
-                            .on_ratio_changed = [&app](float r) {
-                                int p1 = static_cast<int>(std::lround(r * 100.0f));
-                                app.layout_split_label.set("当前分割比例: " + std::to_string(p1) + "% / " + std::to_string(100 - p1) + "% (拖拽中间分隔条调整，双击重置)");
-                            }
-                        }.bind_two_way(app.layout_split_ratio)
-                    }
+            Expanded {
+                .flex = 1.0f,
+                .child = Box {
+                    .background_color = Color{0.0f, 0.0f, 0.0f, 0.14f},
+                    .border_color = Color{1.0f, 1.0f, 1.0f, 0.10f},
+                    .border_width = 1.0f,
+                    .corner_radius = 6.0f,
+                    .padding = EdgeInsets(6.0f, 6.0f),
+                    .child = SplitView {
+                        .vertical = false,
+                        .ratio = app.layout_split_ratio.get(),
+                        .min_first = 110.0f,
+                        .min_second = 180.0f,
+                        .first = make_demo_tile("左侧导航 / 文件树", kPurple, -1.0f, -1.0f),
+                        .second = SplitView {
+                            .vertical = true,
+                            .ratio = 0.62f,
+                            .min_first = 72.0f,
+                            .min_second = 64.0f,
+                            .first = make_demo_tile("主视图 / 代码编辑器", kBlue, -1.0f, -1.0f),
+                            .second = make_demo_tile("底部控制台 / 调试输出", kTeal, -1.0f, -1.0f)
+                        },
+                        .on_ratio_changed = [&app](float r) {
+                            int p1 = static_cast<int>(std::lround(r * 100.0f));
+                            app.layout_split_label.set("当前分割比例: " + std::to_string(p1) + "% / " + std::to_string(100 - p1) + "% (拖拽中间分隔条调整，双击重置)");
+                        }
+                    }.bind_two_way(app.layout_split_ratio)
                 }
-            })
+            },
+            Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_split_label).bind(&RenderText::set_color, app.accent_text)
         }
     });
 }
@@ -751,7 +745,7 @@ WidgetPtr build_layout_dock_panel_page(GalleryApp& app) {
         }
     };
 
-    return app.make_scroll_page(VStack {
+    return app.make_full_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
@@ -779,8 +773,8 @@ WidgetPtr build_layout_dock_panel_page(GalleryApp& app) {
                     }
                 }
             },
-            Box {
-                .height = 460.0f,
+            Expanded {
+                .flex = 1.0f,
                 .child = dock_widget
             }
         }

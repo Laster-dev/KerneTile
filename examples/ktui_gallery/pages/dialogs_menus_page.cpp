@@ -544,11 +544,24 @@ WidgetPtr build_tab_view_page(GalleryApp& app) {
 
 // ==================== BreadcrumbBar ====================
 WidgetPtr build_breadcrumb_bar_page(GalleryApp& app) {
+    auto sibling_path = std::make_shared<Property<std::string>>("当前路径: root / var / log / app（点击段名回退，点击段右侧 › / ▾ 弹出同级兄弟节点横跳）");
+    auto sibling_items = std::make_shared<Property<std::vector<BreadcrumbItem>>>(std::vector<BreadcrumbItem>{
+        BreadcrumbItem{ .id = "root", .label = "root", .siblings = {"root", "mnt", "proc"} },
+        BreadcrumbItem{ .id = "var",  .label = "var",  .siblings = {"var", "etc", "usr", "opt"} },
+        BreadcrumbItem{ .id = "log",  .label = "log",  .siblings = {"log", "cache", "lib", "run"} },
+        BreadcrumbItem{ .id = "app",  .label = "app",  .siblings = {"app", "nginx", "systemd", "kernel"} }
+    });
+    auto format_path = [](const std::vector<BreadcrumbItem>& v) {
+        std::string out;
+        for (size_t i = 0; i < v.size(); ++i) { if (i > 0) out += " / "; out += v[i].label; }
+        return out;
+    };
+
     return app.make_scroll_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
-            page_header(app, "BreadcrumbBar", "WinUI 3 面包屑路径导航条：支持点击前段路径回溯，窗口缩窄时自动将前段路径折叠至「...」浮层菜单。"),
+            page_header(app, "BreadcrumbBar", "WinUI 3 面包屑路径导航条：支持点击前段路径回溯、窄宽度自动折叠「...」浮层菜单，以及路径段 › / ▾ 同级兄弟节点下拉横跳。"),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -597,6 +610,53 @@ WidgetPtr build_breadcrumb_bar_page(GalleryApp& app) {
                         }
                     },
                     Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.breadcrumb_status).bind(&RenderText::set_color, app.accent_text)
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "路径段同级兄弟下拉横跳 (Segment Sibling Jump)", .font_size = 14.0f },
+                    BreadcrumbBar {
+                        .font_size = 13.5f,
+                        .on_item_clicked = [sibling_items, sibling_path, format_path](size_t idx, const BreadcrumbItem&) {
+                            auto list = sibling_items->get();
+                            if (idx + 1 < list.size()) {
+                                list.resize(idx + 1);
+                                sibling_items->set(list);
+                            }
+                            sibling_path->set("已回退至路径: " + format_path(list));
+                        },
+                        .on_sibling_selected = [sibling_items, sibling_path, format_path](size_t idx, const std::string& chosen) {
+                            auto list = sibling_items->get();
+                            if (idx < list.size()) {
+                                list[idx].id = chosen;
+                                list[idx].label = chosen;
+                                list.resize(idx + 1);
+                                sibling_items->set(list);
+                            }
+                            sibling_path->set("已横跳至兄弟路径: " + format_path(list));
+                        }
+                    }.bind(&RenderBreadcrumbBar::set_items_value, *sibling_items),
+                    HStack {
+                        .justify = JustifyContent::SpaceBetween,
+                        .align_items = AlignItems::Center,
+                        .content = {
+                            Text { .font_size = 12.0f }.bind(&RenderText::set_text, *sibling_path).bind(&RenderText::set_color, app.accent_text),
+                            Button {
+                                .text = "重置路径",
+                                .on_click = [sibling_items, sibling_path]() {
+                                    sibling_items->set({
+                                        BreadcrumbItem{ .id = "root", .label = "root", .siblings = {"root", "mnt", "proc"} },
+                                        BreadcrumbItem{ .id = "var",  .label = "var",  .siblings = {"var", "etc", "usr", "opt"} },
+                                        BreadcrumbItem{ .id = "log",  .label = "log",  .siblings = {"log", "cache", "lib", "run"} },
+                                        BreadcrumbItem{ .id = "app",  .label = "app",  .siblings = {"app", "nginx", "systemd", "kernel"} }
+                                    });
+                                    sibling_path->set("当前路径: root / var / log / app");
+                                }
+                            }
+                        }
+                    }
                 }
             })
         }
@@ -851,58 +911,54 @@ WidgetPtr build_calendar_date_picker_page(GalleryApp& app) {
 }
 
 WidgetPtr build_virtual_list_page(GalleryApp& app) {
-    return app.make_scroll_page(VStack {
+    return app.make_full_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("VirtualList", 22.0f),
-            Text { .text = "视口虚拟化高性能列表：仅按需实例化与绘制可见视口范围内的行，100,000 条记录仍保持 O(1) 内存与 120 FPS 丝滑滚动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
-            app.make_card(VStack {
-                .align_items = AlignItems::Stretch,
+            HStack {
+                .align_items = AlignItems::Center,
                 .spacing = 10.0f,
                 .content = {
-                    HStack {
-                        .align_items = AlignItems::Center,
-                        .spacing = 10.0f,
-                        .content = {
-                            Text { .text = "100,000 行实时虚拟化滚动演示", .font_size = 14.0f },
-                            Label { .text = "O(1) 视口裁剪", .variant = LabelVariant::Accent, .pill = true }
-                        }
-                    },
-                    VirtualList {
-                        .item_count = 100000,
-                        .item_height = 38.0f,
-                        .height = 360.0f,
-                        .overscan = 3,
-                        .item_builder = [&app](size_t idx) -> WidgetPtr {
-                            bool even = (idx % 2 == 0);
-                            return Box {
-                                .background_color = even ? Color::transparent() : Color{1.0f, 1.0f, 1.0f, 0.02f},
-                                .padding = EdgeInsets(0.0f, 12.0f),
-                                .child = HStack {
-                                    .align_items = AlignItems::Center,
-                                    .spacing = 12.0f,
-                                    .content = {
-                                        Label {
-                                            .text = "#" + std::to_string(idx + 1),
-                                            .variant = (idx % 5 == 0) ? LabelVariant::Accent : LabelVariant::Caption,
-                                            .pill = true
-                                        },
-                                        Text {
-                                            .text = "KerneTile 虚拟化数据条目 #" + std::to_string(idx + 1) + "  ·  Tile Binning 16×16",
-                                            .font_size = 13.0f
-                                        },
-                                        Text {
-                                            .text = (idx % 3 == 0) ? "GPU Ready" : "Active",
-                                            .font_size = 11.5f
-                                        }.bind(&RenderText::set_color, app.muted_text)
-                                    }
+                    Text { .text = "视口虚拟化高性能列表：100,000 条记录仍保持 O(1) 内存与 120 FPS 丝滑滚动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                    Label { .text = "O(1) 视口裁剪", .variant = LabelVariant::Accent, .pill = true }
+                }
+            },
+            Expanded {
+                .flex = 1.0f,
+                .child = VirtualList {
+                    .item_count = 100000,
+                    .item_height = 38.0f,
+                    .height = 0.0f,
+                    .overscan = 3,
+                    .item_builder = [&app](size_t idx) -> WidgetPtr {
+                        bool even = (idx % 2 == 0);
+                        return Box {
+                            .background_color = even ? Color::transparent() : Color{1.0f, 1.0f, 1.0f, 0.02f},
+                            .padding = EdgeInsets(0.0f, 12.0f),
+                            .child = HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 12.0f,
+                                .content = {
+                                    Label {
+                                        .text = "#" + std::to_string(idx + 1),
+                                        .variant = (idx % 5 == 0) ? LabelVariant::Accent : LabelVariant::Caption,
+                                        .pill = true
+                                    },
+                                    Text {
+                                        .text = "KerneTile 虚拟化数据条目 #" + std::to_string(idx + 1) + "  ·  Tile Binning 16×16",
+                                        .font_size = 13.0f
+                                    },
+                                    Text {
+                                        .text = (idx % 3 == 0) ? "GPU Ready" : "Active",
+                                        .font_size = 11.5f
+                                    }.bind(&RenderText::set_color, app.muted_text)
                                 }
-                            };
-                        }
+                            }
+                        };
                     }
                 }
-            })
+            }
         }
     });
 }
@@ -1120,29 +1176,26 @@ WidgetPtr build_data_grid_page(GalleryApp& app) {
         return r;
     }();
 
-    return app.make_scroll_page(VStack {
+    return app.make_full_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("DataGrid", 22.0f),
             Text { .text = "高性能虚拟化数据表格：支持 5,000+ 行 O(1) 视口裁剪滚动、固定表头、点击列头数值/字典序升降排序与行选中反馈。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
-            app.make_card(VStack {
-                .align_items = AlignItems::Stretch,
-                .spacing = 10.0f,
-                .content = {
-                    DataGrid {
-                        .columns = kCols,
-                        .rows = kRows,
-                        .row_height = 34.0f,
-                        .height = 340.0f,
-                        .on_row_selected = [&app](size_t orig_idx) {
-                            app.datagrid_status.set("已选中原始行 #" + std::to_string(orig_idx + 1) +
-                                                    " (" + kRows[orig_idx][1] + " · " + kRows[orig_idx][3] + " ms)");
-                        }
-                    },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.datagrid_status).bind(&RenderText::set_color, app.accent_text)
+            Expanded {
+                .flex = 1.0f,
+                .child = DataGrid {
+                    .columns = kCols,
+                    .rows = kRows,
+                    .row_height = 34.0f,
+                    .height = 0.0f,
+                    .on_row_selected = [&app](size_t orig_idx) {
+                        app.datagrid_status.set("已选中原始行 #" + std::to_string(orig_idx + 1) +
+                                                " (" + kRows[orig_idx][1] + " · " + kRows[orig_idx][3] + " ms)");
+                    }
                 }
-            })
+            },
+            Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.datagrid_status).bind(&RenderText::set_color, app.accent_text)
         }
     });
 }

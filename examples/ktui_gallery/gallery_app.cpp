@@ -128,6 +128,14 @@ WidgetPtr GalleryApp::make_scroll_page(WidgetPtr body) {
     };
 }
 
+WidgetPtr GalleryApp::make_full_page(WidgetPtr body) {
+    return Box {
+        .background_color = Color::transparent(),
+        .padding = EdgeInsets(16.0f, 22.0f),
+        .child = std::move(body)
+    };
+}
+
 void GalleryApp::spawn_child_window() {
     int idx = child_window_seq++;
     WindowDesc child_desc;
@@ -228,18 +236,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
-                .id = "cat_pro", .label = "高级交互", .icon = NavigationIcon::Controls, .badge = "7", .expanded = true,
-                .children = {
-                    NavigationViewItem{ .id = "pro_query_filter",    .label = "QueryFilter 查询胶囊", .badge = "New" },
-                    NavigationViewItem{ .id = "pro_scrub_number",    .label = "ScrubNumber 微调数字", .badge = "New" },
-                    NavigationViewItem{ .id = "pro_hold_confirm",    .label = "HoldConfirm 长按确认", .badge = "New" },
-                    NavigationViewItem{ .id = "pro_ghost_text",      .label = "GhostText 幽灵补全",   .badge = "New" },
-                    NavigationViewItem{ .id = "pro_minimap_time",    .label = "MinimapTimeline 范围", .badge = "New" },
-                    NavigationViewItem{ .id = "pro_ip_port",         .label = "IpPortInput IP端口",   .badge = "New" },
-                    NavigationViewItem{ .id = "pro_spotlight_tour",  .label = "SpotlightTour 聚光灯", .badge = "New" }
-                }
-            },
-            NavigationViewItem{
                 .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "8", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "layout_flex",       .label = "Flex (HStack/VStack)" },
@@ -253,11 +249,12 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "14", .expanded = false,
+                .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "16", .expanded = true,
                 .children = {
                     NavigationViewItem{ .id = "button",               .label = "Button" },
-                    NavigationViewItem{ .id = "toggle_button",        .label = "ToggleButton",       .badge = "New" },
-                    NavigationViewItem{ .id = "segmented_control",    .label = "SegmentedControl",   .badge = "New" },
+                    NavigationViewItem{ .id = "toggle_button",        .label = "ToggleButton" },
+                    NavigationViewItem{ .id = "pro_hold_confirm",     .label = "HoldConfirmButton",    .badge = "New" },
+                    NavigationViewItem{ .id = "segmented_control",    .label = "SegmentedControl" },
                     NavigationViewItem{ .id = "dropdown_button",      .label = "DropDownButton" },
                     NavigationViewItem{ .id = "checkbox",             .label = "CheckBox" },
                     NavigationViewItem{ .id = "toggle_switch",        .label = "ToggleSwitch" },
@@ -265,6 +262,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                     NavigationViewItem{ .id = "radio_card",           .label = "RadioCard" },
                     NavigationViewItem{ .id = "combobox",             .label = "ComboBox" },
                     NavigationViewItem{ .id = "slider",               .label = "Slider" },
+                    NavigationViewItem{ .id = "pro_minimap_time",     .label = "MinimapTimelineSlider",.badge = "New" },
                     NavigationViewItem{ .id = "calendar_date_picker", .label = "CalendarDatePicker" },
                     NavigationViewItem{ .id = "time_picker",          .label = "TimePicker" },
                     NavigationViewItem{ .id = "color_picker",         .label = "ColorPicker" },
@@ -272,49 +270,58 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 }
             },
             NavigationViewItem{
-                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "6", .expanded = false,
+                .id = "cat_text", .label = "文本与数值", .icon = NavigationIcon::Inputs, .badge = "11", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "label",            .label = "Label" },
-                    NavigationViewItem{ .id = "textbox",          .label = "TextBox" },
-                    NavigationViewItem{ .id = "text_area",        .label = "TextArea",       .badge = "New" },
-                    NavigationViewItem{ .id = "auto_suggest_box", .label = "AutoSuggestBox" },
-                    NavigationViewItem{ .id = "password_box",     .label = "PasswordBox" },
-                    NavigationViewItem{ .id = "number_box",       .label = "NumberBox" }
+                    NavigationViewItem{ .id = "label",              .label = "Label" },
+                    NavigationViewItem{ .id = "textbox",            .label = "TextBox" },
+                    NavigationViewItem{ .id = "text_area",          .label = "TextArea" },
+                    NavigationViewItem{ .id = "auto_suggest_box",   .label = "AutoSuggestBox" },
+                    NavigationViewItem{ .id = "pro_ghost_text",     .label = "GhostTextBox",       .badge = "New" },
+                    NavigationViewItem{ .id = "geek_syntax_filter", .label = "SyntaxFilterBar",    .badge = "New" },
+                    NavigationViewItem{ .id = "pro_query_filter",   .label = "QueryFilterBuilder", .badge = "New" },
+                    NavigationViewItem{ .id = "pro_ip_port",        .label = "IpPortInput",        .badge = "New" },
+                    NavigationViewItem{ .id = "password_box",       .label = "PasswordBox" },
+                    NavigationViewItem{ .id = "number_box",         .label = "NumberBox" },
+                    NavigationViewItem{ .id = "pro_scrub_number",   .label = "ScrubNumberBox",     .badge = "New" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_nav", .label = "导航与容器", .icon = NavigationIcon::Layout, .badge = "9", .expanded = false,
+                .id = "cat_nav", .label = "导航与容器", .icon = NavigationIcon::Layout, .badge = "11", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "navigation_view", .label = "NavigationView" },
-                    NavigationViewItem{ .id = "tab_view",        .label = "TabView" },
-                    NavigationViewItem{ .id = "breadcrumb_bar",  .label = "BreadcrumbBar" },
-                    NavigationViewItem{ .id = "expander",        .label = "Expander" },
-                    NavigationViewItem{ .id = "tree_view",       .label = "TreeView" },
-                    NavigationViewItem{ .id = "virtual_list",    .label = "VirtualList" },
-                    NavigationViewItem{ .id = "data_grid",       .label = "DataGrid" },
-                    NavigationViewItem{ .id = "flip_view",       .label = "FlipView",       .badge = "New" },
-                    NavigationViewItem{ .id = "pips_pager",      .label = "PipsPager",      .badge = "New" }
+                    NavigationViewItem{ .id = "navigation_view",     .label = "NavigationView" },
+                    NavigationViewItem{ .id = "tab_view",            .label = "TabView" },
+                    NavigationViewItem{ .id = "breadcrumb_bar",      .label = "BreadcrumbBar" },
+                    NavigationViewItem{ .id = "expander",            .label = "Expander" },
+                    NavigationViewItem{ .id = "tree_view",           .label = "TreeView" },
+                    NavigationViewItem{ .id = "virtual_list",        .label = "VirtualList" },
+                    NavigationViewItem{ .id = "data_grid",           .label = "DataGrid" },
+                    NavigationViewItem{ .id = "geek_inspector_grid", .label = "InspectorGrid", .badge = "New" },
+                    NavigationViewItem{ .id = "geek_hex_viewer",     .label = "HexViewer",     .badge = "New" },
+                    NavigationViewItem{ .id = "flip_view",           .label = "FlipView" },
+                    NavigationViewItem{ .id = "pips_pager",          .label = "PipsPager" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_menus", .label = "菜单与工具栏", .icon = NavigationIcon::Layout, .badge = "2", .expanded = false,
+                .id = "cat_menus", .label = "菜单与工具栏", .icon = NavigationIcon::Layout, .badge = "3", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "command_bar",  .label = "CommandBar" },
-                    NavigationViewItem{ .id = "menu_flyout",  .label = "MenuFlyout" }
+                    NavigationViewItem{ .id = "command_bar",     .label = "CommandBar" },
+                    NavigationViewItem{ .id = "menu_flyout",     .label = "MenuFlyout" },
+                    NavigationViewItem{ .id = "geek_status_bar", .label = "StatusBar", .badge = "New" }
                 }
             },
             NavigationViewItem{
-                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "9", .expanded = false,
+                .id = "cat_status", .label = "弹窗与状态", .icon = NavigationIcon::Progress, .badge = "10", .expanded = false,
                 .children = {
-                    NavigationViewItem{ .id = "content_dialog", .label = "ContentDialog" },
-                    NavigationViewItem{ .id = "teaching_tip",   .label = "TeachingTip" },
-                    NavigationViewItem{ .id = "tooltip",        .label = "Tooltip",        .badge = "New" },
-                    NavigationViewItem{ .id = "info_bar",       .label = "InfoBar" },
-                    NavigationViewItem{ .id = "info_badge",     .label = "InfoBadge",     .badge = "New" },
-                    NavigationViewItem{ .id = "person_picture", .label = "PersonPicture", .badge = "New" },
-                    NavigationViewItem{ .id = "toast",          .label = "Toast" },
-                    NavigationViewItem{ .id = "progress_bar",   .label = "ProgressBar" },
-                    NavigationViewItem{ .id = "progress_ring",  .label = "ProgressRing" }
+                    NavigationViewItem{ .id = "content_dialog",     .label = "ContentDialog" },
+                    NavigationViewItem{ .id = "teaching_tip",       .label = "TeachingTip" },
+                    NavigationViewItem{ .id = "pro_spotlight_tour", .label = "SpotlightTour", .badge = "New" },
+                    NavigationViewItem{ .id = "tooltip",            .label = "Tooltip" },
+                    NavigationViewItem{ .id = "info_bar",           .label = "InfoBar" },
+                    NavigationViewItem{ .id = "info_badge",         .label = "InfoBadge" },
+                    NavigationViewItem{ .id = "person_picture",     .label = "PersonPicture" },
+                    NavigationViewItem{ .id = "toast",              .label = "Toast" },
+                    NavigationViewItem{ .id = "progress_bar",       .label = "ProgressBar" },
+                    NavigationViewItem{ .id = "progress_ring",      .label = "ProgressRing" }
                 }
             },
             NavigationViewItem{
@@ -336,6 +343,10 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .search_placeholder = "搜索控件",
         .open_pane_length = 236.0f,
         .page_builder = [this](const std::string& page_id) -> WidgetPtr {
+            if (page_id == "geek_inspector_grid")     return pages::build_inspector_grid_page(*this);
+            if (page_id == "geek_hex_viewer")         return pages::build_hex_viewer_page(*this);
+            if (page_id == "geek_syntax_filter")      return pages::build_syntax_filter_page(*this);
+            if (page_id == "geek_status_bar")         return pages::build_status_bar_page(*this);
             if (page_id == "pro_query_filter")     return pages::build_query_filter_page(*this);
             if (page_id == "pro_scrub_number")     return pages::build_scrub_number_box_page(*this);
             if (page_id == "pro_hold_confirm")     return pages::build_hold_confirm_button_page(*this);

@@ -391,6 +391,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/pages/home_page.cpp
     examples/ktui_gallery/pages/layout_pages.cpp
     examples/ktui_gallery/pages/pro_controls_pages.cpp
+    examples/ktui_gallery/pages/geek_controls_pages.cpp
     examples/ktui_gallery/pages/basic_input_pages.cpp
     examples/ktui_gallery/pages/progress_page.cpp
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
