@@ -58,7 +58,7 @@ WidgetPtr build_query_filter_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("QueryFilterBuilder (结构化查询构建器)", 24.0f),
-            Text { .text = "Linear / Jira / GitHub Issues 风格单行分词筛选框：输入 status: 自动弹出枚举下拉，选中化为胶囊，支持方向键/退格逐个删除与纯文本表达式双向切换。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("Linear / Jira / GitHub Issues 风格单行分词筛选框：输入 status: 自动弹出枚举下拉，选中化为胶囊，支持方向键/退格逐个删除与纯文本表达式双向切换。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -76,9 +76,7 @@ WidgetPtr build_query_filter_page(GalleryApp& app) {
                         }
                     }, ref_slot),
 
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *expr_text)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*expr_text, 12.5f, FontWeight::Medium),
 
                     HStack {
                         .spacing = 8.0f,
@@ -135,7 +133,7 @@ WidgetPtr build_scrub_number_box_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("ScrubNumberBox (微调 Scrubbing 数字框)", 24.0f),
-            Text { .text = "Blender / Figma 风格参数输入框：按住左右拖动无级调节数值，按住 Shift 10× 加速，Alt 0.1× 精细微调；单击进入键盘编辑，双击恢复默认值。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("Blender / Figma 风格参数输入框：按住左右拖动无级调节数值，按住 Shift 10× 加速，Alt 0.1× 精细微调；单击进入键盘编辑，双击恢复默认值。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -164,9 +162,7 @@ WidgetPtr build_scrub_number_box_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *summary)
-                        .bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(*summary, 12.5f, FontWeight::Medium)
                 }
             })
         }
@@ -185,7 +181,7 @@ WidgetPtr build_hold_confirm_button_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("HoldConfirmButton (防误触长按确认按钮)", 24.0f),
-            Text { .text = "无需弹窗打断心流：支持胶囊进度条与圆形 360° 进度环两种形态，按住满时长触发高危操作，中途松手平滑回弹取消。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("无需弹窗打断心流：支持胶囊进度条与圆形 360° 进度环两种形态，按住满时长触发高危操作，中途松手平滑回弹取消。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -270,9 +266,7 @@ WidgetPtr build_hold_confirm_button_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *log_text)
-                        .bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(*log_text, 12.5f, FontWeight::Medium)
                 }
             })
         }
@@ -299,7 +293,7 @@ WidgetPtr build_ghost_text_box_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("GhostTextBox (增量式幽灵文本补全)", 24.0f),
-            Text { .text = "GitHub Copilot 风格行内半透明补全提示：每次按 Tab 仅补全到下一个空格（逐词补全），方便随时改写后续参数，按 Esc 忽略。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("GitHub Copilot 风格行内半透明补全提示：每次按 Tab 仅补全到下一个空格（逐词补全），方便随时改写后续参数，按 Esc 忽略。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -317,9 +311,7 @@ WidgetPtr build_ghost_text_box_page(GalleryApp& app) {
                         }
                     }, ref_slot),
 
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *status_text)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*status_text, 12.5f, FontWeight::Medium),
 
                     HStack {
                         .spacing = 8.0f,
@@ -386,7 +378,7 @@ WidgetPtr build_minimap_timeline_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("MinimapTimelineSlider (时间轴缩略图范围选择器)", 24.0f),
-            Text { .text = "日志与监控大盘利器：轨道内嵌迷你波形缩略图，异常峰值以橙红色醒目标出；拖拽左右手柄缩放区间，拖拽选区框整体平移聚焦波峰。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("日志与监控大盘利器：轨道内嵌迷你波形缩略图，异常峰值以橙红色醒目标出；拖拽左右手柄缩放区间，拖拽选区框整体平移聚焦波峰。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -408,9 +400,7 @@ WidgetPtr build_minimap_timeline_page(GalleryApp& app) {
                         }
                     }, ref_slot),
 
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *range_text)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*range_text, 12.5f, FontWeight::Medium),
 
                     HStack {
                         .spacing = 8.0f,
@@ -454,7 +444,7 @@ WidgetPtr build_ip_port_input_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("IpPortInput (IPv4 + 端口分段输入控件)", 24.0f),
-            Text { .text = "原生支持 4 段 IPv4（0~255）+ 端口（0~65535）分段输入：输满 3 位或按 '.' 自动跳下一段，按 ':' 直达端口，Backspace 自动回跳，上下键微调并实时识别网段类型。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("原生支持 4 段 IPv4（0~255）+ 端口（0~65535）分段输入：输满 3 位或按 '.' 自动跳下一段，按 ':' 直达端口，Backspace 自动回跳，上下键微调并实时识别网段类型。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -487,9 +477,7 @@ WidgetPtr build_ip_port_input_page(GalleryApp& app) {
                         }
                     },
 
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *ep_text)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*ep_text, 12.5f, FontWeight::Medium),
 
                     HStack {
                         .spacing = 8.0f,
@@ -543,7 +531,7 @@ WidgetPtr build_spotlight_tour_page(GalleryApp& app) {
                         .spacing = 3.0f,
                         .content = {
                             app.make_page_title("SpotlightTour (交互式新手引导聚光灯)", 24.0f),
-                            Text { .text = "Driver.js / Shepherd.js 风格全屏聚光灯：呼吸光晕镂空区完全放行真实点击，用户完成该步真实操作后引导气泡自动滑向下一目标。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text)
+                            app.make_muted("Driver.js / Shepherd.js 风格全屏聚光灯：呼吸光晕镂空区完全放行真实点击，用户完成该步真实操作后引导气泡自动滑向下一目标。", 13.0f)
                         }
                     },
                     Button {
@@ -575,9 +563,7 @@ WidgetPtr build_spotlight_tour_page(GalleryApp& app) {
                 }
             },
 
-            Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                .bind(&RenderText::set_text, *tour_status)
-                .bind(&RenderText::set_color, app.accent_text),
+            app.make_accent(*tour_status, 12.5f, FontWeight::Medium),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,

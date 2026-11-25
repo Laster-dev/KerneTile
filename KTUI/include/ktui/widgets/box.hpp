@@ -256,10 +256,10 @@ private:
     std::shared_ptr<RenderBox> m_child_render_box{nullptr};
 };
 
-inline Box::operator WidgetPtr() const& {
+KTUI_NOINLINE inline Box::operator WidgetPtr() const& {
     return make_widget<BoxWidget>(*this);
 }
-inline Box::operator WidgetPtr() && {
+KTUI_NOINLINE inline Box::operator WidgetPtr() && {
     return make_widget<BoxWidget>(std::move(*this));
 }
 

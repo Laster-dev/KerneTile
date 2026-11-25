@@ -180,10 +180,14 @@ public:
         }
     }
 
-    // 注销动画 Tickable 目标
+    // 注销动画 Tickable 目标 (避免 std::remove 拖入 MSVC 9KB SIMD 查表)
     void unregister_tickable(IAnimationTickable* tickable) {
-        if (tickable) {
-            m_tickables.erase(std::remove(m_tickables.begin(), m_tickables.end(), tickable), m_tickables.end());
+        if (!tickable) return;
+        for (size_t i = 0; i < m_tickables.size(); ++i) {
+            if (m_tickables[i] == tickable) {
+                m_tickables.erase(m_tickables.begin() + static_cast<ptrdiff_t>(i));
+                return;
+            }
         }
     }
 

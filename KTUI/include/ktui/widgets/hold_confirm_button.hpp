@@ -15,19 +15,21 @@
 
 namespace ktui {
 
-// 长按确认按钮外观形态：胶囊进度条 / 圆形进度环
+// 长按确认按钮外观形态：Fluent 2 标准按钮进度条 / 圆形进度环
 enum class HoldConfirmShape : uint8_t {
     PillBar = 0,
     CircularRing = 1
 };
 
-// 防误触“长按确认”按钮 (Hold-to-Confirm Button)
-// 支持条形进度填充 (PillBar) 与圆形 360° 进度环 (CircularRing) 两种形态
+// 防误触“长按确认”按钮 (WinUI 3 / Fluent 2 风格 Hold-to-Confirm Button)
+// - 采用 WinUI 3 ControlFillColorDefault 中性磨砂表面 + 4px ControlCornerRadius + 1px ControlElevationBorder
+// - 长按时呈现克制柔和的内部着色洗层 + 底部 2.5px 精准进度指示条（或圆形 360° 平滑矢量弧）
+// - 完成瞬间柔和过渡至 Fluent 2 Success 态并绘制矢量对勾，松手立即平滑回弹
 class RenderHoldConfirmButton : public RenderBox {
 public:
     RenderHoldConfirmButton(std::string text = "长按 1.5s 确认删除",
                             std::string holding_text = "继续按住确认...",
-                            std::string confirmed_text = "✓ 已执行",
+                            std::string confirmed_text = "已执行",
                             float hold_duration_sec = 1.5f,
                             bool danger = true,
                             HoldConfirmShape shape = HoldConfirmShape::PillBar,
@@ -39,7 +41,7 @@ public:
           m_hold_duration(std::max(0.2f, hold_duration_sec)),
           m_danger(danger),
           m_shape(shape),
-          m_diameter(std::max(40.0f, diameter)),
+          m_diameter(std::max(44.0f, diameter)),
           m_on_confirmed(std::move(on_confirmed)) {
         is_focusable = true;
         cursor_shape = CursorShape::PointingHand;
@@ -62,11 +64,11 @@ public:
             }
             mark_needs_paint();
         } else if (m_progress > 0.0f) {
-            m_progress = std::max(0.0f, m_progress - dt_sec * 3.8f);
+            m_progress = std::max(0.0f, m_progress - dt_sec * 4.2f);
             mark_needs_paint();
         }
         if (m_confirm_flash > 0.0f) {
-            m_confirm_flash = std::max(0.0f, m_confirm_flash - dt_sec * 1.1f);
+            m_confirm_flash = std::max(0.0f, m_confirm_flash - dt_sec * 0.9f);
             mark_needs_paint();
         }
     }
@@ -76,11 +78,11 @@ public:
             m_size = m_constraints.constrain(Vec2{m_diameter, m_diameter});
             return;
         }
-        Vec2 ts = TextMeasure::measure(m_text, 13.0f, FontWeight::Medium);
-        float ideal_w = std::max(160.0f, ts.x + 36.0f);
+        Vec2 ts = TextMeasure::measure(m_text, 13.0f, FontWeight::Regular);
+        float ideal_w = std::max(148.0f, ts.x + 36.0f);
         float w = m_constraints.has_bounded_width() ? std::min(m_constraints.max_width, std::max(m_constraints.min_width, ideal_w)) : ideal_w;
-        float h = m_constraints.has_bounded_height() ? std::min(m_constraints.max_height, 36.0f) : 36.0f;
-        m_size = m_constraints.constrain(Vec2{w, std::max(32.0f, h)});
+        float h = m_constraints.has_bounded_height() ? std::min(m_constraints.max_height, 32.0f) : 32.0f;
+        m_size = m_constraints.constrain(Vec2{w, std::max(30.0f, h)});
     }
 
     bool hit_test(HitTestResult& result, PointF position) override {
@@ -105,109 +107,156 @@ public:
 
         const Theme& t = ThemeContext::current();
         const bool is_dark = t.is_dark;
-        const Color base_accent = m_danger
-            ? Color{0xD1 / 255.0f, 0x34 / 255.0f, 0x38 / 255.0f, 1.0f}
-            : t.colors.primary;
-        const Color ok_col = Color{0x10 / 255.0f, 0x89 / 255.0f, 0x3E / 255.0f, 1.0f};
+        // WinUI 3 官方语义色：Critical (#FF99A4 文本 / #C42B1C 填充) 与 Success (#6CCB5F / #0F7B0F)
+        const Color danger_accent = is_dark ? Color{0xE8 / 255.0f, 0x4C / 255.0f, 0x52 / 255.0f, 1.0f}
+                                            : Color{0xC4 / 255.0f, 0x2B / 255.0f, 0x1C / 255.0f, 1.0f};
+        const Color danger_text   = is_dark ? Color{1.0f, 0x99 / 255.0f, 0xA4 / 255.0f, 1.0f}
+                                            : Color{0xC4 / 255.0f, 0x2B / 255.0f, 0x1C / 255.0f, 1.0f};
+        const Color ok_col        = is_dark ? Color{0x6C / 255.0f, 0xCB / 255.0f, 0x5F / 255.0f, 1.0f}
+                                            : Color{0x0F / 255.0f, 0x7B / 255.0f, 0x0F / 255.0f, 1.0f};
+        const Color accent        = m_danger ? danger_accent : t.colors.primary;
 
         if (m_shape == HoldConfirmShape::CircularRing) {
-            paint_circular(context, t, is_dark, base_accent, ok_col);
+            paint_circular(context, t, is_dark, accent, danger_text, ok_col);
             return;
         }
 
-        Color bg = is_dark
-            ? Color{base_accent.r, base_accent.g, base_accent.b, m_hovered ? 0.22f : 0.14f}
-            : Color{base_accent.r, base_accent.g, base_accent.b, m_hovered ? 0.16f : 0.10f};
+        // 1. WinUI 3 标准 ControlFillColorDefault 表面（4px ControlCornerRadius）
+        constexpr float kRad = 4.0f;
+        Color surface_bg = is_dark
+            ? (m_holding ? Color{1, 1, 1, 0.0326f} : (m_hovered ? Color{1, 1, 1, 0.0837f} : Color{1, 1, 1, 0.0605f}))
+            : (m_holding ? Color{0.96f, 0.96f, 0.96f, 0.45f} : (m_hovered ? Color{0.976f, 0.976f, 0.976f, 0.65f} : Color{1, 1, 1, 0.75f}));
+
+        context.draw_rect(bounds(), surface_bg, kRad, 0.0f);
+
+        // 2. 内部柔和进度洗色 + 底部 2.5px Fluent 进度指示线
+        context.push_clip(bounds(), kRad);
         if (m_confirm_flash > 0.01f) {
-            bg = Color{ok_col.r, ok_col.g, ok_col.b, 0.25f + 0.55f * m_confirm_flash};
+            context.draw_rect(bounds(), Color{ok_col.r, ok_col.g, ok_col.b, (is_dark ? 0.16f : 0.12f) * m_confirm_flash}, 0.0f, 0.0f);
+            context.draw_rect(Rect::from_xywh(0.0f, m_size.y - 2.5f, m_size.x, 2.5f),
+                              Color{ok_col.r, ok_col.g, ok_col.b, std::min(1.0f, m_confirm_flash * 1.4f)}, 1.25f, 0.0f);
+        } else if (m_progress > 0.002f) {
+            float fill_w = m_size.x * m_progress;
+            context.draw_rect(Rect::from_xywh(0.0f, 0.0f, fill_w, m_size.y),
+                              Color{accent.r, accent.g, accent.b, is_dark ? 0.20f : 0.12f}, 0.0f, 0.0f);
+            context.draw_rect(Rect::from_xywh(0.0f, m_size.y - 2.5f, fill_w, 2.5f), accent, 1.25f, 0.0f);
         }
 
-        context.draw_rect(bounds(), bg, 6.0f, 0.0f);
-
-        if (m_progress > 0.002f && m_confirm_flash <= 0.01f) {
-            context.push_clip(bounds(), 6.0f);
-            context.draw_rect(Rect::from_xywh(0.0f, 0.0f, m_size.x * m_progress, m_size.y),
-                              Color{base_accent.r, base_accent.g, base_accent.b, 0.90f}, 0.0f, 0.0f);
-            context.pop_clip();
+        // 3. WinUI 3 ControlElevationBorder（深色顶部微光 / 浅色底部暗边）
+        if (!m_holding) {
+            if (is_dark) {
+                context.draw_rect(Rect::from_xywh(1.0f, 0.0f, std::max(0.0f, m_size.x - 2.0f), 1.0f),
+                                  Color{1, 1, 1, 0.095f}, 0.0f, 0.0f);
+            } else {
+                context.draw_rect(Rect::from_xywh(1.0f, m_size.y - 1.0f, std::max(0.0f, m_size.x - 2.0f), 1.0f),
+                                  Color{0, 0, 0, 0.15f}, 0.0f, 0.0f);
+            }
         }
+        context.pop_clip();
 
-        Color bd = (m_confirm_flash > 0.01f) ? ok_col : Color{base_accent.r, base_accent.g, base_accent.b, m_holding ? 1.0f : 0.55f};
-        context.draw_rect(bounds(), bd, 6.0f, m_holding ? 1.5f : 1.0f);
+        // 4. 精致 1px 外轮廓描边
+        Color bd = (m_confirm_flash > 0.01f)
+            ? Color{ok_col.r, ok_col.g, ok_col.b, 0.65f}
+            : (m_holding
+                ? Color{accent.r, accent.g, accent.b, 0.60f}
+                : (is_dark ? Color{1, 1, 1, 0.075f} : Color{0, 0, 0, 0.075f}));
+        context.draw_rect(bounds(), bd, kRad, 1.0f);
 
+        // 5. 文案与精致矢量图标（危险点 / 完成对勾）
         std::string label = m_text;
         if (m_confirm_flash > 0.01f) {
             label = m_confirmed_text;
         } else if (m_holding) {
             float rem = std::max(0.0f, m_hold_duration * (1.0f - m_progress));
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), " (%.1fs)", rem);
+            char buf[24];
+            std::snprintf(buf, sizeof(buf), " %.1fs", rem);
             label = m_holding_text + buf;
         }
 
-        Color text_c = (m_progress > 0.45f || m_confirm_flash > 0.2f)
-            ? Color::white()
-            : (m_danger ? (is_dark ? Color{1.0f, 0.58f, 0.58f, 1.0f} : Color{0xB0 / 255.0f, 0x1E / 255.0f, 0x24 / 255.0f, 1.0f})
-                        : t.colors.text_primary);
-        Vec2 ts = TextMeasure::measure(label, 12.5f, FontWeight::SemiBold);
+        Color text_c = (m_confirm_flash > 0.01f) ? ok_col
+                     : (m_danger ? danger_text : t.colors.text_primary);
+        Vec2 ts = TextMeasure::measure(label, 13.0f, FontWeight::Regular);
+        const float icon_w = (m_confirm_flash > 0.01f || m_danger) ? 14.0f : 0.0f;
+        const float total_w = icon_w + ts.x;
+        const float start_x = std::round((m_size.x - total_w) * 0.5f);
+        const float cy = m_size.y * 0.5f;
+
+        if (m_confirm_flash > 0.01f) {
+            context.draw_line(PointF{start_x + 1.0f, cy + 0.5f}, PointF{start_x + 4.0f, cy + 3.5f}, ok_col, 1.5f);
+            context.draw_line(PointF{start_x + 4.0f, cy + 3.5f}, PointF{start_x + 9.5f, cy - 3.0f}, ok_col, 1.5f);
+        } else if (m_danger) {
+            // 6px Fluent 危险语义指示圆点
+            context.draw_rect(Rect::from_xywh(start_x + 2.0f, std::round(cy - 3.0f), 6.0f, 6.0f), accent, 3.0f, 0.0f);
+        }
+
         context.draw_text(label,
-                          PointF{std::round((m_size.x - ts.x) * 0.5f), std::round((m_size.y - ts.y) * 0.5f)},
-                          12.5f, text_c, FontWeight::SemiBold);
+                          PointF{start_x + icon_w, std::round((m_size.y - ts.y) * 0.5f)},
+                          13.0f, text_c, FontWeight::Regular);
     }
 
 private:
-    void paint_circular(PaintContext& context, const Theme& t, bool is_dark, Color base_accent, Color ok_col) {
+    void paint_circular(PaintContext& context, const Theme& t, bool is_dark, Color accent, Color danger_text, Color ok_col) {
         constexpr float kPi = 3.14159265358979323846f;
         const float d = std::min(m_size.x, m_size.y);
         const float cx = m_size.x * 0.5f;
         const float cy = m_size.y * 0.5f;
-        const float stroke = 3.5f;
-        const float outer_r = d * 0.5f - 1.0f;
-        const float ring_r = outer_r - stroke * 0.5f - 1.0f;
-
-        Color fill_c = (m_confirm_flash > 0.01f)
-            ? Color{ok_col.r, ok_col.g, ok_col.b, 0.25f + 0.65f * m_confirm_flash}
-            : Color{base_accent.r, base_accent.g, base_accent.b, m_holding ? 0.24f : (m_hovered ? 0.18f : 0.11f)};
+        const float stroke = 2.6f;
+        const float outer_r = d * 0.5f - 1.5f;
+        const float ring_r = outer_r - 2.0f;
         Rect circle_r = Rect::from_xywh(cx - outer_r, cy - outer_r, outer_r * 2.0f, outer_r * 2.0f);
+
+        // 1. 精致 Fluent 2 中性圆形按钮表面 + 轻微按压反馈
+        Color fill_c = is_dark
+            ? (m_holding ? Color{1, 1, 1, 0.035f} : (m_hovered ? Color{1, 1, 1, 0.085f} : Color{1, 1, 1, 0.060f}))
+            : (m_holding ? Color{0.95f, 0.95f, 0.95f, 0.65f} : (m_hovered ? Color{0.98f, 0.98f, 0.98f, 0.90f} : Color{1, 1, 1, 0.82f}));
         context.draw_rect(circle_r, fill_c, outer_r, 0.0f);
 
-        // 环形底槽
-        Color track_c = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.14f} : Color{0.0f, 0.0f, 0.0f, 0.12f};
-        Rect track_r = Rect::from_xywh(cx - ring_r, cy - ring_r, ring_r * 2.0f, ring_r * 2.0f);
-        context.draw_rect(track_r, (m_confirm_flash > 0.01f) ? ok_col : track_c, ring_r, stroke);
+        if (m_confirm_flash > 0.01f) {
+            context.draw_rect(circle_r, Color{ok_col.r, ok_col.g, ok_col.b, (is_dark ? 0.18f : 0.12f) * m_confirm_flash}, outer_r, 0.0f);
+        } else if (m_progress > 0.002f) {
+            context.draw_rect(circle_r, Color{accent.r, accent.g, accent.b, (is_dark ? 0.14f : 0.09f) * m_progress}, outer_r, 0.0f);
+        }
 
-        // 顺时针 360° 矢量进度弧
+        // 2. 细腻 1px 外边框 + 内嵌纤细圆环底槽
+        Color track_c = (m_confirm_flash > 0.01f)
+            ? ok_col
+            : (is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.09f});
+        Rect track_r = Rect::from_xywh(cx - ring_r, cy - ring_r, ring_r * 2.0f, ring_r * 2.0f);
+        context.draw_rect(track_r, track_c, ring_r, (m_confirm_flash > 0.01f) ? stroke : 1.2f);
+
+        // 3. 高密度平滑 360° 矢量进度弧（64 段无折线锯齿）
         if (m_progress > 0.002f && m_confirm_flash <= 0.01f) {
             float start_ang = -kPi * 0.5f;
             float span = 2.0f * kPi * m_progress;
-            int segs = std::clamp(static_cast<int>(span * 14.0f), 4, 48);
+            int segs = std::clamp(static_cast<int>(span * 18.0f), 6, 64);
             for (int i = 0; i < segs; ++i) {
                 float a1 = start_ang + span * (static_cast<float>(i) / static_cast<float>(segs));
                 float a2 = start_ang + span * (static_cast<float>(i + 1) / static_cast<float>(segs));
                 context.draw_line(PointF{cx + ring_r * std::cos(a1), cy + ring_r * std::sin(a1)},
                                   PointF{cx + ring_r * std::cos(a2), cy + ring_r * std::sin(a2)},
-                                  base_accent, stroke);
+                                  accent, stroke);
             }
         }
 
-        // 中心文案 / 倒计时 / 完成勾
-        std::string center_txt = m_text;
+        // 4. 中心内容：完成绘制干净矢量对勾，按住显示倒计时，空闲显示标签
         if (m_confirm_flash > 0.01f) {
-            center_txt = "✓";
-        } else if (m_holding) {
+            context.draw_line(PointF{cx - 6.0f, cy + 0.5f}, PointF{cx - 1.5f, cy + 5.0f}, ok_col, 2.0f);
+            context.draw_line(PointF{cx - 1.5f, cy + 5.0f}, PointF{cx + 6.5f, cy - 4.5f}, ok_col, 2.0f);
+            return;
+        }
+
+        std::string center_txt = m_text;
+        if (m_holding) {
             float rem = std::max(0.0f, m_hold_duration * (1.0f - m_progress));
             char buf[16];
             std::snprintf(buf, sizeof(buf), "%.1fs", rem);
             center_txt = buf;
         }
-        Color tc = (m_confirm_flash > 0.2f)
-            ? Color::white()
-            : (m_danger ? (is_dark ? Color{1.0f, 0.60f, 0.60f, 1.0f} : Color{0xB0 / 255.0f, 0x1E / 255.0f, 0x24 / 255.0f, 1.0f})
-                        : t.colors.text_primary);
-        float fsz = (m_confirm_flash > 0.01f) ? 18.0f : 12.0f;
-        Vec2 ts = TextMeasure::measure(center_txt, fsz, FontWeight::SemiBold);
+        Color tc = m_danger ? danger_text : t.colors.text_primary;
+        Vec2 ts = TextMeasure::measure(center_txt, 12.5f, FontWeight::Medium);
         context.draw_text(center_txt,
                           PointF{std::round(cx - ts.x * 0.5f), std::round(cy - ts.y * 0.5f)},
-                          fsz, tc, FontWeight::SemiBold);
+                          12.5f, tc, FontWeight::Medium);
     }
 
     void setup_behavior() {
@@ -255,7 +304,7 @@ private:
 struct HoldConfirmButton : BindableMixin<HoldConfirmButton, RenderHoldConfirmButton> {
     std::string text{"长按 1.5s 确认删除"};
     std::string holding_text{"继续按住确认..."};
-    std::string confirmed_text{"✓ 已执行"};
+    std::string confirmed_text{"已执行"};
     float hold_duration_sec{1.5f};
     bool danger{true};
     HoldConfirmShape shape{HoldConfirmShape::PillBar};

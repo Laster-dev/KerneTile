@@ -67,7 +67,7 @@ WidgetPtr build_inspector_grid_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("InspectorGrid (紧凑型属性检查器网格)", 24.0f),
-            Text { .text = "工程参数表高密度双列布局：按数据类型直接复用原生 CheckBox、NumberBox 与 TextBox，支持拖拽中线实时调节列宽、非默认值高亮与一键复制。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("工程参数表高密度双列布局：按数据类型直接复用原生 CheckBox、NumberBox 与 TextBox，支持拖拽中线实时调节列宽、非默认值高亮与一键复制。", 13.0f),
             Expanded {
                 .flex = 1.0f,
                 .child = capture_box(InspectorGrid {
@@ -87,9 +87,7 @@ WidgetPtr build_inspector_grid_page(GalleryApp& app) {
                 .justify = JustifyContent::SpaceBetween,
                 .align_items = AlignItems::Center,
                 .content = {
-                    Text { .font_size = 12.0f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *status)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*status, 12.0f, FontWeight::Medium),
                     Button {
                         .text = "全部恢复默认",
                         .on_click = [ref, status]() {
@@ -126,7 +124,7 @@ WidgetPtr build_hex_viewer_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("HexViewer (十六进制字节流查看与编辑格)", 24.0f),
-            Text { .text = "三栏等宽矩阵（Offset + 自适应 8/16/24/32 字节 Hex + ASCII），支持按住拖动连续选择、Hex ↔ ASCII 双向联动高亮、就地半字节编辑与 LE/BE 解码。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("三栏等宽矩阵（Offset + 自适应 8/16/24/32 字节 Hex + ASCII），支持按住拖动连续选择、Hex ↔ ASCII 双向联动高亮、就地半字节编辑与 LE/BE 解码。", 13.0f),
             Expanded {
                 .flex = 1.0f,
                 .child = HexViewer {
@@ -140,9 +138,7 @@ WidgetPtr build_hex_viewer_page(GalleryApp& app) {
                     }
                 }
             },
-            Text { .font_size = 12.0f, .font_weight = FontWeight::Medium }
-                .bind(&RenderText::set_text, *status)
-                .bind(&RenderText::set_color, app.accent_text)
+            app.make_accent(*status, 12.0f, FontWeight::Medium)
         }
     });
 }
@@ -159,7 +155,7 @@ WidgetPtr build_syntax_filter_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("SyntaxFilterBar (语法感知过滤输入框)", 24.0f),
-            Text { .text = "直接继承单一 RenderTextBox：Wireshark 风格底色状态灯（合法浅绿 / 警告浅黄 / 语法错误浅红），支持字段名 Tab 自动补全。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("直接继承单一 RenderTextBox：Wireshark 风格底色状态灯（合法浅绿 / 警告浅黄 / 语法错误浅红），支持字段名 Tab 自动补全。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -171,9 +167,7 @@ WidgetPtr build_syntax_filter_page(GalleryApp& app) {
                             diag_text->set(diag);
                         }
                     }, ref),
-                    Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                        .bind(&RenderText::set_text, *diag_text)
-                        .bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(*diag_text, 12.5f, FontWeight::Medium),
                     HStack {
                         .spacing = 8.0f,
                         .content = {
@@ -216,7 +210,7 @@ WidgetPtr build_status_bar_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("StatusBar (结构化分段式状态栏)", 24.0f),
-            Text { .text = "经典 24~26px 工程底部状态栏：左侧常驻选中统计与偏移信息，右侧放编码、换行符、刷新频率等可点击切换槽位（复用 MenuFlyout）。", .font_size = 13.0f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("经典 24~26px 工程底部状态栏：左侧常驻选中统计与偏移信息，右侧放编码、换行符、刷新频率等可点击切换槽位（复用 MenuFlyout）。", 13.0f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -239,9 +233,7 @@ WidgetPtr build_status_bar_page(GalleryApp& app) {
                         .justify = JustifyContent::SpaceBetween,
                         .align_items = AlignItems::Center,
                         .content = {
-                            Text { .font_size = 12.5f, .font_weight = FontWeight::Medium }
-                                .bind(&RenderText::set_text, *status)
-                                .bind(&RenderText::set_color, app.accent_text),
+                            app.make_accent(*status, 12.5f, FontWeight::Medium),
                             Button {
                                 .text = "模拟选中 +1",
                                 .on_click = [ref, sel_cnt]() {

@@ -1,12 +1,12 @@
 #include <ktui/presentation/svg_engine.hpp>
+#include <ktui/core/light_mutex.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <mutex>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if defined(_MSC_VER)
@@ -40,15 +40,14 @@ uint64_t combine_hash(uint64_t h, uint64_t v) noexcept {
     return h;
 }
 
-// 线程安全文件内容缓存 (避免每帧重复读盘)
+// 线程安全文件内容缓存 (扁平 vector，避免 std::unordered_map 模板膨胀)
 std::string load_svg_file_cached(const std::string& path) {
-    static std::mutex mtx;
-    static std::unordered_map<std::string, std::string> file_cache;
+    static LightMutex mtx;
+    static std::vector<std::pair<std::string, std::string>> file_cache;
 
-    std::lock_guard<std::mutex> lock(mtx);
-    auto it = file_cache.find(path);
-    if (it != file_cache.end()) {
-        return it->second;
+    LightLock lock(mtx);
+    for (const auto& kv : file_cache) {
+        if (kv.first == path) return kv.second;
     }
 
     std::string content;
@@ -66,7 +65,7 @@ std::string load_svg_file_cached(const std::string& path) {
         std::fclose(fp);
     }
 #endif
-    file_cache.emplace(path, content);
+    file_cache.emplace_back(path, content);
     return content;
 }
 
@@ -109,13 +108,12 @@ void rotate_r8_bilinear(const uint8_t* src, uint32_t w, uint32_t h, float angle_
 // 缓存未旋转的基础 NanoSVG 光栅化 R8 蒙版，供静态渲染与旋转采样复用
 const std::vector<uint8_t>& rasterize_base_r8(uint64_t base_key, std::string_view svg_xml,
                                               uint32_t px_w, uint32_t px_h) {
-    static std::mutex mtx;
-    static std::unordered_map<uint64_t, std::vector<uint8_t>> base_cache;
+    static LightMutex mtx;
+    static std::vector<std::pair<uint64_t, std::vector<uint8_t>>> base_cache;
 
-    std::lock_guard<std::mutex> lock(mtx);
-    auto it = base_cache.find(base_key);
-    if (it != base_cache.end()) {
-        return it->second;
+    LightLock lock(mtx);
+    for (const auto& kv : base_cache) {
+        if (kv.first == base_key) return kv.second;
     }
 
     std::vector<uint8_t> alpha_mask(static_cast<size_t>(px_w) * px_h, 0);
@@ -145,8 +143,8 @@ const std::vector<uint8_t>& rasterize_base_r8(uint64_t base_key, std::string_vie
         nsvgDelete(image);
     }
 
-    auto res = base_cache.emplace(base_key, std::move(alpha_mask));
-    return res.first->second;
+    base_cache.emplace_back(base_key, std::move(alpha_mask));
+    return base_cache.back().second;
 }
 
 } // namespace

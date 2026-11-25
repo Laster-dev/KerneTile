@@ -8,6 +8,16 @@
 #include <vector>
 #include <string_view>
 
+#if !defined(KTUI_NOINLINE)
+#if defined(_MSC_VER)
+#define KTUI_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define KTUI_NOINLINE __attribute__((noinline))
+#else
+#define KTUI_NOINLINE
+#endif
+#endif
+
 namespace ktui {
 
 // UI 绘制上下文 (PaintContext)
@@ -38,7 +48,7 @@ public:
     };
 
     // 绘制实心或带边框矩形
-    void draw_rect(Rect rect, Color color, float corner_radius = 0.0f, float border_width = 0.0f) {
+    KTUI_NOINLINE void draw_rect(Rect rect, Color color, float corner_radius = 0.0f, float border_width = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
         if (m_renderer) {
             m_renderer->draw_rect(to_pixels(abs_rect), color, corner_radius * m_render_scale,
@@ -47,8 +57,14 @@ public:
         m_primitive_count++;
     }
 
+    // 绘制填充 + 描边组合盒 (减少重复双调用代码体积)
+    KTUI_NOINLINE void draw_box(Rect rect, Color fill, Color border, float corner_radius = 4.0f, float border_width = 1.0f) {
+        if (fill.a > 0.001f) draw_rect(rect, fill, corner_radius, 0.0f);
+        if (border.a > 0.001f && border_width > 0.0f) draw_rect(rect, border, corner_radius, border_width);
+    }
+
     // 绘制四角独立圆角矩形 (支持可选柔和投影与边框，如 5px 5px 0px 0px 顶部圆角输入框或单角圆角描边)
-    void draw_rounded_rect(Rect rect, Color color,
+    KTUI_NOINLINE void draw_rounded_rect(Rect rect, Color color,
                            float radius_tl, float radius_tr,
                            float radius_br, float radius_bl,
                            float shadow_blur = 0.0f,
@@ -80,7 +96,7 @@ public:
     }
 
     // 绘制带软阴影与圆角的卡片盒
-    void draw_shadowed_box(Rect rect, Color color, float corner_radius,
+    KTUI_NOINLINE void draw_shadowed_box(Rect rect, Color color, float corner_radius,
                            float shadow_blur, float shadow_spread, Vec2 shadow_offset) {
         Rect abs_rect = to_absolute_rect(rect);
         if (m_renderer) {
@@ -93,7 +109,7 @@ public:
 
     // 绘制 WinUI 3 / Fluent 2 双层解析高斯软阴影 (Key Shadow + Ambient Shadow)
     // 通过 KerneTile 引擎原生 erf() 解析高斯核渲染，内缩 1.5px 避免面板抗锯齿边缘黑边与圆角露角
-    void draw_elevation_shadow(Rect rect, float corner_radius, bool is_dark,
+    KTUI_NOINLINE void draw_elevation_shadow(Rect rect, float corner_radius, bool is_dark,
                                float elevation = 32.0f, float opacity_scale = 1.0f,
                                Vec2 direction_offset = Vec2{0.0f, 1.0f}) {
         if (opacity_scale <= 0.001f || elevation <= 0.0f) return;
@@ -124,7 +140,7 @@ public:
     }
 
     // 绘制文本 (支持 WinUI 3 字重与斜体)
-    void draw_text(std::string_view text, PointF pos, float font_size, Color color,
+    KTUI_NOINLINE void draw_text(std::string_view text, PointF pos, float font_size, Color color,
                    FontWeight weight = FontWeight::Regular, bool italic = false) {
         PointF abs_pos = pos + m_current_offset;
         if (m_renderer) {
@@ -141,7 +157,7 @@ public:
     }
 
     // 绘制 R8 Alpha 蒙版 (供 NanoSVG 矢量图标与路径渲染使用)
-    void draw_alpha_mask(uint64_t cache_key, Rect dst_rect, uint32_t mask_w, uint32_t mask_h,
+    KTUI_NOINLINE void draw_alpha_mask(uint64_t cache_key, Rect dst_rect, uint32_t mask_w, uint32_t mask_h,
                          const uint8_t* alpha_pixels, Color tint) {
         Rect abs_rect = to_absolute_rect(dst_rect);
         if (m_renderer) {
@@ -151,7 +167,7 @@ public:
     }
 
     // 绘制线段 (支持水平/垂直轴对齐极速路径与斜向高品质圆角端点胶囊步进插值)
-    void draw_line(PointF p1, PointF p2, Color color, float stroke_width = 1.0f) {
+    KTUI_NOINLINE void draw_line(PointF p1, PointF p2, Color color, float stroke_width = 1.0f) {
         if (color.a <= 0.001f || stroke_width <= 0.0f) return;
         float dx = p2.x - p1.x;
         float dy = p2.y - p1.y;
@@ -190,7 +206,7 @@ public:
     }
 
     // 推入局部裁剪矩形
-    void push_clip(Rect rect, float corner_radius = 0.0f) {
+    KTUI_NOINLINE void push_clip(Rect rect, float corner_radius = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
         if (m_renderer) {
             m_renderer->push_clip(to_pixels(abs_rect), corner_radius * m_render_scale);
@@ -199,7 +215,7 @@ public:
     }
 
     // 弹出裁剪矩形
-    void pop_clip() {
+    KTUI_NOINLINE void pop_clip() {
         if (!m_clip_stack.empty()) {
             m_clip_stack.pop_back();
             if (m_renderer) {

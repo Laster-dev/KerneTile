@@ -173,7 +173,7 @@ private:
     HeadlessVSyncSource m_vsync;
     DefaultFontResolver m_font_resolver;
     Fn<void(const PlatformEvent&)> m_event_callback;
-    std::unordered_map<HWND, Win32Window*> m_window_map;
+    std::vector<std::pair<HWND, Win32Window*>> m_window_map;
     HANDLE m_wait_timer = nullptr;
     bool m_class_registered = false;
 };

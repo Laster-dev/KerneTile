@@ -94,6 +94,12 @@ public:
         mark_needs_paint();
     }
 
+    void set_border_width(float bw) {
+        m_border_width = bw;
+        m_border_width_explicit = true;
+        mark_needs_paint();
+    }
+
     void set_forced_pressed(bool forced) {
         if (m_forced_pressed != forced) {
             m_forced_pressed = forced;
@@ -564,10 +570,10 @@ private:
     Button m_desc;
 };
 
-inline Button::operator WidgetPtr() const& {
+KTUI_NOINLINE inline Button::operator WidgetPtr() const& {
     return make_widget<ButtonWidget>(*this);
 }
-inline Button::operator WidgetPtr() && {
+KTUI_NOINLINE inline Button::operator WidgetPtr() && {
     return make_widget<ButtonWidget>(std::move(*this));
 }
 

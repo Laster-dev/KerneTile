@@ -4,6 +4,16 @@
 #include <memory>
 #include <vector>
 
+#if !defined(KTUI_NOINLINE)
+#if defined(_MSC_VER)
+#define KTUI_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define KTUI_NOINLINE __attribute__((noinline))
+#else
+#define KTUI_NOINLINE
+#endif
+#endif
+
 namespace ktui {
 
 class Widget;

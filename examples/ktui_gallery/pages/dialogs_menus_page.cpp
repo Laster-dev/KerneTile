@@ -1,4 +1,4 @@
-﻿#include "gallery_pages.hpp"
+#include "gallery_pages.hpp"
 
 using namespace ktui;
 
@@ -93,7 +93,7 @@ WidgetPtr build_command_bar_page(GalleryApp& app) {
                         .secondary_commands = secondary_cmds(),
                         .default_label_position = CommandBarDefaultLabelPosition::Right
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.commandbar_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.commandbar_status, 12.0f)
                 }
             }),
             app.make_card(VStack {
@@ -150,7 +150,7 @@ WidgetPtr build_dropdown_button_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.menu_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.menu_status, 12.0f)
                 }
             })
         }
@@ -176,13 +176,10 @@ WidgetPtr build_menu_flyout_page(GalleryApp& app) {
                             .corner_radius = 6.0f,
                             .padding = EdgeInsets(24.0f, 16.0f),
                             .theme_card = true,
-                            .child = Text {
-                                .text = "在此区域任意位置点击鼠标右键（或触控屏长按）弹出 WinUI 3 上下文菜单",
-                                .font_size = 13.0f
-                            }.bind(&RenderText::set_color, app.muted_text)
+                            .child = app.make_muted("在此区域任意位置点击鼠标右键（或触控屏长按）弹出 WinUI 3 上下文菜单", 13.0f)
                         }
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.menu_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.menu_status, 12.0f)
                 }
             })
         }
@@ -244,7 +241,7 @@ WidgetPtr build_content_dialog_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.dialog_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.dialog_status, 12.0f)
                 }
             })
         }
@@ -389,7 +386,7 @@ WidgetPtr build_toast_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.toast_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.toast_status, 12.0f)
                 }
             })
         }
@@ -495,10 +492,7 @@ WidgetPtr build_tab_view_page(GalleryApp& app) {
                             .spacing = 10.0f,
                             .content = {
                                 Label { .text = "当前标签页: " + tab_id, .variant = LabelVariant::Subtitle },
-                                Text {
-                                    .text = "点击顶部「+」可动态新建标签页，点击标签右侧「×」可关闭可关闭标签页；首标签「欢迎页」设置为不可关闭 (is_closable = false)。",
-                                    .font_size = 13.0f
-                                }.bind(&RenderText::set_color, app.muted_text),
+                                app.make_muted("点击顶部「+」可动态新建标签页，点击标签右侧「×」可关闭可关闭标签页；首标签「欢迎页」设置为不可关闭 (is_closable = false)。", 13.0f),
                                 HStack {
                                     .align_items = AlignItems::Center,
                                     .spacing = 8.0f,
@@ -609,7 +603,7 @@ WidgetPtr build_breadcrumb_bar_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.breadcrumb_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.breadcrumb_status, 12.0f)
                 }
             }),
             app.make_card(VStack {
@@ -642,7 +636,7 @@ WidgetPtr build_breadcrumb_bar_page(GalleryApp& app) {
                         .justify = JustifyContent::SpaceBetween,
                         .align_items = AlignItems::Center,
                         .content = {
-                            Text { .font_size = 12.0f }.bind(&RenderText::set_text, *sibling_path).bind(&RenderText::set_color, app.accent_text),
+                            app.make_accent(*sibling_path, 12.0f),
                             Button {
                                 .text = "重置路径",
                                 .on_click = [sibling_items, sibling_path]() {
@@ -678,7 +672,7 @@ WidgetPtr build_expander_page(GalleryApp& app) {
                     .align_items = AlignItems::Stretch,
                     .spacing = 10.0f,
                     .content = {
-                        Text { .text = "展开后支持内嵌任意交互控件（开关、按钮、输入框等）：", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                        app.make_muted("展开后支持内嵌任意交互控件（开关、按钮、输入框等）：", 12.5f),
                         ToggleSwitch { .label = "启用 120 FPS 高精度等待定时器" }.bind_two_way(app.step_ten),
                         HStack {
                             .align_items = AlignItems::Center,
@@ -699,7 +693,7 @@ WidgetPtr build_expander_page(GalleryApp& app) {
                     .align_items = AlignItems::Stretch,
                     .spacing = 8.0f,
                     .content = {
-                        Text { .text = "这里可以放置低频诊断参数、日志级别或实验性功能开关。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                        app.make_muted("这里可以放置低频诊断参数、日志级别或实验性功能开关。", 12.5f),
                         Button {
                             .text = "触发一条诊断 Toast",
                             .variant = ButtonVariant::Standard,
@@ -734,7 +728,7 @@ WidgetPtr build_auto_suggest_box_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("AutoSuggestBox", 22.0f),
-            Text { .text = "WinUI 3 自动补全搜索框，内置清除与搜索按钮、真高斯阴影悬浮候选列表，支持 ↑/↓/Enter/Esc 键盘导航。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 自动补全搜索框，内置清除与搜索按钮、真高斯阴影悬浮候选列表，支持 ↑/↓/Enter/Esc 键盘导航。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -755,7 +749,7 @@ WidgetPtr build_auto_suggest_box_page(GalleryApp& app) {
                             app.suggest_status.set("已提交搜索查询: " + (q.empty() ? "(空)" : q));
                         }
                     }.bind_two_way(app.suggest_query),
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.suggest_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.suggest_status, 12.5f)
                 }
             })
         }
@@ -817,7 +811,7 @@ WidgetPtr build_tree_view_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("TreeView", 22.0f),
-            Text { .text = "WinUI 3 层级树形视图，支持单选指示条、多选父子三态复选框联动、自定义节点图标与滚动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 层级树形视图，支持单选指示条、多选父子三态复选框联动、自定义节点图标与滚动。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -831,7 +825,7 @@ WidgetPtr build_tree_view_page(GalleryApp& app) {
                             app.tree_single_status.set("当前选中节点: " + label + " (" + id + ")");
                         }
                     }.bind_two_way(app.tree_single_selected),
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.tree_single_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.tree_single_status, 12.5f)
                 }
             }),
             app.make_card(VStack {
@@ -847,7 +841,7 @@ WidgetPtr build_tree_view_page(GalleryApp& app) {
                             app.tree_multi_status.set("当前已勾选 " + std::to_string(ids.size()) + " 项");
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.tree_multi_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.tree_multi_status, 12.5f)
                 }
             })
         }
@@ -856,17 +850,22 @@ WidgetPtr build_tree_view_page(GalleryApp& app) {
 
 WidgetPtr build_calendar_date_picker_page(GalleryApp& app) {
     CalendarDate today = CalendarDate::today();
+    int end_day = std::min(today.day + 5, CalendarDate::days_in_month(today.year, today.month));
+    CalendarDate init_end{today.year, today.month, end_day};
+    auto range_status = std::make_shared<Property<std::string>>(
+        "已选区间: " + today.format_iso() + " ~ " + init_end.format_iso());
+
     return app.make_scroll_page(VStack {
         .align_items = AlignItems::Stretch,
         .spacing = 12.0f,
         .content = {
             app.make_page_title("CalendarDatePicker", 22.0f),
-            Text { .text = "WinUI 3 日历日期选择器，点击弹出带真高斯阴影的月历浮层，支持上下月翻页、今日高亮与日期范围限制。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 日历日期选择器：带滑入弹出动画、滚轮/翻页平滑切月、单日与日期区间选择（含悬停实时预览连带）。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
                 .content = {
-                    Text { .text = "双向绑定日期选择", .font_size = 14.0f },
+                    Text { .text = "双向绑定单日选择", .font_size = 14.0f },
                     HStack {
                         .align_items = AlignItems::FlexEnd,
                         .spacing = 12.0f,
@@ -889,7 +888,26 @@ WidgetPtr build_calendar_date_picker_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.date_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.date_status, 12.5f)
+                }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "日期区间选择 (Date Range)", .font_size = 14.0f },
+                    CalendarDatePicker {
+                        .placeholder = "请选择起止日期",
+                        .header = "迭代冲刺周期 (点击起止两日，支持滚轮切月)",
+                        .width = 280.0f,
+                        .range_mode = true,
+                        .start_date = today,
+                        .end_date = init_end,
+                        .on_range_changed = [range_status](const CalendarDate& s, const CalendarDate& e) {
+                            range_status->set("已选区间: " + s.format_iso() + " ~ " + e.format_iso());
+                        }
+                    },
+                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, *range_status).bind(&RenderText::set_color, app.accent_text)
                 }
             }),
             app.make_card(VStack {
@@ -920,7 +938,7 @@ WidgetPtr build_virtual_list_page(GalleryApp& app) {
                 .align_items = AlignItems::Center,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "视口虚拟化高性能列表：100,000 条记录仍保持 O(1) 内存与 120 FPS 丝滑滚动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                    app.make_muted("视口虚拟化高性能列表：100,000 条记录仍保持 O(1) 内存与 120 FPS 丝滑滚动。", 12.5f),
                     Label { .text = "O(1) 视口裁剪", .variant = LabelVariant::Accent, .pill = true }
                 }
             },
@@ -969,7 +987,7 @@ WidgetPtr build_color_picker_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("ColorPicker", 22.0f),
-            Text { .text = "WinUI 3 弹出式颜色选择器，点击色块按钮弹出固定尺寸（324px）真高斯阴影色盘，支持 SV 色盘拖拽、色相彩虹条与透明度滑条。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 弹出式颜色选择器，点击色块按钮弹出固定尺寸（324px）真高斯阴影色盘，支持 SV 色盘拖拽、色相彩虹条与透明度滑条。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1013,7 +1031,7 @@ WidgetPtr build_color_picker_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.color_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.color_status, 12.5f)
                 }
             })
         }
@@ -1026,7 +1044,7 @@ WidgetPtr build_rating_control_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("RatingControl", 22.0f),
-            Text { .text = "WinUI 3 星级评分控件，支持 Hover 实时预览高亮、整星/半星精度、再次点击清零与只读展示模式。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 星级评分控件，支持 Hover 实时预览高亮、整星/半星精度、再次点击清零与只读展示模式。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1090,7 +1108,7 @@ WidgetPtr build_teaching_tip_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("TeachingTip", 22.0f),
-            Text { .text = "WinUI 3 功能引导气泡，复用 FluentPopupSurface 真高斯阴影与 130ms 缓出动效，带指向目标锚点的矢量三角尾标。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 功能引导气泡，复用 FluentPopupSurface 真高斯阴影与 130ms 缓出动效，带指向目标锚点的矢量三角尾标。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1140,7 +1158,7 @@ WidgetPtr build_teaching_tip_page(GalleryApp& app) {
                             }
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.tip_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.tip_status, 12.5f)
                 }
             })
         }
@@ -1181,7 +1199,7 @@ WidgetPtr build_data_grid_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("DataGrid", 22.0f),
-            Text { .text = "高性能虚拟化数据表格：支持 5,000+ 行 O(1) 视口裁剪滚动、固定表头、点击列头数值/字典序升降排序与行选中反馈。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("高性能虚拟化数据表格：支持 5,000+ 行 O(1) 视口裁剪滚动、固定表头、点击列头数值/字典序升降排序与行选中反馈。", 12.5f),
             Expanded {
                 .flex = 1.0f,
                 .child = DataGrid {
@@ -1195,7 +1213,7 @@ WidgetPtr build_data_grid_page(GalleryApp& app) {
                     }
                 }
             },
-            Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.datagrid_status).bind(&RenderText::set_color, app.accent_text)
+            app.make_accent(app.datagrid_status, 12.5f)
         }
     });
 }
@@ -1206,7 +1224,7 @@ WidgetPtr build_time_picker_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("TimePicker", 22.0f),
-            Text { .text = "WinUI 3 时间选择器，点击弹出固定尺寸滚轮选时浮层，支持 24h / 12h AM·PM 模式、滚轮滚动步进与分钟步长配置。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 时间选择器，点击弹出固定尺寸滚轮选时浮层，支持 24h / 12h AM·PM 模式、滚轮滚动步进与分钟步长配置。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1236,7 +1254,7 @@ WidgetPtr build_time_picker_page(GalleryApp& app) {
                             }.bind_two_way(app.picked_time_12)
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.time_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.time_status, 12.5f)
                 }
             })
         }
@@ -1251,7 +1269,7 @@ WidgetPtr build_info_badge_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("InfoBadge", 22.0f),
-            Text { .text = "WinUI 3 状态角标，提供数字（支持 99+ 溢出）、圆点与矢量图标三种形态，覆盖 5 种 Fluent 2 语义色。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 状态角标，提供数字（支持 99+ 溢出）、圆点与矢量图标三种形态，覆盖 5 种 Fluent 2 语义色。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1299,7 +1317,7 @@ WidgetPtr build_person_picture_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("PersonPicture", 22.0f),
-            Text { .text = "WinUI 3 用户头像组件，支持中英文姓名首字母自动提取、确定性 Fluent 配色、多尺寸规范与在线状态指示圆点。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 用户头像组件，支持中英文姓名首字母自动提取、确定性 Fluent 配色、多尺寸规范与在线状态指示圆点。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1327,7 +1345,7 @@ WidgetPtr build_text_area_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("TextArea", 22.0f),
-            Text { .text = "WinUI 3 多行文本编辑器，支持回车换行、自动折行、多行光标上下左右定位、剪贴板、中文 IME 与内置垂直滚动条。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 多行文本编辑器，支持回车换行、自动折行、多行光标上下左右定位、剪贴板、中文 IME 与内置垂直滚动条。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
@@ -1340,7 +1358,7 @@ WidgetPtr build_text_area_page(GalleryApp& app) {
                             app.textarea_status.set("当前字符数: " + std::to_string(v.size()) + " 字节");
                         }
                     }.bind_two_way(app.textarea_val),
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.textarea_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.textarea_status, 12.5f)
                 }
             })
         }
@@ -1368,7 +1386,7 @@ WidgetPtr build_flip_view_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("FlipView", 22.0f),
-            Text { .text = "WinUI 3 轮播视图，支持悬停左右翻页按钮、触控滑动切页与平滑位移过渡，下方与 PipsPager 双向绑定联动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 轮播视图，支持悬停左右翻页按钮、触控滑动切页与平滑位移过渡，下方与 PipsPager 双向绑定联动。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Center,
                 .spacing = 12.0f,
@@ -1398,7 +1416,7 @@ WidgetPtr build_pips_pager_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("PipsPager", 22.0f),
-            Text { .text = "WinUI 3 圆点分页指示器，切换时当前圆点平滑放大并显示页码数字，1 秒后数字淡出、圆点平滑缩回。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 圆点分页指示器，切换时当前圆点平滑放大并显示页码数字，1 秒后数字淡出、圆点平滑缩回。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Center,
                 .spacing = 12.0f,
@@ -1422,7 +1440,7 @@ WidgetPtr build_segmented_control_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("SegmentedControl", 22.0f),
-            Text { .text = "Fluent 2 分段选择器，内置 FrameClock 驱动的平滑滑动激活胶囊底板与底部主题色微指示条。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("Fluent 2 分段选择器，内置 FrameClock 驱动的平滑滑动激活胶囊底板与底部主题色微指示条。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1441,7 +1459,7 @@ WidgetPtr build_segmented_control_page(GalleryApp& app) {
                             }
                         }
                     }.bind_two_way(app.seg_idx),
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.seg_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.seg_status, 12.5f)
                 }
             })
         }
@@ -1461,7 +1479,7 @@ WidgetPtr build_toggle_button_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("ToggleButton", 22.0f),
-            Text { .text = "WinUI 3 切换按钮，可保持选中主题色高亮态，适用于富文本格式或工具栏模式开关。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 切换按钮，可保持选中主题色高亮态，适用于富文本格式或工具栏模式开关。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -1477,7 +1495,7 @@ WidgetPtr build_toggle_button_page(GalleryApp& app) {
                             ToggleButton { .checked = false, .text = "已禁用", .disabled = true }
                         }
                     },
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.tb_status).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.tb_status, 12.5f)
                 }
             })
         }
@@ -1490,7 +1508,7 @@ WidgetPtr build_tooltip_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Tooltip", 22.0f),
-            Text { .text = "WinUI 3 悬浮提示浮层，悬停后经可配置延迟平滑淡入，自动上下防溢出翻转，且点击穿透不阻断交互。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("WinUI 3 悬浮提示浮层，悬停后经可配置延迟平滑淡入，自动上下防溢出翻转，且点击穿透不阻断交互。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,

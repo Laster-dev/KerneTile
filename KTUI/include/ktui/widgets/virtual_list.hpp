@@ -104,10 +104,10 @@ public:
 
         ctx.push_clip(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, size().x - 2.0f), std::max(0.0f, size().y - 2.0f)), 5.0f);
         for (size_t idx = m_first_visible; idx < m_last_visible; ++idx) {
-            auto it = m_pool.find(idx);
-            if (it == m_pool.end() || !it->second) continue;
-            PaintContext::OffsetScope scope(ctx, it->second->offset());
-            it->second->paint(ctx);
+            auto* node = find_in_pool(idx);
+            if (!node) continue;
+            PaintContext::OffsetScope scope(ctx, node->offset());
+            node->paint(ctx);
         }
 
         float total_h = static_cast<float>(m_item_count) * m_item_height;
@@ -116,6 +116,13 @@ public:
     }
 
 private:
+    RenderBox* find_in_pool(size_t idx) const noexcept {
+        for (const auto& kv : m_pool) {
+            if (kv.first == idx) return kv.second.get();
+        }
+        return nullptr;
+    }
+
     void clear_pool() {
         for (auto& kv : m_pool) {
             if (kv.second && kv.second->parent() == this) {
@@ -143,14 +150,15 @@ private:
         m_last_visible = end;
 
         // 1. 回收滑出视口的节点
-        for (auto it = m_pool.begin(); it != m_pool.end(); ) {
-            if (it->first < start || it->first >= end) {
-                if (it->second && it->second->parent() == this) {
-                    remove_child(it->second.get());
+        for (size_t i = 0; i < m_pool.size(); ) {
+            if (m_pool[i].first < start || m_pool[i].first >= end) {
+                if (m_pool[i].second && m_pool[i].second->parent() == this) {
+                    remove_child(m_pool[i].second.get());
                 }
-                it = m_pool.erase(it);
+                m_pool[i] = std::move(m_pool.back());
+                m_pool.pop_back();
             } else {
-                ++it;
+                ++i;
             }
         }
 
@@ -158,17 +166,15 @@ private:
         float row_w = std::max(1.0f, size().x - 14.0f);
         BoxConstraints row_c = BoxConstraints::tight(Vec2{row_w, m_item_height});
         for (size_t idx = start; idx < end; ++idx) {
-            auto it = m_pool.find(idx);
-            std::shared_ptr<RenderBox> node;
-            if (it == m_pool.end()) {
+            RenderBox* node = find_in_pool(idx);
+            if (!node) {
                 WidgetPtr w = m_item_builder(idx);
                 if (!w) continue;
-                node = w->create_render_node();
-                if (!node) continue;
-                append_child(node.get());
-                m_pool.emplace(idx, node);
-            } else {
-                node = it->second;
+                auto created = w->create_render_node();
+                if (!created) continue;
+                append_child(created.get());
+                node = created.get();
+                m_pool.emplace_back(idx, std::move(created));
             }
             node->layout(row_c, false);
             node->set_offset(Vec2{2.0f, static_cast<float>(idx) * m_item_height - scroll_y});
@@ -289,7 +295,7 @@ private:
 
     SmoothScrollPhysics m_physics;
     WinUIScrollBar m_scrollbar;
-    std::unordered_map<size_t, std::shared_ptr<RenderBox>> m_pool;
+    std::vector<std::pair<size_t, std::shared_ptr<RenderBox>>> m_pool;
     size_t m_first_visible{0};
     size_t m_last_visible{0};
 

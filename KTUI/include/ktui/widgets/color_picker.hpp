@@ -122,6 +122,8 @@ public:
         auto st = m_surface.tick();
         if (st.animating) mark_needs_paint();
 
+        PaintContext::OffsetScope slide_scope(ctx, Vec2{0.0f, st.slide_y});
+
         const Theme& theme = ThemeContext::current();
         const float alpha = st.alpha;
         FluentPopupSurface::paint_panel(ctx, theme, Rect::from_xywh(0.0f, 0.0f, size().x, size().y), alpha, 8.0f);
@@ -130,24 +132,13 @@ public:
         Rect sw_r = swatch_rect();
         Rect hu_r = hue_rect();
 
-        // 1. 2D 饱和度/明度 (SV) 色盘
+        // 1. 2D 饱和度/明度 (SV) 色盘: 3 图元硬件级连续平滑渐变 (带 2D 保护边距消除 Atlas 双线性边缘渗漏!)
+        float hr, hg, hb;
+        ColorPickerUtil::hsv_to_rgb(m_h, 1.0f, 1.0f, hr, hg, hb);
         ctx.push_clip(sv_r, 6.0f);
-        constexpr int kCols = 24;
-        constexpr int kRows = 16;
-        float cw = sv_r.width() / static_cast<float>(kCols);
-        float ch = sv_r.height() / static_cast<float>(kRows);
-        for (int row = 0; row < kRows; ++row) {
-            float v = 1.0f - (static_cast<float>(row) + 0.5f) / static_cast<float>(kRows);
-            for (int col = 0; col < kCols; ++col) {
-                float s = (static_cast<float>(col) + 0.5f) / static_cast<float>(kCols);
-                float r, g, b;
-                ColorPickerUtil::hsv_to_rgb(m_h, s, v, r, g, b);
-                ctx.draw_rect(Rect::from_xywh(sv_r.min_x + static_cast<float>(col) * cw,
-                                              sv_r.min_y + static_cast<float>(row) * ch,
-                                              cw + 0.75f, ch + 0.75f),
-                              Color{r, g, b, alpha}, 0.0f, 0.0f);
-            }
-        }
+        ctx.draw_rect(sv_r, Color{hr, hg, hb, alpha}, 0.0f, 0.0f);
+        ctx.draw_alpha_mask(kMaskGradRtl, pad_h_rect(sv_r), kGradLen, kGradThick, grad_rtl(), Color{1.0f, 1.0f, 1.0f, alpha});
+        ctx.draw_alpha_mask(kMaskGradTtb, pad_v_rect(sv_r), kGradThick, kGradLen, grad_ttb(), Color{0.0f, 0.0f, 0.0f, alpha});
         ctx.pop_clip();
         ctx.draw_rect(sv_r, theme.colors.control_stroke_default, 6.0f, 1.0f);
 
@@ -164,39 +155,41 @@ public:
         ctx.pop_clip();
         ctx.draw_rect(sw_r, theme.colors.control_stroke_default, 6.0f, 1.0f);
 
-        // 3. 色相 (Hue) 彩虹滑条
+        // 3. 色相 (Hue) 彩虹滑条: 6 段逐段精确裁剪 + 保护边距线性 Alpha 渐变无缝拼接 (零断层!)
+        static constexpr Color kHueStops[7] = {
+            {1.0f, 0.0f, 0.0f, 1.0f}, // 0°   Red
+            {1.0f, 1.0f, 0.0f, 1.0f}, // 60°  Yellow
+            {0.0f, 1.0f, 0.0f, 1.0f}, // 120° Green
+            {0.0f, 1.0f, 1.0f, 1.0f}, // 180° Cyan
+            {0.0f, 0.0f, 1.0f, 1.0f}, // 240° Blue
+            {1.0f, 0.0f, 1.0f, 1.0f}, // 300° Magenta
+            {1.0f, 0.0f, 0.0f, 1.0f}, // 360° Red
+        };
         ctx.push_clip(hu_r, kSliderH * 0.5f);
-        constexpr int kHueSegs = 36;
-        float hw = hu_r.width() / static_cast<float>(kHueSegs);
-        for (int i = 0; i < kHueSegs; ++i) {
-            float hh = (static_cast<float>(i) + 0.5f) / static_cast<float>(kHueSegs) * 360.0f;
-            float r, g, b;
-            ColorPickerUtil::hsv_to_rgb(hh, 1.0f, 1.0f, r, g, b);
-            ctx.draw_rect(Rect::from_xywh(hu_r.min_x + static_cast<float>(i) * hw, hu_r.min_y,
-                                          hw + 0.75f, hu_r.height()),
-                          Color{r, g, b, alpha}, 0.0f, 0.0f);
+        float seg_w = hu_r.width() / 6.0f;
+        for (int i = 0; i < 6; ++i) {
+            float x0 = hu_r.min_x + static_cast<float>(i) * seg_w;
+            Rect sr = Rect::from_xywh(x0, hu_r.min_y, seg_w + 0.5f, hu_r.height());
+            Color c0 = kHueStops[i];     c0.a = alpha;
+            Color c1 = kHueStops[i + 1]; c1.a = alpha;
+            ctx.push_clip(sr, 0.0f);
+            ctx.draw_rect(sr, c0, 0.0f, 0.0f);
+            ctx.draw_alpha_mask(kMaskGradLtr, pad_h_rect(sr), kGradLen, kGradThick, grad_ltr(), c1);
+            ctx.pop_clip();
         }
         ctx.pop_clip();
         ctx.draw_rect(hu_r, theme.colors.control_stroke_default, kSliderH * 0.5f, 1.0f);
 
-        float hr, hg, hb;
-        ColorPickerUtil::hsv_to_rgb(m_h, 1.0f, 1.0f, hr, hg, hb);
         float hx = hu_r.min_x + (m_h / 360.0f) * hu_r.width();
         paint_thumb(ctx, PointF{hx, hu_r.min_y + hu_r.height() * 0.5f}, Color{hr, hg, hb, alpha}, 8.0f, alpha);
 
-        // 4. 透明度 (Alpha) 滑条
+        // 4. 透明度 (Alpha) 滑条: 棋盘格 + 单图元连续线性 Alpha 渐变
         if (m_alpha_enabled) {
             Rect al_r = alpha_rect();
             ctx.push_clip(al_r, kSliderH * 0.5f);
             ColorPickerUtil::paint_checkerboard(ctx, al_r, 5.0f);
-            constexpr int kAlphaSegs = 24;
-            float aw = al_r.width() / static_cast<float>(kAlphaSegs);
-            for (int i = 0; i < kAlphaSegs; ++i) {
-                float a = (static_cast<float>(i) + 0.5f) / static_cast<float>(kAlphaSegs);
-                ctx.draw_rect(Rect::from_xywh(al_r.min_x + static_cast<float>(i) * aw, al_r.min_y,
-                                              aw + 0.75f, al_r.height()),
-                              Color{m_color.r, m_color.g, m_color.b, a * alpha}, 0.0f, 0.0f);
-            }
+            ctx.draw_alpha_mask(kMaskGradLtr, pad_h_rect(al_r), kGradLen, kGradThick, grad_ltr(),
+                                Color{m_color.r, m_color.g, m_color.b, alpha});
             ctx.pop_clip();
             ctx.draw_rect(al_r, theme.colors.control_stroke_default, kSliderH * 0.5f, 1.0f);
 
@@ -234,6 +227,79 @@ public:
     }
 
 private:
+    static constexpr uint64_t kMaskGradRtl = 0xC010B001ULL;
+    static constexpr uint64_t kMaskGradLtr = 0xC010B002ULL;
+    static constexpr uint64_t kMaskGradTtb = 0xC010B003ULL;
+    static constexpr uint32_t kGradLen     = 128;
+    static constexpr uint32_t kGradThick   = 16;
+    static constexpr uint32_t kGradPad     = 2;
+
+    // 外扩保护边距矩形：将 Atlas 1px 零填充边缘完全推到裁剪区之外，消除边缘双线性衰减与色相断层
+    static Rect pad_h_rect(Rect r) noexcept {
+        float px = r.width()  * (static_cast<float>(kGradPad) / static_cast<float>(kGradLen - kGradPad * 2));
+        float py = r.height() * (static_cast<float>(kGradPad) / static_cast<float>(kGradThick - kGradPad * 2));
+        return Rect::from_xywh(r.min_x - px, r.min_y - py, r.width() + px * 2.0f, r.height() + py * 2.0f);
+    }
+
+    static Rect pad_v_rect(Rect r) noexcept {
+        float px = r.width()  * (static_cast<float>(kGradPad) / static_cast<float>(kGradThick - kGradPad * 2));
+        float py = r.height() * (static_cast<float>(kGradPad) / static_cast<float>(kGradLen - kGradPad * 2));
+        return Rect::from_xywh(r.min_x - px, r.min_y - py, r.width() + px * 2.0f, r.height() + py * 2.0f);
+    }
+
+    static uint8_t sample_ramp(uint32_t idx, bool reverse) noexcept {
+        uint32_t inner = kGradLen - kGradPad * 2;
+        float t = 0.0f;
+        if (idx <= kGradPad) t = 0.0f;
+        else if (idx >= kGradLen - kGradPad - 1) t = 1.0f;
+        else t = static_cast<float>(idx - kGradPad) / static_cast<float>(inner - 1);
+        if (reverse) t = 1.0f - t;
+        return static_cast<uint8_t>(std::clamp(std::lround(t * 255.0f), 0L, 255L));
+    }
+
+    static const uint8_t* grad_rtl() noexcept {
+        static uint8_t buf[kGradLen * kGradThick];
+        static bool init = false;
+        if (!init) {
+            for (uint32_t y = 0; y < kGradThick; ++y) {
+                for (uint32_t x = 0; x < kGradLen; ++x) {
+                    buf[y * kGradLen + x] = sample_ramp(x, true);
+                }
+            }
+            init = true;
+        }
+        return buf;
+    }
+
+    static const uint8_t* grad_ltr() noexcept {
+        static uint8_t buf[kGradLen * kGradThick];
+        static bool init = false;
+        if (!init) {
+            for (uint32_t y = 0; y < kGradThick; ++y) {
+                for (uint32_t x = 0; x < kGradLen; ++x) {
+                    buf[y * kGradLen + x] = sample_ramp(x, false);
+                }
+            }
+            init = true;
+        }
+        return buf;
+    }
+
+    static const uint8_t* grad_ttb() noexcept {
+        static uint8_t buf[kGradThick * kGradLen];
+        static bool init = false;
+        if (!init) {
+            for (uint32_t y = 0; y < kGradLen; ++y) {
+                uint8_t v = sample_ramp(y, false);
+                for (uint32_t x = 0; x < kGradThick; ++x) {
+                    buf[y * kGradThick + x] = v;
+                }
+            }
+            init = true;
+        }
+        return buf;
+    }
+
     static constexpr float kPanelW = 324.0f;
     static constexpr float kPad = 14.0f;
     static constexpr float kSpectrumH = 156.0f;

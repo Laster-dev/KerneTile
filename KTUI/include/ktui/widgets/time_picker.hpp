@@ -15,6 +15,7 @@
 #include <ktui/tree/render_box.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -73,6 +74,9 @@ public:
           m_on_confirm(std::move(on_confirm)),
           m_on_cancel(std::move(on_cancel)) {
         cursor_shape = CursorShape::Arrow;
+        m_target_pos[0] = m_cur_pos[0] = static_cast<float>(m_time.hour);
+        m_target_pos[1] = m_cur_pos[1] = static_cast<float>(m_time.minute / m_minute_inc);
+        m_target_pos[2] = m_cur_pos[2] = (m_time.hour >= 12) ? 1.0f : 0.0f;
         setup_behavior();
     }
 
@@ -90,6 +94,28 @@ public:
         auto st = m_surface.tick();
         if (st.animating) mark_needs_paint();
 
+        // 单调临界阻尼目标位插值 (绝对零过冲、零回弹、零方向跳变)
+        if (m_wheel_anim_active) {
+            auto now = std::chrono::steady_clock::now();
+            float dt = std::clamp(std::chrono::duration<float>(now - m_last_wheel_time).count(), 0.001f, 0.05f);
+            m_last_wheel_time = now;
+            float k = 1.0f - std::exp(-dt * 18.0f);
+            bool any_moving = false;
+            for (int c = 0; c < 3; ++c) {
+                float diff = m_target_pos[c] - m_cur_pos[c];
+                if (std::abs(diff) < 0.004f) {
+                    m_cur_pos[c] = m_target_pos[c];
+                } else {
+                    m_cur_pos[c] += diff * k;
+                    any_moving = true;
+                }
+            }
+            m_wheel_anim_active = any_moving;
+            if (any_moving) mark_needs_paint();
+        }
+
+        PaintContext::OffsetScope slide_scope(ctx, Vec2{0.0f, st.slide_y});
+
         const Theme& theme = ThemeContext::current();
         const float alpha = st.alpha;
         const float w = size().x;
@@ -103,8 +129,7 @@ public:
         hi_bg.a *= alpha;
         ctx.draw_rect(Rect::from_xywh(6.0f, center_y, w - 12.0f, kRowH), hi_bg, 5.0f, 0.0f);
 
-        Color text_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.86f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.82f * alpha};
-        Color fade_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.45f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.45f * alpha};
+        Color text_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.88f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.84f * alpha};
         Color on_acc = theme.colors.on_primary;
         on_acc.a *= alpha;
 
@@ -118,13 +143,27 @@ public:
                           theme.colors.divider_stroke, 0.0f, 0.0f);
         }
 
-        // 绘制 5 行滚轮数字 (-2, -1, 0, +1, +2)
-        for (int off = -2; off <= 2; ++off) {
-            float ry = kPadTop + static_cast<float>(off + 2) * kRowH;
-            Color c_draw = (off == 0) ? on_acc : ((std::abs(off) == 1) ? text_c : fade_c);
+        // 根据行距中心高亮带的距离平滑插值文字颜色/透明度
+        auto row_color = [&](float ry) -> Color {
+            float dist = std::abs(ry - center_y) / kRowH;
+            if (dist < 0.45f) return on_acc;
+            float fade = std::clamp(1.0f - (dist - 0.5f) * 0.34f, 0.25f, 0.90f);
+            return theme.is_dark ? Color{1.0f, 1.0f, 1.0f, fade * alpha}
+                                 : Color{0.0f, 0.0f, 0.0f, fade * alpha};
+        };
 
+        // 裁剪 5 行滚轮可视窗口，基于连续浮点位 m_cur_pos 单调平滑滚动
+        const int base_h = static_cast<int>(std::floor(m_cur_pos[0]));
+        const float frac_h = m_cur_pos[0] - static_cast<float>(base_h);
+        const int base_m = static_cast<int>(std::floor(m_cur_pos[1]));
+        const float frac_m = m_cur_pos[1] - static_cast<float>(base_m);
+        const float frac_a = m_cur_pos[2]; // 0.0 = AM, 1.0 = PM
+
+        ctx.push_clip(Rect::from_xywh(6.0f, kPadTop, w - 12.0f, kRowH * 5.0f));
+        for (int off = -3; off <= 3; ++off) {
             // 1) 小时列
-            int disp_h = wrap_hour(m_time.hour + off);
+            float ry_h = kPadTop + (static_cast<float>(off + 2) - frac_h) * kRowH;
+            int disp_h = wrap_hour(base_h + off);
             char hbuf[8];
             if (m_use_24h) {
                 std::snprintf(hbuf, sizeof(hbuf), "%02d", disp_h);
@@ -133,29 +172,34 @@ public:
                 if (h12 == 0) h12 = 12;
                 std::snprintf(hbuf, sizeof(hbuf), "%02d", h12);
             }
-            draw_cell(ctx, Rect::from_xywh(6.0f, ry, col_w, kRowH), hbuf, c_draw, off == 0,
-                      m_hover_col == 0 && m_hover_off == off, theme, alpha);
+            int hover_row_h = static_cast<int>(std::lround((ry_h - center_y) / kRowH));
+            draw_cell(ctx, Rect::from_xywh(6.0f, ry_h, col_w, kRowH), hbuf, row_color(ry_h),
+                      std::abs(ry_h - center_y) < kRowH * 0.45f,
+                      m_hover_col == 0 && m_hover_off == hover_row_h, theme, alpha);
 
             // 2) 分钟列
-            int disp_m = wrap_minute(m_time.minute + off * m_minute_inc);
+            float ry_m = kPadTop + (static_cast<float>(off + 2) - frac_m) * kRowH;
+            int disp_m = wrap_minute((base_m + off) * m_minute_inc);
             char mbuf[8];
             std::snprintf(mbuf, sizeof(mbuf), "%02d", disp_m);
-            draw_cell(ctx, Rect::from_xywh(6.0f + col_w, ry, col_w, kRowH), mbuf, c_draw, off == 0,
-                      m_hover_col == 1 && m_hover_off == off, theme, alpha);
+            int hover_row_m = static_cast<int>(std::lround((ry_m - center_y) / kRowH));
+            draw_cell(ctx, Rect::from_xywh(6.0f + col_w, ry_m, col_w, kRowH), mbuf, row_color(ry_m),
+                      std::abs(ry_m - center_y) < kRowH * 0.45f,
+                      m_hover_col == 1 && m_hover_off == hover_row_m, theme, alpha);
+        }
 
-            // 3) AM/PM 列 (12h 模式)
-            if (!m_use_24h) {
-                bool is_pm = (m_time.hour >= 12);
-                const char* ap = nullptr;
-                if (off == 0) ap = is_pm ? "PM" : "AM";
-                else if (off == 1 && !is_pm) ap = "PM";
-                else if (off == -1 && is_pm) ap = "AM";
-                if (ap) {
-                    draw_cell(ctx, Rect::from_xywh(6.0f + col_w * 2.0f, ry, col_w, kRowH), ap, c_draw, off == 0,
-                              m_hover_col == 2 && m_hover_off == off, theme, alpha);
-                }
+        // 3) AM/PM 列 (12h 模式: 仅 AM=0, PM=1 两项，严格在 [0, 1] 间单调滑动)
+        if (!m_use_24h) {
+            for (int idx = 0; idx <= 1; ++idx) {
+                float ry_a = center_y + (static_cast<float>(idx) - frac_a) * kRowH;
+                int hover_row_a = static_cast<int>(std::lround((ry_a - center_y) / kRowH));
+                draw_cell(ctx, Rect::from_xywh(6.0f + col_w * 2.0f, ry_a, col_w, kRowH),
+                          idx == 0 ? "AM" : "PM", row_color(ry_a),
+                          std::abs(ry_a - center_y) < kRowH * 0.45f,
+                          m_hover_col == 2 && m_hover_off == hover_row_a, theme, alpha);
             }
         }
+        ctx.pop_clip();
 
         // 底部确认 / 取消按钮栏
         float bar_y = h - kFooterH;
@@ -225,13 +269,24 @@ private:
     }
 
     void step_col(int col, int delta) {
+        if (delta == 0) return;
         if (col == 0) {
-            m_time.hour = wrap_hour(m_time.hour + delta);
+            m_target_pos[0] += static_cast<float>(delta);
+            m_time.hour = wrap_hour(static_cast<int>(std::lround(m_target_pos[0])));
+            if (!m_use_24h) {
+                m_target_pos[2] = (m_time.hour >= 12) ? 1.0f : 0.0f;
+            }
         } else if (col == 1) {
-            m_time.minute = wrap_minute(m_time.minute + delta * m_minute_inc);
+            m_target_pos[1] += static_cast<float>(delta);
+            m_time.minute = wrap_minute(static_cast<int>(std::lround(m_target_pos[1])) * m_minute_inc);
         } else if (col == 2 && !m_use_24h) {
-            if (delta != 0) m_time.hour = (m_time.hour + 12) % 24;
+            float want = (delta > 0) ? 1.0f : 0.0f;
+            if (std::abs(m_target_pos[2] - want) < 0.01f) return;
+            m_target_pos[2] = want;
+            m_time.hour = (m_time.hour % 12) + (want > 0.5f ? 12 : 0);
         }
+        m_last_wheel_time = std::chrono::steady_clock::now();
+        m_wheel_anim_active = true;
         mark_needs_paint();
     }
 
@@ -288,6 +343,10 @@ private:
     bool m_use_24h{true};
     int m_minute_inc{1};
     FluentPopupSurface m_surface;
+    float m_target_pos[3]{0.0f, 0.0f, 0.0f};
+    float m_cur_pos[3]{0.0f, 0.0f, 0.0f};
+    bool m_wheel_anim_active{false};
+    std::chrono::steady_clock::time_point m_last_wheel_time{};
     int m_hover_col{-1};
     int m_hover_off{0};
     bool m_hover_ok{false};

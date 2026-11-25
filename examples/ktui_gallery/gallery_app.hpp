@@ -135,6 +135,9 @@ struct GalleryApp {
     [[nodiscard]] ktui::WidgetPtr make_scroll_page(ktui::WidgetPtr body);
     [[nodiscard]] ktui::WidgetPtr make_full_page(ktui::WidgetPtr body);
     [[nodiscard]] ktui::WidgetPtr make_page_title(const std::string& title, float font_size = 22.0f);
+    [[nodiscard]] ktui::WidgetPtr make_muted(const char* text, float font_size = 12.5f);
+    [[nodiscard]] ktui::WidgetPtr make_accent(ktui::Property<std::string>& prop, float font_size = 12.0f,
+                                              ktui::FontWeight weight = ktui::FontWeight::Regular);
 
     void setup(ktui::Application& application, std::shared_ptr<ktui::Window> win);
 };

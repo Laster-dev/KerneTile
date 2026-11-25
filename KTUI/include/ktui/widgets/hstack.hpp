@@ -84,10 +84,10 @@ private:
     std::vector<std::shared_ptr<RenderBox>> m_child_render_boxes;
 };
 
-inline HStack::operator WidgetPtr() const& {
+KTUI_NOINLINE inline HStack::operator WidgetPtr() const& {
     return make_widget<HStackWidget>(*this);
 }
-inline HStack::operator WidgetPtr() && {
+KTUI_NOINLINE inline HStack::operator WidgetPtr() && {
     return make_widget<HStackWidget>(std::move(*this));
 }
 

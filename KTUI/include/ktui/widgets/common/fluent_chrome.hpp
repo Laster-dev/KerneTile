@@ -6,6 +6,7 @@
 #include <ktui/theme/theme.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 
@@ -79,32 +80,38 @@ struct FluentInputChrome {
     }
 };
 
-// WinUI 3 / Fluent 2 弹出浮层公共底板与锚点定位器 (语义令牌 + 统一 FrameClock 驱动)
+// WinUI 3 / Fluent 2 弹出浮层公共底板与锚点定位器 (steady_clock 驱动平滑滑入+淡入)
 class FluentPopupSurface {
 public:
     struct FrameState {
         float ease{1.0f};
         float alpha{1.0f};
+        float slide_y{0.0f};
         bool animating{false};
     };
 
-    FluentPopupSurface() noexcept
-        : m_open_start_sec(FrameClock::global().frame_time_sec()) {}
+    FluentPopupSurface() noexcept = default;
 
     void reset_open_animation() noexcept {
         m_open_progress = 0.0f;
-        m_open_start_sec = FrameClock::global().frame_time_sec();
+        m_anim_started = false;
     }
 
-    FrameState tick(float duration_sec = 0.13f) noexcept {
-        if (m_open_progress < 1.0f) {
-            double elapsed = FrameClock::global().frame_time_sec() - m_open_start_sec;
-            if (elapsed <= 0.0) elapsed = static_cast<double>(FrameClock::global().dt());
-            m_open_progress = std::clamp(static_cast<float>(elapsed) / duration_sec, 0.0f, 1.0f);
+    FrameState tick(float duration_sec = 0.16f) noexcept {
+        auto now = std::chrono::steady_clock::now();
+        if (!m_anim_started) {
+            m_open_start = now;
+            m_anim_started = true;
+            m_open_progress = 0.0f;
+        } else if (m_open_progress < 1.0f) {
+            float elapsed = std::chrono::duration<float>(now - m_open_start).count();
+            m_open_progress = std::clamp(elapsed / std::max(0.01f, duration_sec), 0.0f, 1.0f);
         }
-        float ease = 1.0f - std::pow(1.0f - m_open_progress, 3.0f);
-        float alpha = std::clamp(ease * 1.15f, 0.0f, 1.0f);
-        return FrameState{ease, alpha, m_open_progress < 1.0f};
+        float inv = 1.0f - m_open_progress;
+        float ease = 1.0f - inv * inv * inv; // Fluent 2 decelerate cubic ease-out
+        float alpha = std::clamp(ease * 1.18f, 0.0f, 1.0f);
+        float slide_y = (1.0f - ease) * -8.0f;
+        return FrameState{ease, alpha, slide_y, m_open_progress < 1.0f};
     }
 
     static void paint_panel(PaintContext& ctx, const Theme& theme, Rect panel, float alpha, float radius = 8.0f) {
@@ -134,7 +141,8 @@ public:
 
 private:
     float m_open_progress{0.0f};
-    double m_open_start_sec{0.0};
+    bool m_anim_started{false};
+    std::chrono::steady_clock::time_point m_open_start{};
 };
 
 } // namespace ktui

@@ -1,4 +1,4 @@
-﻿#include "gallery_pages.hpp"
+#include "gallery_pages.hpp"
 #include <cmath>
 
 using namespace ktui;
@@ -69,7 +69,7 @@ WidgetPtr build_layout_flex_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Flex 弹性布局 (HStack / VStack / Expanded / Flexible / Spacer)", 22.0f),
-            Text { .text = "双通道 Flexbox 求解器：支持主轴对齐、交叉轴对齐、反向排布、flex_grow 比例分配、flex_shrink 溢出压缩与 32 项内零堆分配。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("双通道 Flexbox 求解器：支持主轴对齐、交叉轴对齐、反向排布、flex_grow 比例分配、flex_shrink 溢出压缩与 32 项内零堆分配。", 12.5f),
 
             // 交互式 Flex Playground
             app.make_card(VStack {
@@ -84,7 +84,7 @@ WidgetPtr build_layout_flex_page(GalleryApp& app) {
                             HStack {
                                 .spacing = 6.0f,
                                 .content = {
-                                    Text { .text = "Justify:", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                                    app.make_muted("Justify:", 12.0f),
                                     SegmentedControl {
                                         .items = {
                                             SegmentedItem{ .label = "Start" },
@@ -109,7 +109,7 @@ WidgetPtr build_layout_flex_page(GalleryApp& app) {
                             HStack {
                                 .spacing = 6.0f,
                                 .content = {
-                                    Text { .text = "Align:", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                                    app.make_muted("Align:", 12.0f),
                                     SegmentedControl {
                                         .items = {
                                             SegmentedItem{ .label = "Start" },
@@ -205,7 +205,7 @@ WidgetPtr build_layout_flex_page(GalleryApp& app) {
                 .spacing = 8.0f,
                 .content = {
                     Text { .text = "Flexible flex_shrink 溢出比例压缩", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    Text { .text = "在 360px 固定宽容器内放入总宽 500px 的三个子项：第一项 shrink=0 保持 140px，后两项按 shrink=1 与 shrink=2 比例自动压缩，绝不越界。", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                    app.make_muted("在 360px 固定宽容器内放入总宽 500px 的三个子项：第一项 shrink=0 保持 140px，后两项按 shrink=1 与 shrink=2 比例自动压缩，绝不越界。", 12.0f),
                     Box {
                         .width = 360.0f,
                         .background_color = Color{0.0f, 0.0f, 0.0f, 0.14f},
@@ -235,7 +235,7 @@ WidgetPtr build_layout_wrap_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Wrap 流式自动换行布局", 22.0f),
-            Text { .text = "当主轴可用宽度不足时自动折行，适用于标签云、筛选 Chip、响应式工具栏；拖拽窗口边缘即可观察实时重排。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("当主轴可用宽度不足时自动折行，适用于标签云、筛选 Chip、响应式工具栏；拖拽窗口边缘即可观察实时重排。", 12.5f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -310,7 +310,7 @@ WidgetPtr build_layout_grid_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Grid 二维网格布局 (固定列 / 权重轨道 / 响应式自适应 / 跨列)", 22.0f),
-            Text { .text = "支持固定列数、CSS fr 比例权重轨道、min_item_width 响应式 auto-fit 列数以及 GridItem 跨列合并。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("支持固定列数、CSS fr 比例权重轨道、min_item_width 响应式 auto-fit 列数以及 GridItem 跨列合并。", 12.5f),
 
             // 1. 可调列数与间距的等宽网格 + 跨列
             app.make_card(VStack {
@@ -390,7 +390,7 @@ WidgetPtr build_layout_grid_page(GalleryApp& app) {
                 .spacing = 8.0f,
                 .content = {
                     Text { .text = "响应式自适应网格 (min_item_width = 160px)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    Text { .text = "等价 CSS repeat(auto-fit, minmax(160px, 1fr))，随窗口宽度自动增减每行列数。", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                    app.make_muted("等价 CSS repeat(auto-fit, minmax(160px, 1fr))，随窗口宽度自动增减每行列数。", 12.0f),
                     make_stage_box(Grid {
                         .min_item_width = 160.0f,
                         .column_spacing = 8.0f,
@@ -440,7 +440,7 @@ WidgetPtr build_layout_zstack_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("ZStack & Positioned 层叠与边角定位", 22.0f),
-            Text { .text = "ZStack 按声明顺序从底到顶叠加多个图层；Positioned 可把任意子图层独立钉在父容器的四边或四角（例如商品/视频卡片上的左上角标签、右上角未读角标、底部半透明标题条）。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("ZStack 按声明顺序从底到顶叠加多个图层；Positioned 可把任意子图层独立钉在父容器的四边或四角（例如商品/视频卡片上的左上角标签、右上角未读角标、底部半透明标题条）。", 12.5f),
 
             // 1. ZStack + Positioned 典型实战卡片
             app.make_card(VStack {
@@ -462,7 +462,7 @@ WidgetPtr build_layout_zstack_page(GalleryApp& app) {
                                     .spacing = 4.0f,
                                     .content = {
                                         Text { .text = "底层主视觉内容 (居中对齐)", .font_size = 15.0f, .color = Color::white(), .font_weight = FontWeight::SemiBold },
-                                        Text { .text = "其余三个浮层由 Positioned 分别锚定在左上、右上和底部全宽", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text)
+                                        app.make_muted("其余三个浮层由 Positioned 分别锚定在左上、右上和底部全宽", 12.0f)
                                     }
                                 },
                                 Positioned {
@@ -506,7 +506,7 @@ WidgetPtr build_layout_zstack_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "ZStack 九宫格全局对齐 (Alignment)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_zstack_align_label).bind(&RenderText::set_color, app.accent_text),
+                    app.make_accent(app.layout_zstack_align_label, 12.0f),
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 16.0f,
@@ -563,7 +563,7 @@ WidgetPtr build_layout_align_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Align / Center / AspectRatio / Divider", 22.0f),
-            Text { .text = "基础单子项几何约束与装饰原语：固定比例缩放容器、单子项对齐包装以及主题自适应横/竖分隔线。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("基础单子项几何约束与装饰原语：固定比例缩放容器、单子项对齐包装以及主题自适应横/竖分隔线。", 12.5f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
@@ -631,7 +631,7 @@ WidgetPtr build_layout_split_view_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("SplitView 可拖拽分隔面板", 22.0f),
-            Text { .text = "支持水平与垂直双栏自由嵌套、悬停高亮 Fluent 把手、ResizeEW/ResizeNS 光标自动切换、最小尺寸保护与双击重置。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("支持水平与垂直双栏自由嵌套、悬停高亮 Fluent 把手、ResizeEW/ResizeNS 光标自动切换、最小尺寸保护与双击重置。", 12.5f),
             Expanded {
                 .flex = 1.0f,
                 .child = Box {
@@ -661,7 +661,7 @@ WidgetPtr build_layout_split_view_page(GalleryApp& app) {
                     }.bind_two_way(app.layout_split_ratio)
                 }
             },
-            Text { .font_size = 12.0f }.bind(&RenderText::set_text, app.layout_split_label).bind(&RenderText::set_color, app.accent_text)
+            app.make_accent(app.layout_split_label, 12.0f)
         }
     });
 }
@@ -757,7 +757,7 @@ WidgetPtr build_layout_dock_panel_page(GalleryApp& app) {
                         .spacing = 4.0f,
                         .content = {
                             app.make_page_title("DockPanel (Visual Studio + Fluent 2 拖拽停靠)", 22.0f),
-                            Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.layout_dock_status).bind(&RenderText::set_color, app.accent_text)
+                            app.make_accent(app.layout_dock_status, 12.5f)
                         }
                     },
                     Spacer {},
@@ -788,7 +788,7 @@ WidgetPtr build_layout_visibility_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("Visibility 响应式显隐控制", 22.0f),
-            Text { .text = "无需重建控件树，通过绑定 Property<bool> 即可动态切换 Collapse（折叠不占空间）或 Hidden（隐藏绘制与命中但保留原布局占位）。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("无需重建控件树，通过绑定 Property<bool> 即可动态切换 Collapse（折叠不占空间）或 Hidden（隐藏绘制与命中但保留原布局占位）。", 12.5f),
 
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,

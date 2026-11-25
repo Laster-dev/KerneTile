@@ -492,11 +492,34 @@ public:
 private:
     struct FlatRow {
         const NavigationViewItem* item{nullptr};
+        const NavigationViewItem* parent{nullptr};
         int depth{0};
         bool is_footer{false};
         bool is_settings{false};
         float height{36.0f};
     };
+
+    [[nodiscard]] float get_expand_anim(const std::string& id, bool fallback_expanded) const noexcept {
+        for (const auto& kv : m_expand_anims) {
+            if (kv.first == id) return kv.second;
+        }
+        return fallback_expanded ? 1.0f : 0.0f;
+    }
+
+    void sync_expand_anims() {
+        for (const auto& item : m_data.menu_items) {
+            if (item.kind == NavigationItemKind::Item && !item.children.empty()) {
+                const std::string& id = item.effective_id();
+                bool exists = false;
+                for (const auto& kv : m_expand_anims) {
+                    if (kv.first == id) { exists = true; break; }
+                }
+                if (!exists) {
+                    m_expand_anims.emplace_back(id, item.expanded ? 1.0f : 0.0f);
+                }
+            }
+        }
+    }
 
     enum class ChromeButton {
         None,
@@ -563,6 +586,7 @@ private:
     }
 
     void rebuild_flat_items() {
+        sync_expand_anims();
         m_main_rows.clear();
         m_footer_rows.clear();
         m_settings_item = NavigationViewItem{};
@@ -573,20 +597,20 @@ private:
         for (const auto& item : m_data.menu_items) {
             float rh = (item.kind == NavigationItemKind::Separator) ? 13.0f
                      : (item.kind == NavigationItemKind::Header ? 30.0f : 36.0f);
-            m_main_rows.push_back(FlatRow{&item, 0, false, false, rh});
-            if (item.kind == NavigationItemKind::Item && !item.children.empty() && item.expanded) {
+            m_main_rows.push_back(FlatRow{&item, nullptr, 0, false, false, rh});
+            if (item.kind == NavigationItemKind::Item && !item.children.empty()) {
                 for (const auto& child : item.children) {
-                    m_main_rows.push_back(FlatRow{&child, 1, false, false, 34.0f});
+                    m_main_rows.push_back(FlatRow{&child, &item, 1, false, false, 34.0f});
                 }
             }
         }
 
         for (const auto& item : m_data.footer_items) {
             float rh = (item.kind == NavigationItemKind::Separator) ? 13.0f : 36.0f;
-            m_footer_rows.push_back(FlatRow{&item, 0, true, false, rh});
+            m_footer_rows.push_back(FlatRow{&item, nullptr, 0, true, false, rh});
         }
         if (m_data.is_settings_visible) {
-            m_footer_rows.push_back(FlatRow{&m_settings_item, 0, true, true, 36.0f});
+            m_footer_rows.push_back(FlatRow{&m_settings_item, nullptr, 0, true, true, 36.0f});
         }
     }
 
@@ -683,7 +707,13 @@ private:
             if (compact_hide && (r.depth > 0 || (r.item && r.item->kind == NavigationItemKind::Header))) {
                 continue;
             }
-            y += r.height + 2.0f;
+            if (r.depth > 0 && r.parent) {
+                float ef = get_expand_anim(r.parent->effective_id(), r.parent->expanded);
+                if (ef <= 0.004f) continue;
+                y += (r.height + 2.0f) * ef;
+            } else {
+                y += r.height + 2.0f;
+            }
         }
         return y + 4.0f;
     }
@@ -942,14 +972,60 @@ private:
 
         ctx.push_clip(menu_vp, 0.0f);
         float y = menu_vp.min_y + 2.0f - scroll_y;
-        for (int i = 0; i < static_cast<int>(m_main_rows.size()); ++i) {
+        const int main_count = static_cast<int>(m_main_rows.size());
+        for (int i = 0; i < main_count; ) {
             const auto& row = m_main_rows[static_cast<size_t>(i)];
-            if (!row.item) continue;
+            if (!row.item) { ++i; continue; }
             if (label_alpha <= 0.01f && (row.item->kind == NavigationItemKind::Header || row.depth > 0)) {
+                ++i; continue;
+            }
+
+            // 子菜单手风琴分组：整组平滑裁切展开/收起 + 轻微下拉滑入 + 透明度淡入淡出
+            if (row.depth > 0 && row.parent) {
+                const NavigationViewItem* grp_parent = row.parent;
+                int j = i;
+                float full_h = 0.0f;
+                while (j < main_count && m_main_rows[static_cast<size_t>(j)].depth > 0 &&
+                       m_main_rows[static_cast<size_t>(j)].parent == grp_parent) {
+                    full_h += m_main_rows[static_cast<size_t>(j)].height + 2.0f;
+                    ++j;
+                }
+                float ef = get_expand_anim(grp_parent->effective_id(), grp_parent->expanded);
+                if (ef > 0.004f) {
+                    float vis_h = full_h * ef;
+                    Rect grp_clip = Rect::from_xywh(0.0f, y, pane_w, vis_h);
+                    float slide_up = (1.0f - ef) * std::min(16.0f, full_h * 0.25f);
+                    float child_alpha = label_alpha * std::clamp(ef * 1.25f, 0.0f, 1.0f);
+
+                    ctx.push_clip(grp_clip, 0.0f);
+                    float cy = y - slide_up;
+                    for (int k = i; k < j; ++k) {
+                        const auto& crow = m_main_rows[static_cast<size_t>(k)];
+                        if (!crow.item) continue;
+                        bool is_sel = is_item_or_child_selected(*crow.item, true);
+                        if (is_sel && ef > 0.5f) {
+                            target_pill_y = cy + (crow.height - 16.0f) * 0.5f;
+                            target_pill_in_menu = true;
+                        }
+                        Rect row_rect = Rect::from_xywh(4.0f, cy, std::max(0.0f, pane_w - 8.0f), crow.height);
+                        if (cy + crow.height >= std::max(menu_vp.min_y, grp_clip.min_y) &&
+                            cy <= std::min(menu_vp.max_y, grp_clip.max_y)) {
+                            bool is_hov = (m_hovered_row == k && !m_hovered_in_footer && ef > 0.85f);
+                            bool is_prs = (m_pressed_row == k && !m_pressed_in_footer && ef > 0.85f);
+                            paint_left_row(ctx, row_rect, crow, style, is_sel, is_hov, is_prs, child_alpha);
+                        }
+                        cy += crow.height + 2.0f;
+                    }
+                    ctx.pop_clip();
+                    y += vis_h;
+                }
+                i = j;
                 continue;
             }
 
-            bool children_vis = (label_alpha > 0.01f && row.item->expanded);
+            float p_ef = (!row.item->children.empty())
+                ? get_expand_anim(row.item->effective_id(), row.item->expanded) : 0.0f;
+            bool children_vis = (label_alpha > 0.01f && p_ef > 0.5f);
             bool is_sel = is_item_or_child_selected(*row.item, children_vis);
             if (is_sel) {
                 target_pill_y = y + (row.height - 16.0f) * 0.5f;
@@ -967,6 +1043,7 @@ private:
                 paint_left_row(ctx, row_rect, row, style, is_sel, is_hov, is_prs, label_alpha);
             }
             y += row.height + 2.0f;
+            ++i;
         }
         m_menu_scrollbar.paint(ctx, menu_vp, total_menu_h, scroll_y, ThemeContext::current());
         ctx.pop_clip();
@@ -1093,11 +1170,19 @@ private:
             if (!item.children.empty()) {
                 float cx = r.max_x - 14.0f;
                 float cy = std::round(r.min_y + r.height() * 0.5f);
-                float dir = item.expanded ? -1.0f : 1.0f;
+                float ef = get_expand_anim(item.effective_id(), item.expanded);
+                float ang = ef * 3.14159265f; // 0 (向下 v) -> π (向上 ^) 平滑 180° 旋转
+                float ca = std::cos(ang), sa = std::sin(ang);
+                auto rot = [&](float dx, float dy) {
+                    return PointF{cx + dx * ca - dy * sa, cy + dx * sa + dy * ca};
+                };
                 Color ch_col = ic;
                 ch_col.a *= label_alpha * 0.75f;
-                ctx.draw_line(PointF{cx - 3.2f, cy - 1.6f * dir}, PointF{cx, cy + 1.6f * dir}, ch_col, 1.2f);
-                ctx.draw_line(PointF{cx, cy + 1.6f * dir}, PointF{cx + 3.2f, cy - 1.6f * dir}, ch_col, 1.2f);
+                PointF pL = rot(-3.2f, -1.6f);
+                PointF pM = rot( 0.0f,  1.6f);
+                PointF pR = rot( 3.2f, -1.6f);
+                ctx.draw_line(pL, pM, ch_col, 1.2f);
+                ctx.draw_line(pM, pR, ch_col, 1.2f);
                 right_reserve += 20.0f;
             }
 
@@ -1283,10 +1368,47 @@ private:
 
         if (menu_vp.contains(p)) {
             float y = menu_vp.min_y + 2.0f - m_menu_scroll.offset();
-            for (int i = 0; i < static_cast<int>(m_main_rows.size()); ++i) {
+            const int main_count = static_cast<int>(m_main_rows.size());
+            for (int i = 0; i < main_count; ) {
                 const auto& row = m_main_rows[static_cast<size_t>(i)];
-                if (!row.item) continue;
-                if (compact_hide && (row.depth > 0 || row.item->kind == NavigationItemKind::Header)) continue;
+                if (!row.item) { ++i; continue; }
+                if (compact_hide && (row.depth > 0 || row.item->kind == NavigationItemKind::Header)) { ++i; continue; }
+
+                if (row.depth > 0 && row.parent) {
+                    const NavigationViewItem* grp_parent = row.parent;
+                    int j = i;
+                    float full_h = 0.0f;
+                    while (j < main_count && m_main_rows[static_cast<size_t>(j)].depth > 0 &&
+                           m_main_rows[static_cast<size_t>(j)].parent == grp_parent) {
+                        full_h += m_main_rows[static_cast<size_t>(j)].height + 2.0f;
+                        ++j;
+                    }
+                    float ef = get_expand_anim(grp_parent->effective_id(), grp_parent->expanded);
+                    if (ef > 0.004f) {
+                        float vis_h = full_h * ef;
+                        if (p.y >= y && p.y < y + vis_h) {
+                            float slide_up = (1.0f - ef) * std::min(16.0f, full_h * 0.25f);
+                            float cy = y - slide_up;
+                            for (int k = i; k < j; ++k) {
+                                const auto& crow = m_main_rows[static_cast<size_t>(k)];
+                                if (crow.item && p.y >= cy && p.y <= cy + crow.height) {
+                                    if (crow.item->kind == NavigationItemKind::Item && ef > 0.5f) {
+                                        out_idx = k;
+                                        out_footer = false;
+                                        if (out_y) *out_y = cy;
+                                    }
+                                    return;
+                                }
+                                cy += crow.height + 2.0f;
+                            }
+                            return;
+                        }
+                        y += vis_h;
+                    }
+                    i = j;
+                    continue;
+                }
+
                 if (p.y >= y && p.y <= y + row.height) {
                     if (row.item->kind == NavigationItemKind::Item) {
                         out_idx = i;
@@ -1296,6 +1418,7 @@ private:
                     return;
                 }
                 y += row.height + 2.0f;
+                ++i;
             }
             return;
         }
@@ -1344,9 +1467,8 @@ private:
             for (auto& mi : m_data.menu_items) {
                 if (mi.effective_id() == item.effective_id()) {
                     mi.expanded = !mi.expanded;
-                    rebuild_flat_items();
+                    sync_expand_anims();
                     m_last_anim_time = std::chrono::steady_clock::now();
-                    mark_needs_layout();
                     mark_needs_paint();
                     return;
                 }
@@ -1739,6 +1861,30 @@ private:
             animating = true;
         }
 
+        // 5. 左侧可折叠父级菜单手风琴展开/收起平滑动画 + 箭头 180° 旋转
+        for (const auto& mi : m_data.menu_items) {
+            if (mi.kind != NavigationItemKind::Item || mi.children.empty()) continue;
+            const std::string& id = mi.effective_id();
+            float target = mi.expanded ? 1.0f : 0.0f;
+            bool found = false;
+            for (auto& kv : m_expand_anims) {
+                if (kv.first == id) {
+                    found = true;
+                    if (std::abs(kv.second - target) > 0.004f) {
+                        kv.second += (target - kv.second) * (1.0f - std::exp(-dt * 18.0f));
+                        if (std::abs(kv.second - target) <= 0.004f) kv.second = target;
+                        animating = true;
+                    } else {
+                        kv.second = target;
+                    }
+                    break;
+                }
+            }
+            if (!found) {
+                m_expand_anims.emplace_back(id, target);
+            }
+        }
+
         if (animating) {
             mark_needs_paint();
         }
@@ -1748,6 +1894,7 @@ private:
     NavigationViewItem m_settings_item;
     std::vector<FlatRow> m_main_rows;
     std::vector<FlatRow> m_footer_rows;
+    std::vector<std::pair<std::string, float>> m_expand_anims;
     std::vector<std::string> m_history;
 
     WidgetPtr m_content_widget;

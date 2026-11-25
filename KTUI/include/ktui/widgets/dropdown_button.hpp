@@ -152,19 +152,21 @@ inline DropDownButton::operator WidgetPtr() && {
 }
 
 // =============================================================================
-// 2. WinUI 3 SplitButton (复用两个独立 RenderButton: 左主操作区 + 右独立下拉区)
+// 2. WinUI 3 SplitButton (复用真实 RenderButton + 完整涟漪 + 一体化外框与中间竖分隔线)
 // =============================================================================
 class RenderSplitButton : public RenderBox {
 public:
     RenderSplitButton() noexcept {
         m_main_btn = make_render_node<RenderButton>();
         m_main_btn->set_corner_radii(4.0f, 0.0f, 0.0f, 4.0f);
+        m_main_btn->set_border_width(0.0f);
         m_main_btn->set_click_handler([this]() {
             if (!m_disabled && m_on_click) m_on_click();
         });
 
         m_drop_btn = make_render_node<RenderButton>();
         m_drop_btn->set_corner_radii(0.0f, 4.0f, 4.0f, 0.0f);
+        m_drop_btn->set_border_width(0.0f);
         m_drop_btn->set_custom_padding(EdgeInsets{0.0f, 0.0f, 0.0f, 0.0f});
         m_drop_btn->set_click_handler([this]() { open_menu(); });
 
@@ -245,6 +247,12 @@ public:
 
     void paint(PaintContext& ctx) override {
         const Theme& theme = ThemeContext::current();
+        const float w = size().x;
+        const float h = size().y;
+        const float split_x = std::round(std::max(0.0f, w - kDropW));
+        const Rect full_r = Rect::from_xywh(0.0f, 0.0f, w, h);
+
+        // 1. 直接复用真实 RenderButton 渲染左右两区（完整保留独立 Hover/Press/点击涟漪/图标文字排版，无内部拼缝边框）
         if (m_main_btn) {
             PaintContext::OffsetScope scope(ctx, m_main_btn->offset());
             m_main_btn->paint(ctx);
@@ -254,20 +262,34 @@ public:
             m_drop_btn->paint(ctx);
         }
 
-        // 中间 1px 竖分隔线
-        float split_x = std::max(0.0f, size().x - kDropW);
-        Color div = m_accent
-            ? (theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.20f} : Color{1.0f, 1.0f, 1.0f, 0.28f})
-            : (theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.12f} : Color{0.0f, 0.0f, 0.0f, 0.10f});
-        ctx.draw_rect(Rect::from_xywh(split_x, 4.0f, 1.0f, std::max(0.0f, size().y - 8.0f)), div, 0.0f, 0.0f);
+        // 2. 统一一体化 1px 外描边 + WinUI 3 ControlElevationBorder
+        auto main_style = m_main_btn ? m_main_btn->resolve_current_style() : ResolvedButtonStyle{};
+        if (main_style.border.a > 0.001f) {
+            ctx.draw_rect(full_r, main_style.border, 4.0f, 1.0f);
+        }
+        if (!m_disabled && main_style.elevation_edge.a > 0.001f) {
+            bool any_pressed = (m_main_btn && m_main_btn->state().is_pressed) ||
+                               (m_drop_btn && m_drop_btn->state().is_pressed) || m_menu_open;
+            if (!any_pressed) {
+                float ey = main_style.elevation_on_top ? 0.0f : (h - 1.0f);
+                ctx.draw_rect(Rect::from_xywh(3.0f, ey, std::max(0.0f, w - 6.0f), 1.0f),
+                              main_style.elevation_edge, 0.0f, 0.0f);
+            }
+        }
 
-        // 右侧 V 形下拉箭头
+        // 3. 中间 1px 一体化竖分隔线
+        Color div = m_accent
+            ? (theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.24f} : Color{1.0f, 1.0f, 1.0f, 0.30f})
+            : (theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.11f} : Color{0.0f, 0.0f, 0.0f, 0.10f});
+        ctx.draw_rect(Rect::from_xywh(split_x, 1.0f, 1.0f, std::max(0.0f, h - 2.0f)), div, 0.0f, 0.0f);
+
+        // 4. 右侧 V 形下拉箭头（颜色与右按钮当前样式完全同步）
         if (m_drop_btn) {
             Color fg = m_drop_btn->resolve_current_style().text;
-            float cx = std::round(split_x + kDropW * 0.5f);
-            float cy = std::round(size().y * 0.5f) + (m_drop_btn->state().is_pressed ? 1.0f : 0.0f);
-            ctx.draw_line(PointF{cx - 3.6f, cy - 1.8f}, PointF{cx, cy + 1.8f}, fg, 1.2f);
-            ctx.draw_line(PointF{cx, cy + 1.8f}, PointF{cx + 3.6f, cy - 1.8f}, fg, 1.2f);
+            float cx = std::round(split_x + (w - split_x) * 0.5f);
+            float cy = std::round(h * 0.5f) + (m_drop_btn->state().is_pressed ? 1.0f : 0.0f);
+            ctx.draw_line(PointF{cx - 3.6f, cy - 1.8f}, PointF{cx, cy + 1.8f}, fg, 1.25f);
+            ctx.draw_line(PointF{cx, cy + 1.8f}, PointF{cx + 3.6f, cy - 1.8f}, fg, 1.25f);
         }
     }
 

@@ -8,7 +8,7 @@
   <a href="https://laster-dev.github.io/KerneTile/"><img src="https://img.shields.io/badge/Live%20Demo-WebAssembly%20Online-0078D4?style=for-the-badge&logo=webassembly" alt="Live Demo"></a>
   <a href="https://github.com/Laster-dev/KerneTile/actions/workflows/deploy-pages.yml"><img src="https://img.shields.io/github/actions/workflow/status/Laster-dev/KerneTile/deploy-pages.yml?branch=main&style=for-the-badge&label=GitHub%20Pages%20CI" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20%20(No%20Exceptions%20%7C%20No%20RTTI)-00599C?style=for-the-badge&logo=c%2B%2B" alt="C++20">
-  <img src="https://img.shields.io/badge/Gallery%20Binary-~1.07%20MB-10893E?style=for-the-badge" alt="Binary Size">
+  <img src="https://img.shields.io/badge/Gallery%20Binary-973%20KB-10893E?style=for-the-badge" alt="Binary Size">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20Web-brightgreen?style=for-the-badge" alt="Platforms">
 </p>
 
@@ -37,7 +37,7 @@
 
 - **KerneTile（渲染内核）**：面向现代图形硬件的计算着色器驱动（Compute-Shader-Driven）**16×16 Tile-Based** 2D 渲染管线，同时提供与 GPU 数学语义完全一致的 **纯 CPU 瓦片光栅化后端**。
 - **KTUI（界面框架）**：基于 C++20 指定初始化器的声明式 UI DSL，内置 `Property<T>` 细粒度响应式绑定、Spring 弹簧物理动效、自研 Fluent 2 Mica / Acrylic 材质与 **60+ 原生桌面/工程控件**。
-- **极致体积**：包含全部 60+ 控件与完整交互展示页的 `ktui_gallery.exe`（Windows x64 Release，无外部 VC++ Redist 依赖）单文件仅 **~1.07 MB**。
+- **极致体积**：包含全部 60+ 控件与完整交互展示页的 `ktui_gallery.exe`（Windows x64 Release，无外部 VC++ Redist 依赖）单文件仅 **973 KB**（`< 1,000,000` 字节）。
 
 ---
 

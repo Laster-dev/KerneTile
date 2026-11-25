@@ -5,6 +5,11 @@
 
 namespace ktui {
 
+enum class SliderOrientation : uint8_t {
+    Horizontal = 0,
+    Vertical   = 1,
+};
+
 // 滑块数据层契约 (Slider Data Layer - WinUI 3 / Fluent 2 规范)
 struct SliderData {
     float value{0.0f};             // 当前值
@@ -19,6 +24,15 @@ struct SliderData {
 
     Fn<void(float)> on_change{nullptr};
     Fn<void(float)> on_change_end{nullptr};
+
+    // WinUI 3 扩展: 竖向模式 / 独立刻度频率 / 双滑块区间模式
+    SliderOrientation orientation{SliderOrientation::Horizontal};
+    float tick_frequency{0.0f};    // 独立刻度间隔 (0 表示沿用 step 的默认规则)
+    bool show_ticks{false};        // 强制显示刻度线
+    bool range_mode{false};        // 双滑块区间模式 (RangeSlider)
+    float range_start{20.0f};      // 双滑块左/下端值
+    float range_end{80.0f};        // 双滑块右/上端值
+    Fn<void(float, float)> on_range_changed{nullptr};
 };
 
 struct SliderInteractiveState {

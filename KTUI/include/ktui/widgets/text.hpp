@@ -201,10 +201,10 @@ private:
     Text m_desc;
 };
 
-inline Text::operator WidgetPtr() const& {
+KTUI_NOINLINE inline Text::operator WidgetPtr() const& {
     return make_widget<TextWidget>(*this);
 }
-inline Text::operator WidgetPtr() && {
+KTUI_NOINLINE inline Text::operator WidgetPtr() && {
     return make_widget<TextWidget>(std::move(*this));
 }
 

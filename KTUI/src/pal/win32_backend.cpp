@@ -945,7 +945,9 @@ std::unique_ptr<IPlatformWindow> Win32Backend::create_window(const WindowDesc& d
     }
     auto win = std::make_unique<Win32Window>(desc, m_hinstance);
     if (win->hwnd()) {
-        m_window_map[win->hwnd()] = win.get();
+        bool found_w = false;
+        for (auto& kv : m_window_map) { if (kv.first == win->hwnd()) { kv.second = win.get(); found_w = true; break; } }
+        if (!found_w) m_window_map.emplace_back(win->hwnd(), win.get());
     }
     return win;
 }
@@ -1043,16 +1045,17 @@ LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wpara
             win->attach_hwnd(hwnd);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(win));
             if (s_instance) {
-                s_instance->m_window_map[hwnd] = win;
+                bool found = false;
+                for (auto& kv : s_instance->m_window_map) { if (kv.first == hwnd) { kv.second = win; found = true; break; } }
+                if (!found) s_instance->m_window_map.emplace_back(hwnd, win);
             }
         }
     }
 
     Win32Window* win = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!win && s_instance) {
-        auto it = s_instance->m_window_map.find(hwnd);
-        if (it != s_instance->m_window_map.end()) {
-            win = it->second;
+        for (const auto& kv : s_instance->m_window_map) {
+            if (kv.first == hwnd) { win = kv.second; break; }
         }
     }
 

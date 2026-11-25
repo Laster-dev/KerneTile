@@ -1,8 +1,8 @@
 #include <ktui/presentation/mica_backdrop.hpp>
+#include <ktui/core/light_mutex.hpp>
 #include <kernetile/fx/dual_kawase_blur.hpp>
 #include <algorithm>
 #include <cmath>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -23,7 +23,7 @@ namespace ktui {
 namespace {
 
 struct BlurredWallpaperCache {
-    std::mutex mutex;
+    LightMutex mutex;
     bool loaded{false};
     uint32_t width{0};
     uint32_t height{0};
@@ -228,7 +228,7 @@ void sample_bilinear(const BlurredWallpaperCache& c, float u, float v, float& ou
 
 void MicaBackdropEngine::invalidate_wallpaper() noexcept {
     auto& c = cache();
-    std::lock_guard<std::mutex> lock(c.mutex);
+    LightLock lock(c.mutex);
     c.loaded = false;
     c.width = 0;
     c.height = 0;
@@ -276,7 +276,7 @@ bool MicaBackdropEngine::build_mica_grid(WindowBackdrop backdrop,
     const float wp_opacity = base_wp_opacity * clamped_active;
 
     auto& c = cache();
-    std::lock_guard<std::mutex> lock(c.mutex);
+    LightLock lock(c.mutex);
     ensure_wallpaper_loaded(c);
 
     for (uint32_t iy = 0; iy < 4; ++iy) {

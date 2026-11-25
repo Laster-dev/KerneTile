@@ -69,12 +69,12 @@ public:
                                           UpdaterFn&& update_fn) {
         if (!parent) return;
 
-        std::unordered_map<std::string, std::shared_ptr<RenderBox>> old_map;
+        std::vector<std::pair<std::string, std::shared_ptr<RenderBox>>> old_map;
         old_map.reserve(owned_storage.size());
         const size_t old_count = std::min(owned_storage.size(), owned_keys.size());
         for (size_t i = 0; i < old_count; ++i) {
             if (owned_storage[i]) {
-                old_map.emplace(std::move(owned_keys[i]), std::move(owned_storage[i]));
+                old_map.emplace_back(std::move(owned_keys[i]), std::move(owned_storage[i]));
             }
         }
 
@@ -91,11 +91,16 @@ public:
         for (const auto& spec : new_specs) {
             std::string key = key_fn(spec);
             std::shared_ptr<RenderBox> node;
-            if (auto it = old_map.find(key); it != old_map.end()) {
-                node = std::move(it->second);
-                old_map.erase(it);
-                update_fn(node.get(), spec);
-            } else {
+            for (size_t i = 0; i < old_map.size(); ++i) {
+                if (old_map[i].first == key) {
+                    node = std::move(old_map[i].second);
+                    old_map[i] = std::move(old_map.back());
+                    old_map.pop_back();
+                    update_fn(node.get(), spec);
+                    break;
+                }
+            }
+            if (!node) {
                 node = create_fn(spec);
             }
             if (node) {

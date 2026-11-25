@@ -296,10 +296,10 @@ private:
     Label m_desc;
 };
 
-inline Label::operator WidgetPtr() const& {
+KTUI_NOINLINE inline Label::operator WidgetPtr() const& {
     return make_widget<LabelWidget>(*this);
 }
-inline Label::operator WidgetPtr() && {
+KTUI_NOINLINE inline Label::operator WidgetPtr() && {
     return make_widget<LabelWidget>(std::move(*this));
 }
 

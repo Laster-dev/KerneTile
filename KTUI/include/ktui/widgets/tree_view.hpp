@@ -164,8 +164,7 @@ public:
 
                 // 复用现有 RenderCheckbox 控件 (自带 CUI 三态样式、对勾生长与半选横杠动效)
                 if (m_selection_mode == TreeViewSelectionMode::Multiple) {
-                    if (auto it = m_checkboxes.find(row.node->id); it != m_checkboxes.end() && it->second) {
-                        auto& cb = it->second;
+                    if (auto* cb = find_checkbox(row.node->id)) {
                         cb->clear_needs_paint();
                         PaintContext::OffsetScope scope(ctx, Vec2{std::round(x), std::round(rr.min_y + (kRowH - 18.0f) * 0.5f)});
                         cb->paint(ctx);
@@ -250,17 +249,24 @@ private:
         }
     }
 
+    RenderCheckbox* find_checkbox(const std::string& id) const noexcept {
+        for (const auto& kv : m_checkboxes) {
+            if (kv.first == id) return kv.second.get();
+        }
+        return nullptr;
+    }
+
     void sync_checkbox_node(const std::string& id, CheckState cs, bool animate) {
-        auto it = m_checkboxes.find(id);
-        if (it == m_checkboxes.end() || !it->second) {
+        auto* existing = find_checkbox(id);
+        if (!existing) {
             auto cb = make_render_node<RenderCheckbox>();
             cb->set_three_state(true);
             cb->layout(BoxConstraints::tight(Vec2{18.0f, 18.0f}));
             cb->set_state(cs);
-            m_checkboxes[id] = std::move(cb);
-        } else if (it->second->state() != cs) {
+            m_checkboxes.emplace_back(id, std::move(cb));
+        } else if (existing->state() != cs) {
             (void)animate;
-            it->second->set_state(cs);
+            existing->set_state(cs);
         }
     }
 
@@ -392,16 +398,16 @@ private:
     void update_checkbox_hover(int row_idx, bool hovered) {
         if (m_selection_mode != TreeViewSelectionMode::Multiple) return;
         if (row_idx < 0 || row_idx >= static_cast<int>(m_rows.size())) return;
-        auto it = m_checkboxes.find(m_rows[static_cast<size_t>(row_idx)].node->id);
-        if (it == m_checkboxes.end() || !it->second) return;
+        auto* cb = find_checkbox(m_rows[static_cast<size_t>(row_idx)].node->id);
+        if (!cb) return;
         PointerEvent pe;
-        if (hovered && it->second->on_pointer_enter) it->second->on_pointer_enter(pe);
-        else if (!hovered && it->second->on_pointer_exit) it->second->on_pointer_exit(pe);
+        if (hovered && cb->on_pointer_enter) cb->on_pointer_enter(pe);
+        else if (!hovered && cb->on_pointer_exit) cb->on_pointer_exit(pe);
     }
 
     std::vector<TreeViewNode> m_nodes;
     std::vector<FlatRow> m_rows;
-    std::unordered_map<std::string, std::shared_ptr<RenderCheckbox>> m_checkboxes;
+    std::vector<std::pair<std::string, std::shared_ptr<RenderCheckbox>>> m_checkboxes;
     TreeViewSelectionMode m_selection_mode{TreeViewSelectionMode::Single};
     std::string m_selected_id;
     float m_width{0.0f};

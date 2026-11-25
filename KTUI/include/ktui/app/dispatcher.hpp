@@ -3,10 +3,9 @@
 #include <ktui/pal/platform_dispatcher.hpp>
 #include <vector>
 #include <ktui/core/fn.hpp>
-#include <mutex>
+#include <ktui/core/light_mutex.hpp>
 #include <thread>
 #include <cassert>
-#include <stdexcept>
 
 namespace ktui {
 
@@ -30,7 +29,7 @@ public:
     // 从任意后台线程投递异步任务到 UI 主线程队列
     void post_task(Fn<void()> task) override {
         if (!task) return;
-        std::lock_guard<std::mutex> lock(m_mutex);
+        LightLock lock(m_mutex);
         m_pending_tasks.push_back(std::move(task));
     }
 
@@ -39,7 +38,7 @@ public:
     size_t process_tasks() override {
         std::vector<Fn<void()>> tasks_to_run;
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            LightLock lock(m_mutex);
             if (m_pending_tasks.empty()) {
                 return 0;
             }
@@ -57,7 +56,7 @@ public:
 
     // 检查是否有排队中的任务
     [[nodiscard]] bool has_pending_tasks() const override {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        LightLock lock(m_mutex);
         return !m_pending_tasks.empty();
     }
 
@@ -86,7 +85,7 @@ public:
 
 private:
     std::thread::id m_ui_thread_id;
-    mutable std::mutex m_mutex;
+    mutable LightMutex m_mutex;
     std::vector<Fn<void()>> m_pending_tasks;
 };
 

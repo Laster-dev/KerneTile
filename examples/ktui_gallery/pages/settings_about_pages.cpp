@@ -63,7 +63,7 @@ WidgetPtr build_about_page(GalleryApp& app) {
                 .spacing = 6.0f,
                 .content = {
                     Text { .text = "KerneTile 2D 瓦片计算渲染引擎 + C++20 声明式桌面 UI 框架", .font_size = 13.5f },
-                    Text { .text = "控件视觉全面对标 Windows 11 / WinUI 3 Fluent 2，内置 NanoSVG 矢量图集管线与 Chromium 原版 Impulse 平滑滚动。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+                    app.make_muted("控件视觉全面对标 Windows 11 / WinUI 3 Fluent 2，内置 NanoSVG 矢量图集管线与 Chromium 原版 Impulse 平滑滚动。", 12.5f)
                 }
             })
         }

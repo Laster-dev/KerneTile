@@ -78,7 +78,7 @@ WidgetPtr build_button_page(GalleryApp& app) {
                 .spacing = 8.0f,
                 .content = {
                     Text { .text = "多窗口派生示例", .font_size = 14.0f },
-                    Text { .text = "主窗口与子窗口共享响应式状态与主题切换。", .font_size = 12.0f }.bind(&RenderText::set_color, app.muted_text),
+                    app.make_muted("主窗口与子窗口共享响应式状态与主题切换。", 12.0f),
                     HStack {
                         .align_items = AlignItems::Center,
                         .spacing = 8.0f,
@@ -276,7 +276,7 @@ WidgetPtr build_combobox_page(GalleryApp& app) {
                             app.combo_preview.set("已选后端: " + label);
                         }
                     }.bind_two_way(app.combo_idx),
-                    Text { .font_size = 12.5f }.bind(&RenderText::set_text, app.combo_preview).bind(&RenderText::set_color, app.accent_text)
+                    app.make_accent(app.combo_preview, 12.5f)
                 }
             })
         }

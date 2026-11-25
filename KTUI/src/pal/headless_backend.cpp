@@ -7,14 +7,14 @@ namespace ktui {
 
 void HeadlessDispatcher::post_task(Fn<void()> task) {
     if (!task) return;
-    std::lock_guard<std::mutex> lock(m_mutex);
+    LightLock lock(m_mutex);
     m_queue.push_back(std::move(task));
 }
 
 size_t HeadlessDispatcher::process_tasks() {
     std::vector<Fn<void()>> local_tasks;
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        LightLock lock(m_mutex);
         local_tasks.swap(m_queue);
     }
     for (auto& task : local_tasks) {
@@ -24,7 +24,7 @@ size_t HeadlessDispatcher::process_tasks() {
 }
 
 bool HeadlessDispatcher::has_pending_tasks() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    LightLock lock(m_mutex);
     return !m_queue.empty();
 }
 

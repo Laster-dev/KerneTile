@@ -30,13 +30,16 @@ if (MSVC)
             $<$<CONFIG:Release>:/clang:-Oz>
             $<$<CONFIG:Release>:/clang:-ffunction-sections>
             $<$<CONFIG:Release>:/clang:-fdata-sections>
+            $<$<CONFIG:Release>:/clang:-fmerge-all-constants>
+            $<$<CONFIG:Release>:/clang:-fno-jump-tables>
+            $<$<CONFIG:Release>:/clang:-fno-ident>
             $<$<CONFIG:Release>:/clang:-fno-asynchronous-unwind-tables>
             $<$<CONFIG:Release>:/clang:-fno-unwind-tables>
-            $<$<CONFIG:Release>:/clang:-flto=thin>
+            $<$<CONFIG:Release>:/clang:-flto>
         )
-        # Hybrid CRT + LLD ICF/GC: 零 VC++ Redist 依赖 + Clang -Oz/ThinLTO 极致代码压缩
-        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /NODEFAULTLIB:libucrt.lib ucrt.lib")
-        set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /NODEFAULTLIB:libucrt.lib ucrt.lib")
+        # Hybrid CRT + Full LTO + LLD Outliner/MergeFunc/ICF/GC: 零 VC++ Redist 依赖 + Clang -Oz/FullLTO 极致代码压缩
+        set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /OPT:LLDLTO=3 /mllvm:-enable-machine-outliner=always /mllvm:-enable-merge-functions /NODEFAULTLIB:libucrt.lib ucrt.lib")
+        set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /OPT:REF /OPT:ICF /OPT:LLDLTO=3 /mllvm:-enable-machine-outliner=always /mllvm:-enable-merge-functions /NODEFAULTLIB:libucrt.lib ucrt.lib")
     else()
         string(REPLACE "/O2" "/O1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
         string(REPLACE "/Ob2" "/Ob1" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")

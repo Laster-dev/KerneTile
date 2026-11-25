@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ktui/pal/platform_backend.hpp>
-#include <mutex>
+#include <ktui/core/light_mutex.hpp>
 #include <vector>
 #include <deque>
 #include <cstdint>
@@ -16,7 +16,7 @@ public:
     bool has_pending_tasks() const override;
 
 private:
-    mutable std::mutex m_mutex;
+    mutable LightMutex m_mutex;
     std::vector<Fn<void()>> m_queue;
 };
 

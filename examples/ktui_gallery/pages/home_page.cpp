@@ -1,4 +1,4 @@
-﻿#include "gallery_pages.hpp"
+#include "gallery_pages.hpp"
 
 using namespace ktui;
 
@@ -29,7 +29,7 @@ WidgetPtr build_svg_page(GalleryApp& app) {
         .spacing = 12.0f,
         .content = {
             app.make_page_title("NanoSVG 矢量图形", 22.0f),
-            Text { .text = "由 NanoSVG 解析光栅化并缓存至 KerneTile DynamicAtlas，全后端单图元 80B 硬件加速渲染。", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("由 NanoSVG 解析光栅化并缓存至 KerneTile DynamicAtlas，全后端单图元 80B 硬件加速渲染。", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
@@ -44,7 +44,7 @@ WidgetPtr build_svg_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     Svg { .path = kShieldPath, .viewbox_size = 24.0f, .width = 36.0f, .height = 36.0f }.bind(&RenderSvg::set_tint, app.accent_text),
-                                    Text { .text = "36px 强调色", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
+                                    app.make_muted("36px 强调色", 11.5f)
                                 }
                             },
                             VStack {
@@ -52,7 +52,7 @@ WidgetPtr build_svg_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     Svg { .path = kRocketPath, .viewbox_size = 24.0f, .width = 36.0f, .height = 36.0f },
-                                    Text { .text = "36px 主题前景", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
+                                    app.make_muted("36px 主题前景", 11.5f)
                                 }
                             },
                             VStack {
@@ -60,7 +60,7 @@ WidgetPtr build_svg_page(GalleryApp& app) {
                                 .spacing = 6.0f,
                                 .content = {
                                     Svg { .path = kHeartPath, .viewbox_size = 24.0f, .width = 36.0f, .height = 36.0f, .tint = Color{0.95f, 0.32f, 0.42f, 1.0f} },
-                                    Text { .text = "36px 语义红", .font_size = 11.5f }.bind(&RenderText::set_color, app.muted_text)
+                                    app.make_muted("36px 语义红", 11.5f)
                                 }
                             }
                         }
@@ -77,7 +77,7 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             app.make_page_title("KTUI Gallery", 24.0f),
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 49 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_muted("对标 Windows 11 WinUI 3 Gallery · 49 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", 12.5f),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,

@@ -11,6 +11,7 @@
 #include <ktui/tree/render_box.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -69,14 +70,14 @@ public:
     }
 
     void perform_layout() override {
-        float ideal_w = 8.0f;
+        float ideal_w = 6.0f;
         for (const auto& it : m_items) {
-            float iw = 24.0f + TextMeasure::measure_width(it.label, 13.0f);
+            float iw = 28.0f + TextMeasure::measure_width(it.label, 13.0f);
             if (!it.svg_path.empty()) iw += 20.0f;
-            ideal_w += std::max(64.0f, iw);
+            ideal_w += std::max(68.0f, iw);
         }
         float w = (m_width > 0.0f) ? m_width : std::max(120.0f, std::ceil(ideal_w));
-        set_size(m_constraints.constrain(Vec2{w, 34.0f}));
+        set_size(m_constraints.constrain(Vec2{w, 32.0f}));
         if (!m_pill_init && !m_items.empty()) {
             Rect sr = segment_rect(m_selected);
             m_pill_x = sr.min_x;
@@ -91,50 +92,82 @@ public:
         const float w = size().x;
         const float h = size().y;
 
-        // 槽底板
-        Color track_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.045f} : Color{0.0f, 0.0f, 0.0f, 0.045f};
+        // 1. Fluent 2 外槽底板 (ControlAltFillColorSecondary + ControlStrokeColorDefault)
+        Color track_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.035f} : Color{0.0f, 0.0f, 0.0f, 0.038f};
         ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), track_bg, 6.0f, 0.0f);
         ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), theme.colors.control_stroke_default, 6.0f, 1.0f);
 
-        // 平滑滑动激活胶囊
+        // 2. 独立 steady_clock 指数阻尼平滑滑块 (消除 FrameClock 抖动与取整跳帧)
+        auto now = std::chrono::steady_clock::now();
+        float dt = 1.0f / 60.0f;
+        if (m_has_last_frame) {
+            dt = std::clamp(std::chrono::duration<float>(now - m_last_frame).count(), 0.001f, 0.05f);
+        }
+        m_last_frame = now;
+        m_has_last_frame = true;
+
         Rect target = segment_rect(m_selected);
         if (!m_pill_init) {
             m_pill_x = target.min_x;
             m_pill_w = target.width();
             m_pill_init = true;
-        } else if (std::abs(m_pill_x - target.min_x) > 0.25f || std::abs(m_pill_w - target.width()) > 0.25f) {
-            float dt = std::clamp(FrameClock::global().dt(), 1.0f / 240.0f, 0.05f);
-            float t = std::min(1.0f, dt * 18.0f);
-            m_pill_x += (target.min_x - m_pill_x) * t;
-            m_pill_w += (target.width() - m_pill_w) * t;
+        } else if (std::abs(m_pill_x - target.min_x) > 0.15f || std::abs(m_pill_w - target.width()) > 0.15f) {
+            float k = 1.0f - std::exp(-dt * 24.0f);
+            m_pill_x += (target.min_x - m_pill_x) * k;
+            m_pill_w += (target.width() - m_pill_w) * k;
             mark_needs_paint();
         } else {
             m_pill_x = target.min_x;
             m_pill_w = target.width();
+            m_has_last_frame = false;
         }
 
-        // Hover 反馈
+        // 3. 非激活相邻分段之间的柔和分隔竖线
+        Color sep_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.09f};
+        for (int i = 1; i < static_cast<int>(m_items.size()); ++i) {
+            if (i == m_selected || i - 1 == m_selected || i == m_hovered || i - 1 == m_hovered) continue;
+            Rect sr = segment_rect(i);
+            ctx.draw_rect(Rect::from_xywh(std::round(sr.min_x), std::round((h - 14.0f) * 0.5f), 1.0f, 14.0f),
+                          sep_col, 0.0f, 0.0f);
+        }
+
+        // 4. Hover / Press 柔和背景反馈
         if (m_hovered >= 0 && m_hovered != m_selected && m_hovered < static_cast<int>(m_items.size())) {
-            ctx.draw_rect(segment_rect(m_hovered), theme.colors.subtle_fill_secondary, 4.0f, 0.0f);
+            Color hbg = (m_pressed == m_hovered) ? theme.colors.subtle_fill_tertiary : theme.colors.subtle_fill_secondary;
+            ctx.draw_rect(segment_rect(m_hovered), hbg, 4.0f, 0.0f);
         }
 
-        Rect pill = Rect::from_xywh(std::round(m_pill_x), 3.0f, std::round(m_pill_w), h - 6.0f);
-        Color pill_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.11f} : Color{1.0f, 1.0f, 1.0f, 0.96f};
+        // 5. Fluent 2 激活滑块 (Subpixel 平滑 + Elevation 质感 + 底部主题微指示条)
+        Rect pill = Rect::from_xywh(m_pill_x, 2.0f, m_pill_w, h - 4.0f);
+        if (!theme.is_dark) {
+            ctx.draw_rect(Rect::from_xywh(pill.min_x, pill.min_y + 1.0f, pill.width(), pill.height()),
+                          Color{0.0f, 0.0f, 0.0f, 0.05f}, 4.0f, 0.0f);
+        }
+        Color pill_bg = theme.is_dark
+            ? (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.075f} : Color{1.0f, 1.0f, 1.0f, 0.098f})
+            : (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.88f}  : Color{1.0f, 1.0f, 1.0f, 0.98f});
         ctx.draw_rect(pill, pill_bg, 4.0f, 0.0f);
         ctx.draw_rect(pill, theme.colors.control_stroke_default, 4.0f, 1.0f);
-        // 底部主题色微指示条
-        float bar_w = std::min(22.0f, std::max(10.0f, pill.width() * 0.35f));
-        ctx.draw_rect(Rect::from_xywh(std::round(pill.min_x + (pill.width() - bar_w) * 0.5f),
-                                      pill.max_y - 2.5f, bar_w, 2.0f),
-                      theme.colors.primary, 1.0f, 0.0f);
+        if (theme.is_dark) {
+            ctx.draw_rect(Rect::from_xywh(pill.min_x + 3.0f, pill.min_y + 0.5f,
+                                          std::max(0.0f, pill.width() - 6.0f), 1.0f),
+                          Color{1.0f, 1.0f, 1.0f, 0.08f}, 0.0f, 0.0f);
+        }
+        // 底部居中 Fluent 2 主题色药丸指示条
+        float bar_w = std::min(18.0f, std::max(10.0f, pill.width() * 0.28f));
+        ctx.draw_rect(Rect::from_xywh(pill.min_x + (pill.width() - bar_w) * 0.5f,
+                                      pill.max_y - 2.5f, bar_w, 2.5f),
+                      theme.colors.primary, 1.25f, 0.0f);
 
         Color active_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.96f} : Color{0.0f, 0.0f, 0.0f, 0.92f};
-        Color idle_c   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.68f} : Color{0.0f, 0.0f, 0.0f, 0.62f};
+        Color hover_c  = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.84f} : Color{0.0f, 0.0f, 0.0f, 0.80f};
+        Color idle_c   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.64f} : Color{0.0f, 0.0f, 0.0f, 0.60f};
 
         for (size_t i = 0; i < m_items.size(); ++i) {
-            Rect sr = segment_rect(static_cast<int>(i));
+            int idx = static_cast<int>(i);
+            Rect sr = segment_rect(idx);
             const auto& it = m_items[i];
-            Color tc = (static_cast<int>(i) == m_selected) ? active_c : idle_c;
+            Color tc = (idx == m_selected) ? active_c : (idx == m_hovered ? hover_c : idle_c);
             Vec2 ts = TextMeasure::measure(it.label, 13.0f);
             float content_w = ts.x + (it.svg_path.empty() ? 0.0f : 20.0f);
             float sx = std::round(sr.min_x + (sr.width() - content_w) * 0.5f);
@@ -150,15 +183,15 @@ public:
 private:
     Rect segment_rect(int idx) const noexcept {
         if (m_items.empty()) return Rect{};
-        float inner_w = std::max(1.0f, size().x - 6.0f);
+        float inner_w = std::max(1.0f, size().x - 4.0f);
         float seg_w = inner_w / static_cast<float>(m_items.size());
-        return Rect::from_xywh(3.0f + static_cast<float>(idx) * seg_w, 3.0f, seg_w, size().y - 6.0f);
+        return Rect::from_xywh(2.0f + static_cast<float>(idx) * seg_w, 2.0f, seg_w, size().y - 4.0f);
     }
 
     int hit_segment(Vec2 local) const noexcept {
-        if (m_items.empty() || local.x < 3.0f || local.x > size().x - 3.0f) return -1;
-        float seg_w = std::max(1.0f, size().x - 6.0f) / static_cast<float>(m_items.size());
-        int idx = static_cast<int>((local.x - 3.0f) / seg_w);
+        if (m_items.empty() || local.x < 2.0f || local.x > size().x - 2.0f) return -1;
+        float seg_w = std::max(1.0f, size().x - 4.0f) / static_cast<float>(m_items.size());
+        int idx = static_cast<int>((local.x - 2.0f) / seg_w);
         return (idx >= 0 && idx < static_cast<int>(m_items.size())) ? idx : -1;
     }
 
@@ -168,25 +201,32 @@ private:
             if (h != m_hovered) { m_hovered = h; mark_needs_paint(); }
         };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_hovered != -1) { m_hovered = -1; mark_needs_paint(); }
+            if (m_hovered != -1 || m_pressed != -1) { m_hovered = -1; m_pressed = -1; mark_needs_paint(); }
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
             int idx = hit_segment(e.local_position);
             if (idx >= 0) {
+                m_pressed = idx;
                 select(idx);
                 e.stop_propagation();
             }
+        };
+        on_pointer_up = [this](PointerEvent&) {
+            if (m_pressed != -1) { m_pressed = -1; mark_needs_paint(); }
         };
     }
 
     std::vector<SegmentedItem> m_items;
     int m_selected{0};
     int m_hovered{-1};
+    int m_pressed{-1};
     float m_width{0.0f};
     bool m_pill_init{false};
-    float m_pill_x{3.0f};
+    float m_pill_x{2.0f};
     float m_pill_w{60.0f};
+    bool m_has_last_frame{false};
+    std::chrono::steady_clock::time_point m_last_frame{};
     Fn<void(int)> m_on_selected;
 
 public:
