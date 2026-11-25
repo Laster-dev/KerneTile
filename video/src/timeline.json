@@ -1,0 +1,327 @@
+{
+  "voice": "zh-CN-YunyangNeural",
+  "rate": "+12%",
+  "fps": 30,
+  "totalDuration": 106.458,
+  "totalFrames": 3194,
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "KerneTile & KTUI",
+      "start": 0.0,
+      "end": 17.01,
+      "duration": 17.01,
+      "startFrame": 0,
+      "durationFrames": 510
+    },
+    {
+      "id": "architecture",
+      "title": "四层解耦架构",
+      "start": 17.01,
+      "end": 43.04,
+      "duration": 26.03,
+      "startFrame": 510,
+      "durationFrames": 781
+    },
+    {
+      "id": "core_code",
+      "title": "80 字节图元与解析 SDF",
+      "start": 43.04,
+      "end": 67.174,
+      "duration": 24.134,
+      "startFrame": 1291,
+      "durationFrames": 724
+    },
+    {
+      "id": "declarative_ui",
+      "title": "KTUI C++20 声明式框架",
+      "start": 67.174,
+      "end": 83.208,
+      "duration": 16.034,
+      "startFrame": 2015,
+      "durationFrames": 481
+    },
+    {
+      "id": "terminal_bench",
+      "title": "终端构建、测试与体积对比",
+      "start": 83.208,
+      "end": 98.69,
+      "duration": 15.482,
+      "startFrame": 2496,
+      "durationFrames": 465
+    },
+    {
+      "id": "outro",
+      "title": "全平台与开源生态",
+      "start": 98.69,
+      "end": 106.458,
+      "duration": 7.768,
+      "startFrame": 2961,
+      "durationFrames": 233
+    }
+  ],
+  "clips": [
+    {
+      "index": 1,
+      "sceneId": "intro",
+      "file": "audio/line_01.mp3",
+      "text": "跨平台桌面应用动辄上百兆，一套完整的现代 UI 引擎，能否压缩到一兆以内？",
+      "start": 0.4,
+      "end": 6.76,
+      "startFrame": 12,
+      "durationFrames": 191,
+      "duration": 6.36
+    },
+    {
+      "index": 2,
+      "sceneId": "intro",
+      "file": "audio/line_02.mp3",
+      "text": "这就是 KerneTile 与 KTUI——纯 C++20 零异常、零 RTTI 构建的计算着色器 2D 渲染引擎，与 Fluent 2 声明式框架。",
+      "start": 6.94,
+      "end": 16.66,
+      "startFrame": 208,
+      "durationFrames": 292,
+      "duration": 9.72
+    },
+    {
+      "index": 3,
+      "sceneId": "architecture",
+      "file": "audio/line_03.mp3",
+      "text": "KerneTile 采用清晰的四层解耦架构。顶层 KTUI 将控件树扁平化为紧凑图元数组。",
+      "start": 17.01,
+      "end": 24.114,
+      "startFrame": 510,
+      "durationFrames": 213,
+      "duration": 7.104
+    },
+    {
+      "index": 4,
+      "sceneId": "architecture",
+      "file": "audio/line_04.mp3",
+      "text": "中层内核通过十六乘十六瓦片分箱与脏块剔除，局部交互时可跳过百分之九十九以上的无效计算。",
+      "start": 24.294,
+      "end": 32.238,
+      "startFrame": 729,
+      "durationFrames": 238,
+      "duration": 7.944
+    },
+    {
+      "index": 5,
+      "sceneId": "architecture",
+      "file": "audio/line_05.mp3",
+      "text": "底层仅用六个 HAL 接口驱动 D3D12、Vulkan 与 WebGPU，并内置同源 CPU 光栅化器，搭配 PAL 平台层轻松覆盖全端。",
+      "start": 32.418,
+      "end": 42.69,
+      "startFrame": 973,
+      "durationFrames": 308,
+      "duration": 10.272
+    },
+    {
+      "index": 6,
+      "sceneId": "core_code",
+      "file": "audio/line_06.mp3",
+      "text": "看核心代码：每个元素压缩为严格对齐的八十字节 UiPrimitive，与 GPU 端二进制精确镜像。",
+      "start": 43.04,
+      "end": 50.504,
+      "startFrame": 1291,
+      "durationFrames": 224,
+      "duration": 7.464
+    },
+    {
+      "index": 7,
+      "sceneId": "core_code",
+      "file": "audio/line_07.mp3",
+      "text": "渲染无需三角网格或贴图，计算着色器逐像素求值无分支圆角 SDF，任意缩放依然锐利无锯齿。",
+      "start": 50.684,
+      "end": 59.084,
+      "startFrame": 1521,
+      "durationFrames": 252,
+      "duration": 8.4
+    },
+    {
+      "index": 8,
+      "sceneId": "core_code",
+      "file": "audio/line_08.mp3",
+      "text": "配合四阶误差函数逼近的解析高斯阴影，单遍即得平滑软阴影，彻底省去多遍离屏模糊开销。",
+      "start": 59.264,
+      "end": 66.824,
+      "startFrame": 1778,
+      "durationFrames": 227,
+      "duration": 7.56
+    },
+    {
+      "index": 9,
+      "sceneId": "declarative_ui",
+      "file": "audio/line_09.mp3",
+      "text": "开发体验上，KTUI 借助 C++20 指定初始化器，写出如现代前端般简洁的声明式代码。",
+      "start": 67.174,
+      "end": 74.494,
+      "startFrame": 2015,
+      "durationFrames": 220,
+      "duration": 7.32
+    },
+    {
+      "index": 10,
+      "sceneId": "declarative_ui",
+      "file": "audio/line_10.mp3",
+      "text": "内置响应式绑定、弹簧动效与六十余种控件，直接桥接系统原生字体，彻底告别几十兆运行时捆绑。",
+      "start": 74.674,
+      "end": 82.858,
+      "startFrame": 2240,
+      "durationFrames": 246,
+      "duration": 8.184
+    },
+    {
+      "index": 11,
+      "sceneId": "terminal_bench",
+      "file": "audio/line_11.mp3",
+      "text": "终端实测 Clang-CL 与 ThinLTO 极致构建，含全部控件的 Gallery 单文件仅 973 KB，零外部运行库依赖。",
+      "start": 83.208,
+      "end": 91.728,
+      "startFrame": 2496,
+      "durationFrames": 256,
+      "duration": 8.52
+    },
+    {
+      "index": 12,
+      "sceneId": "terminal_bench",
+      "file": "audio/line_12.mp3",
+      "text": "三十九项核心单元测试瞬间全绿通过，相比传统方案体积缩减一个数量级以上。",
+      "start": 91.908,
+      "end": 98.34,
+      "startFrame": 2757,
+      "durationFrames": 193,
+      "duration": 6.432
+    },
+    {
+      "index": 13,
+      "sceneId": "outro",
+      "file": "audio/line_13.mp3",
+      "text": "轻量、高性能且极易移植，欢迎访问 KerneTile 仓库或体验 WebAssembly 在线演示。",
+      "start": 98.69,
+      "end": 105.458,
+      "startFrame": 2961,
+      "durationFrames": 203,
+      "duration": 6.768
+    }
+  ],
+  "subtitles": [
+    {
+      "id": 1,
+      "sceneId": "intro",
+      "start": 0.4,
+      "end": 6.76,
+      "startFrame": 12,
+      "endFrame": 203,
+      "text": "跨平台桌面应用动辄上百兆，一套完整的现代 UI 引擎，能否压缩到一兆以内？"
+    },
+    {
+      "id": 2,
+      "sceneId": "intro",
+      "start": 6.94,
+      "end": 16.66,
+      "startFrame": 208,
+      "endFrame": 500,
+      "text": "这就是 KerneTile 与 KTUI——纯 C++20 零异常、零 RTTI 构建的计算着色器 2D 渲染引擎，与 Fluent 2 声明式框架。"
+    },
+    {
+      "id": 3,
+      "sceneId": "architecture",
+      "start": 17.01,
+      "end": 24.114,
+      "startFrame": 510,
+      "endFrame": 723,
+      "text": "KerneTile 采用清晰的四层解耦架构。顶层 KTUI 将控件树扁平化为紧凑图元数组。"
+    },
+    {
+      "id": 4,
+      "sceneId": "architecture",
+      "start": 24.294,
+      "end": 32.238,
+      "startFrame": 729,
+      "endFrame": 967,
+      "text": "中层内核通过十六乘十六瓦片分箱与脏块剔除，局部交互时可跳过百分之九十九以上的无效计算。"
+    },
+    {
+      "id": 5,
+      "sceneId": "architecture",
+      "start": 32.418,
+      "end": 42.69,
+      "startFrame": 973,
+      "endFrame": 1281,
+      "text": "底层仅用六个 HAL 接口驱动 D3D12、Vulkan 与 WebGPU，并内置同源 CPU 光栅化器，搭配 PAL 平台层轻松覆盖全端。"
+    },
+    {
+      "id": 6,
+      "sceneId": "core_code",
+      "start": 43.04,
+      "end": 50.504,
+      "startFrame": 1291,
+      "endFrame": 1515,
+      "text": "看核心代码：每个元素压缩为严格对齐的八十字节 UiPrimitive，与 GPU 端二进制精确镜像。"
+    },
+    {
+      "id": 7,
+      "sceneId": "core_code",
+      "start": 50.684,
+      "end": 59.084,
+      "startFrame": 1521,
+      "endFrame": 1773,
+      "text": "渲染无需三角网格或贴图，计算着色器逐像素求值无分支圆角 SDF，任意缩放依然锐利无锯齿。"
+    },
+    {
+      "id": 8,
+      "sceneId": "core_code",
+      "start": 59.264,
+      "end": 66.824,
+      "startFrame": 1778,
+      "endFrame": 2005,
+      "text": "配合四阶误差函数逼近的解析高斯阴影，单遍即得平滑软阴影，彻底省去多遍离屏模糊开销。"
+    },
+    {
+      "id": 9,
+      "sceneId": "declarative_ui",
+      "start": 67.174,
+      "end": 74.494,
+      "startFrame": 2015,
+      "endFrame": 2235,
+      "text": "开发体验上，KTUI 借助 C++20 指定初始化器，写出如现代前端般简洁的声明式代码。"
+    },
+    {
+      "id": 10,
+      "sceneId": "declarative_ui",
+      "start": 74.674,
+      "end": 82.858,
+      "startFrame": 2240,
+      "endFrame": 2486,
+      "text": "内置响应式绑定、弹簧动效与六十余种控件，直接桥接系统原生字体，彻底告别几十兆运行时捆绑。"
+    },
+    {
+      "id": 11,
+      "sceneId": "terminal_bench",
+      "start": 83.208,
+      "end": 91.728,
+      "startFrame": 2496,
+      "endFrame": 2752,
+      "text": "终端实测 Clang-CL 与 ThinLTO 极致构建，含全部控件的 Gallery 单文件仅 973 KB，零外部运行库依赖。"
+    },
+    {
+      "id": 12,
+      "sceneId": "terminal_bench",
+      "start": 91.908,
+      "end": 98.34,
+      "startFrame": 2757,
+      "endFrame": 2950,
+      "text": "三十九项核心单元测试瞬间全绿通过，相比传统方案体积缩减一个数量级以上。"
+    },
+    {
+      "id": 13,
+      "sceneId": "outro",
+      "start": 98.69,
+      "end": 105.458,
+      "startFrame": 2961,
+      "endFrame": 3164,
+      "text": "轻量、高性能且极易移植，欢迎访问 KerneTile 仓库或体验 WebAssembly 在线演示。"
+    }
+  ]
+}

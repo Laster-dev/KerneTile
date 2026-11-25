@@ -53,3 +53,18 @@ local.properties
 # OS files
 Thumbs.db
 .DS_Store
+
+# Agent local skills
+.agents/
+
+# Generated videos, TTS audio & capture artifacts
+*.mp4
+video/node_modules/
+video/public/audio/
+video/public/showcase_audio/
+video/public/clips/
+video_assets/clips/
+video_assets/previews/
+video_assets/*.png
+video_assets/*.srt
+video_assets/timeline.json
