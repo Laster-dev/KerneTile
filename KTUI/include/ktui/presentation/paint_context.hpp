@@ -139,13 +139,14 @@ public:
                           Vec2{direction_offset.x * amb_dist, direction_offset.y * amb_dist});
     }
 
-    // 绘制文本 (支持 WinUI 3 字重与斜体)
+    // 绘制文本 (支持 WinUI 3 字重、斜体与自定义字体族，如 "monospace" / "Cascadia Mono" / "Consolas")
     KTUI_NOINLINE void draw_text(std::string_view text, PointF pos, float font_size, Color color,
-                   FontWeight weight = FontWeight::Regular, bool italic = false) {
+                   FontWeight weight = FontWeight::Regular, bool italic = false,
+                   std::string_view font_family = "") {
         PointF abs_pos = pos + m_current_offset;
         if (m_renderer) {
             m_renderer->draw_text_scaled(text, abs_pos.x, abs_pos.y, font_size, color,
-                                         m_render_scale, static_cast<uint16_t>(weight), italic);
+                                         m_render_scale, static_cast<uint16_t>(weight), italic, font_family);
         }
         m_primitive_count++;
     }

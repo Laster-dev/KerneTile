@@ -82,8 +82,9 @@ public:
         math::Color color) = 0;
 
     virtual void draw_text_scaled(std::string_view text, float x, float y, float font_size,
-                                  math::Color color, float scale, uint16_t font_weight = 400, bool italic = false) {
-        (void)font_weight; (void)italic;
+                                  math::Color color, float scale, uint16_t font_weight = 400,
+                                  bool italic = false, std::string_view font_family = "") {
+        (void)font_weight; (void)italic; (void)font_family;
         draw_text(text, x * scale, y * scale, font_size * scale, color);
     }
 

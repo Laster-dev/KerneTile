@@ -45,13 +45,14 @@ public:
         uint16_t clip_index = core::INVALID_INDEX_U16,
         float render_scale = 1.0f,
         uint16_t font_weight = 400,
-        bool italic = false)
+        bool italic = false,
+        std::string_view font_family = "")
     {
         TextStreamStats stats;
         const float raster_size = font_size * render_scale;
         const auto layout = &m_engine == &shared_text_engine()
-            ? layout_text(utf8_text, font_size, font_weight, italic)
-            : std::make_shared<const TextLayoutResult>(m_engine.shape_text(utf8_text, font_size, "", font_weight, italic));
+            ? layout_text(utf8_text, font_size, font_weight, italic, font_family)
+            : std::make_shared<const TextLayoutResult>(m_engine.shape_text(utf8_text, font_size, font_family, font_weight, italic));
 
         for (const auto& gp : layout->glyphs) {
             stats.total_glyphs++;

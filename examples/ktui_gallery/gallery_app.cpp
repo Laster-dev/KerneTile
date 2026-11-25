@@ -312,6 +312,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"data_grid",           "DataGrid",       nullptr},
                 {"geek_inspector_grid", "InspectorGrid",  "New"},
                 {"geek_hex_viewer",     "HexViewer",      "New"},
+                {"geek_terminal",       "Terminal",       "New"},
                 {"flip_view",           "FlipView",       nullptr},
                 {"pips_pager",          "PipsPager",      nullptr}
             }),
@@ -352,6 +353,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             static constexpr Route kRoutes[] = {
                 {"geek_inspector_grid",  pages::build_inspector_grid_page},
                 {"geek_hex_viewer",      pages::build_hex_viewer_page},
+                {"geek_terminal",        pages::build_terminal_page},
                 {"geek_syntax_filter",   pages::build_syntax_filter_page},
                 {"geek_status_bar",      pages::build_status_bar_page},
                 {"pro_query_filter",     pages::build_query_filter_page},

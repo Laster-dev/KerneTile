@@ -552,6 +552,7 @@ if (BUILD_TESTING)
     add_ktui_test(test_ktui_navigation_view  tests/test_ktui_navigation_view.cpp  ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_pro_controls     tests/test_ktui_pro_controls.cpp     ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_terminal         tests/test_ktui_terminal.cpp         ktui_pal kernetile_engine)
 endif()
 
 

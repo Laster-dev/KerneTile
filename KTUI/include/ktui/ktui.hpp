@@ -130,3 +130,4 @@
 #include <ktui/widgets/syntax_filter_bar.hpp>
 #include <ktui/widgets/status_bar.hpp>
 #include <ktui/widgets/rich_text_block.hpp>
+#include <ktui/widgets/terminal.hpp>

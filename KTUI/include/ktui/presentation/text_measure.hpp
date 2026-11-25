@@ -20,14 +20,16 @@ namespace ktui {
 class TextMeasure {
 public:
     KTUI_TM_NOINLINE static Vec2 measure(std::string_view text, float font_size,
-                        FontWeight weight = FontWeight::Regular, bool italic = false) {
-        const auto layout = kernetile::text::layout_text(text, font_size, static_cast<uint16_t>(weight), italic);
+                        FontWeight weight = FontWeight::Regular, bool italic = false,
+                        std::string_view font_family = "") {
+        const auto layout = kernetile::text::layout_text(text, font_size, static_cast<uint16_t>(weight), italic, font_family);
         return {layout->total_width, layout->total_height};
     }
 
     KTUI_TM_NOINLINE static float measure_width(std::string_view text, float font_size,
-                               FontWeight weight = FontWeight::Regular, bool italic = false) {
-        return measure(text, font_size, weight, italic).x;
+                               FontWeight weight = FontWeight::Regular, bool italic = false,
+                               std::string_view font_family = "") {
+        return measure(text, font_size, weight, italic, font_family).x;
     }
 
     KTUI_TM_NOINLINE static float cursor_x(std::string_view text, float font_size, size_t byte) {

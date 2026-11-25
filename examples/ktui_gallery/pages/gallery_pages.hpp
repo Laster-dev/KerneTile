@@ -87,5 +87,6 @@ ktui::WidgetPtr build_inspector_grid_page(GalleryApp& app);
 ktui::WidgetPtr build_hex_viewer_page(GalleryApp& app);
 ktui::WidgetPtr build_syntax_filter_page(GalleryApp& app);
 ktui::WidgetPtr build_status_bar_page(GalleryApp& app);
+ktui::WidgetPtr build_terminal_page(GalleryApp& app);
 
 } // namespace gallery::pages

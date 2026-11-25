@@ -40,7 +40,8 @@ public:
 
 ITextEngine& shared_text_engine();
 std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float size,
-                                                    uint16_t font_weight = 400, bool italic = false);
+                                                    uint16_t font_weight = 400, bool italic = false,
+                                                    std::string_view font_family = "");
 std::vector<size_t> grapheme_boundaries(std::string_view text);
 
 } // namespace kernetile::text

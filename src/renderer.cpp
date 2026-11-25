@@ -135,7 +135,8 @@ public:
     }
 
     void draw_text_scaled(std::string_view text, float x, float y, float font_size,
-                          math::Color color, float scale, uint16_t font_weight = 400, bool italic = false) override {
+                          math::Color color, float scale, uint16_t font_weight = 400,
+                          bool italic = false, std::string_view font_family = "") override {
         if (!m_text_streamer) return;
         uint16_t clip_idx = (m_clip_stack.depth() > 0) 
             ? static_cast<uint16_t>(m_clip_stack.current_clip_index()) 
@@ -143,7 +144,7 @@ public:
 
         m_text_streamer->stream_text(
             text, x, y, font_size, color,
-            m_primitives, clip_idx, scale, font_weight, italic);
+            m_primitives, clip_idx, scale, font_weight, italic, font_family);
     }
 
     bool has_cached_mask(uint64_t cache_key) const noexcept override {

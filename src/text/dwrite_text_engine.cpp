@@ -206,8 +206,33 @@ private:
         return glyph_marker + static_cast<uint32_t>(m_glyphs.size() - 1);
     }
 
+    std::wstring resolve_family(std::string_view family) {
+        if (family.empty()) return std::wstring(m_font.lfFaceName);
+        if (family == "monospace") {
+            if (m_mono_family.empty() && m_factory) {
+                ComPtr<IDWriteFontCollection> coll;
+                if (SUCCEEDED(m_factory->GetSystemFontCollection(&coll)) && coll) {
+                    static constexpr const wchar_t* kCandidates[] = {
+                        L"Cascadia Mono", L"Cascadia Code", L"Consolas", L"Courier New"
+                    };
+                    for (const wchar_t* cand : kCandidates) {
+                        UINT32 idx = 0;
+                        BOOL exists = FALSE;
+                        if (SUCCEEDED(coll->FindFamilyName(cand, &idx, &exists)) && exists) {
+                            m_mono_family = cand;
+                            break;
+                        }
+                    }
+                }
+                if (m_mono_family.empty()) m_mono_family = L"Consolas";
+            }
+            return m_mono_family;
+        }
+        return utf16(family);
+    }
+
     ComPtr<IDWriteTextLayout> make_layout(std::wstring_view text, float size, std::string_view family, uint16_t font_weight, bool italic) {
-        const auto name = family.empty() ? std::wstring(m_font.lfFaceName) : utf16(family);
+        const auto name = resolve_family(family);
         wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
         GetUserDefaultLocaleName(locale, static_cast<int>(std::size(locale)));
         ComPtr<IDWriteTextFormat> format;
@@ -225,6 +250,7 @@ private:
     }
 
     LOGFONTW m_font;
+    std::wstring m_mono_family;
     ComPtr<IDWriteFactory> m_factory;
     ComPtr<IDWriteGdiInterop> m_gdi;
     std::vector<Glyph> m_glyphs;

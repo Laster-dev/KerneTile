@@ -458,7 +458,7 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
                 }
                 if (m_touch_lp.fired) break;
             }
-            PointerEvent ev(PlatformEventType::PointerMove, client_pos, pe.button);
+            PointerEvent ev(PlatformEventType::PointerMove, client_pos, pe.button, pe.modifiers);
             ev.device_kind = pe.device_kind;
             ev.pointer_id = pe.pointer_id;
             ev.timestamp_ms = pe.timestamp_ms;
@@ -483,8 +483,7 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
             break;
         }
         case PlatformEventType::PointerScroll: {
-            PointerEvent ev(PlatformEventType::PointerScroll, client_pos, PointerButton::None);
-            ev.delta = pe.delta;
+            PointerEvent ev(PlatformEventType::PointerScroll, client_pos, PointerButton::None, pe.modifiers, pe.delta);
             ev.device_kind = pe.device_kind;
             ev.pointer_id = pe.pointer_id;
             ev.timestamp_ms = pe.timestamp_ms;
@@ -520,7 +519,7 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
                 m_focus_manager.clear_focus();
             }
 
-            PointerEvent ev(PlatformEventType::PointerDown, client_pos, pe.button);
+            PointerEvent ev(PlatformEventType::PointerDown, client_pos, pe.button, pe.modifiers);
             ev.device_kind = pe.device_kind;
             ev.pointer_id = pe.pointer_id;
             ev.timestamp_ms = pe.timestamp_ms;
@@ -538,7 +537,7 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
                     break;
                 }
             }
-            PointerEvent ev(PlatformEventType::PointerUp, client_pos, pe.button);
+            PointerEvent ev(PlatformEventType::PointerUp, client_pos, pe.button, pe.modifiers);
             ev.device_kind = pe.device_kind;
             ev.pointer_id = pe.pointer_id;
             ev.timestamp_ms = pe.timestamp_ms;
