@@ -61,30 +61,48 @@ public:
     bool ready() const noexcept override { return !m_failed && m_device.is_valid() && m_pipeline != nullptr; }
 
     bool submit(const Frame& frame) override {
-        if (!ready()) return false;
+        if (!ready() || frame.width == 0 || frame.height == 0) return false;
         auto& slot = m_slots[m_frame_slot];
+        if (!slot.allocator) return false;
         // 仅等待当前帧槽对应的 GPU Fence 完成，实现 2 帧并发流水线而非每帧全队列 wait_idle
         m_device.wait_fence(slot.fence_value);
         if (FAILED(slot.allocator->Reset())) {
-            m_failed = true;
             return false;
         }
         resize(frame);
-        if (!m_swapchain || !m_output) {
-            m_failed = true;
+        if (!m_swapchain || !m_output || !m_output->get_native_resource()) {
             return false;
         }
-        auto recorder = m_device.create_command_recorder(slot.allocator.Get());
-        auto& commands = static_cast<D3D12CommandRecorder&>(*recorder);
+        auto* back_ptr = static_cast<D3D12Swapchain&>(*m_swapchain).get_current_back_buffer();
+        if (!back_ptr || !back_ptr->get_native_resource()) {
+            return false;
+        }
+        // 每帧槽复用同一个 ID3D12GraphicsCommandList，并隔离着色器可见描述符槽位，彻底杜绝并发帧写覆盖与句柄耗尽
+        if (!slot.recorder) {
+            slot.recorder = m_device.create_command_recorder(slot.allocator.Get());
+            if (!slot.recorder || !static_cast<D3D12CommandRecorder&>(*slot.recorder).is_valid()) {
+                slot.recorder.reset();
+                return false;
+            }
+        } else {
+            if (!static_cast<D3D12CommandRecorder&>(*slot.recorder).reset(slot.allocator.Get())) {
+                return false;
+            }
+        }
+        auto& commands = static_cast<D3D12CommandRecorder&>(*slot.recorder);
+        commands.set_descriptor_base(static_cast<uint32_t>(m_frame_slot * 16));
         if (!frame.tiles.empty()) compose(commands, slot, frame);
-        auto& back = *static_cast<D3D12Swapchain&>(*m_swapchain).get_current_back_buffer();
+        auto& back = *back_ptr;
         commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
         commands.resource_barrier(back, ResourceState::Present, ResourceState::CopyDst);
         commands.get_native_list()->CopyResource(back.get_native_resource(), m_output->get_native_resource());
         commands.resource_barrier(back, ResourceState::CopyDst, ResourceState::Present);
         commands.close();
-        m_device.submit(std::move(recorder));
+        m_device.execute_command_list(commands.get_native_list());
         m_swapchain->present(false);
+        if (FAILED(m_device.get_native_device()->GetDeviceRemovedReason())) {
+            return false;
+        }
         slot.fence_value = m_device.signal_fence();
         m_frame_slot = (m_frame_slot + 1) % kFramesInFlight;
         return true;
@@ -93,6 +111,7 @@ public:
 private:
     struct FrameSlot {
         ComPtr<ID3D12CommandAllocator> allocator;
+        std::unique_ptr<CommandRecorder> recorder;
         std::array<std::unique_ptr<D3D12Buffer>, 4> uploads;
         std::unique_ptr<D3D12Buffer> atlas_upload;
         uint64_t fence_value{0};
@@ -139,8 +158,15 @@ private:
         if (first_atlas) m_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
             TextureDesc{frame.atlas_width, frame.atlas_height, TextureFormat::R8_UNORM, false});
 
-        if (!frame.atlas_updates.empty()) {
-            const auto rects = frame.atlas_updates;
+        using DirtyRect = std::remove_cvref_t<decltype(frame.atlas_updates)>::value_type;
+        std::vector<DirtyRect> full_rect_storage;
+        std::span<const DirtyRect> rects = frame.atlas_updates;
+        if (first_atlas && frame.atlas_width > 0 && frame.atlas_height > 0 && !frame.atlas.empty()) {
+            full_rect_storage.push_back(DirtyRect{0, 0, frame.atlas_width, frame.atlas_height});
+            rects = full_rect_storage;
+        }
+
+        if (!rects.empty()) {
             const auto aligned = [](size_t value, size_t alignment) {
                 return (value + alignment - 1) & ~(alignment - 1);
             };

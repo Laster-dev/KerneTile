@@ -33,6 +33,13 @@ public:
     [[nodiscard]] ID3D12CommandQueue* get_native_queue() const noexcept { return m_queue.Get(); }
     [[nodiscard]] bool is_valid() const noexcept { return m_valid; }
 
+    void execute_command_list(ID3D12CommandList* list) {
+        if (m_queue && list) {
+            ID3D12CommandList* lists[] = { list };
+            m_queue->ExecuteCommandLists(1, lists);
+        }
+    }
+
 private:
     void init_root_signatures();
     void init_blit_pso();

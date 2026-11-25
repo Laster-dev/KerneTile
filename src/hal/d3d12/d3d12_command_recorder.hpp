@@ -29,19 +29,36 @@ public:
           m_srv_uav_heap(srv_uav_heap),
           m_srv_uav_descriptor_size(srv_uav_descriptor_size)
     {
-        throw_if_failed(
-            device->CreateCommandList(
-                0,
-                D3D12_COMMAND_LIST_TYPE_DIRECT,
-                allocator,
-                nullptr,
-                IID_PPV_ARGS(&m_cmd_list)),
-            "CreateCommandList failed"
-        );
+        if (device && allocator && throw_if_failed(
+                device->CreateCommandList(
+                    0,
+                    D3D12_COMMAND_LIST_TYPE_DIRECT,
+                    allocator,
+                    nullptr,
+                    IID_PPV_ARGS(&m_cmd_list)),
+                "CreateCommandList failed")) {
+            // 默认绑定 CBV/SRV/UAV 堆
+            if (m_srv_uav_heap) {
+                ID3D12DescriptorHeap* heaps[] = { m_srv_uav_heap };
+                m_cmd_list->SetDescriptorHeaps(1, heaps);
+            }
+        }
+    }
 
-        // 默认绑定 CBV/SRV/UAV 堆
-        ID3D12DescriptorHeap* heaps[] = { m_srv_uav_heap };
-        m_cmd_list->SetDescriptorHeaps(1, heaps);
+    [[nodiscard]] bool is_valid() const noexcept { return m_cmd_list != nullptr; }
+
+    void set_descriptor_base(uint32_t base) noexcept { m_descriptor_base = base; }
+
+    bool reset(ID3D12CommandAllocator* allocator) {
+        if (!m_cmd_list || !allocator) return false;
+        if (!throw_if_failed(m_cmd_list->Reset(allocator, nullptr), "CommandList Reset failed")) {
+            return false;
+        }
+        if (m_srv_uav_heap) {
+            ID3D12DescriptorHeap* heaps[] = { m_srv_uav_heap };
+            m_cmd_list->SetDescriptorHeaps(1, heaps);
+        }
+        return true;
     }
 
     void resource_barrier(
@@ -83,11 +100,11 @@ public:
         uav_desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 
         D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
-        cpu_handle.ptr += (slot + 10) * m_srv_uav_descriptor_size;
+        cpu_handle.ptr += (m_descriptor_base + slot + 10) * m_srv_uav_descriptor_size;
         m_device->CreateUnorderedAccessView(d3d_tex->get_native_resource(), nullptr, &uav_desc, cpu_handle);
 
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
-        gpu_handle.ptr += (slot + 10) * m_srv_uav_descriptor_size;
+        gpu_handle.ptr += (m_descriptor_base + slot + 10) * m_srv_uav_descriptor_size;
         m_cmd_list->SetComputeRootDescriptorTable(4, gpu_handle);
     }
 
@@ -99,8 +116,8 @@ public:
         desc.Texture2D.MipLevels = 1;
         auto cpu = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
         auto gpu = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
-        cpu.ptr += m_srv_uav_descriptor_size;
-        gpu.ptr += m_srv_uav_descriptor_size;
+        cpu.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
+        gpu.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
         m_device->CreateShaderResourceView(atlas.get_native_resource(), &desc, cpu);
         m_cmd_list->SetComputeRootDescriptorTable(5, gpu);
     }
@@ -220,6 +237,7 @@ private:
     ID3D12CommandSignature* m_dispatch_cmd_sig;
     ID3D12DescriptorHeap* m_srv_uav_heap;
     uint32_t m_srv_uav_descriptor_size;
+    uint32_t m_descriptor_base{0};
     ComPtr<ID3D12GraphicsCommandList> m_cmd_list;
 };
 

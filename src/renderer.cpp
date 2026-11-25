@@ -221,6 +221,8 @@ public:
     }
 
     void set_compute_target(void* window, void* display) override {
+        m_compute_window = window;
+        m_compute_display = display;
         m_backend = m_config.force_cpu_fallback ? nullptr : compute::create(window, display, m_config.prefer_warp);
         m_gpu_full_frame = true;
         m_gpu_active = false;
@@ -268,6 +270,29 @@ public:
                 m_last_stats.render_time_us =
                     std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
                 return true;
+            }
+            // 若 GPU 设备发生异常重置/TDR，立即原地重建 D3D12 后端并重试，绝不让旧交换链冻结卡死在窗口上
+            if (m_compute_window && !m_config.force_cpu_fallback) {
+                m_backend.reset();
+                m_backend = compute::create(m_compute_window, m_compute_display, m_config.prefer_warp);
+                m_gpu_full_frame = true;
+                if (m_backend && m_backend->ready()) {
+                    m_compute_tiles.clear();
+                    for (uint32_t id = 0; id < m_grid.get_total_tiles(); ++id) {
+                        const auto coord = m_grid.get_tile_coord(id);
+                        append(coord.x, coord.y, id);
+                    }
+                    const compute::Frame retry_frame{m_config.width, m_config.height, m_primitives,
+                        m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
+                        {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
+                        atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid};
+                    if (m_backend->submit(retry_frame)) {
+                        m_atlas.clear_dirty_rects();
+                        m_gpu_full_frame = false;
+                        m_gpu_active = true;
+                        return true;
+                    }
+                }
             }
         }
         if (m_gpu_active) {
@@ -359,6 +384,8 @@ private:
     std::unique_ptr<text::TextStreamer> m_text_streamer{};
     mutable std::unique_ptr<hal::GraphicsDevice> m_device;
     std::unique_ptr<compute::Backend> m_backend;
+    void* m_compute_window{nullptr};
+    void* m_compute_display{nullptr};
     std::vector<compute::Tile> m_compute_tiles;
     bool m_gpu_full_frame = true;
     bool m_gpu_active = false;

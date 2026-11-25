@@ -169,6 +169,13 @@ void Window::advance_mica_animation() {
 }
 
 void Window::paint_scene(PaintContext& ctx, Vec2 sz, Vec2 client_sz, float tb_h, bool mica_flag) {
+    if (!mica_flag) {
+        const Theme& t = ThemeContext::current();
+        const Color base_bg = t.is_dark
+            ? Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f}
+            : Color{0xF3 / 255.0f, 0xF3 / 255.0f, 0xF3 / 255.0f, 1.0f};
+        ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, sz.x, sz.y), base_bg, 0.0f, 0.0f);
+    }
     if (tb_h > 0.0f) {
         ctx.push_clip(Rect::from_xywh(0.0f, tb_h, client_sz.x, client_sz.y), 0.0f);
         {
