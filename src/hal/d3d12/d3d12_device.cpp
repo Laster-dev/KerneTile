@@ -296,9 +296,13 @@ std::unique_ptr<ComputePipeline> D3D12Device::create_compute_pipeline(std::span<
 }
 
 std::unique_ptr<CommandRecorder> D3D12Device::create_command_recorder() {
+    return create_command_recorder(m_cmd_allocator.Get());
+}
+
+std::unique_ptr<CommandRecorder> D3D12Device::create_command_recorder(ID3D12CommandAllocator* allocator) {
     return std::make_unique<D3D12CommandRecorder>(
         m_device.Get(),
-        m_cmd_allocator.Get(),
+        allocator,
         m_compute_root_signature.Get(),
         m_graphics_root_signature.Get(),
         m_blit_pso.Get(),
@@ -325,13 +329,22 @@ void D3D12Device::submit(std::unique_ptr<CommandRecorder> recorder) {
     m_queue->ExecuteCommandLists(1, lists);
 }
 
-void D3D12Device::wait_idle() {
+uint64_t D3D12Device::signal_fence() {
     m_fence_value++;
     throw_if_failed(m_queue->Signal(m_fence.Get(), m_fence_value), "Queue Signal failed");
-    if (m_fence->GetCompletedValue() < m_fence_value) {
-        throw_if_failed(m_fence->SetEventOnCompletion(m_fence_value, m_fence_event), "SetEventOnCompletion failed");
+    return m_fence_value;
+}
+
+void D3D12Device::wait_fence(uint64_t value) {
+    if (value == 0) return;
+    if (m_fence->GetCompletedValue() < value) {
+        throw_if_failed(m_fence->SetEventOnCompletion(value, m_fence_event), "SetEventOnCompletion failed");
         WaitForSingleObject(m_fence_event, INFINITE);
     }
+}
+
+void D3D12Device::wait_idle() {
+    wait_fence(signal_fence());
     throw_if_failed(m_cmd_allocator->Reset(), "CommandAllocator Reset failed");
 }
 

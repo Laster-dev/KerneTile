@@ -27,6 +27,26 @@ public:
         FlexEngine::layout_flex(this, m_constraints, params);
     }
 
+    [[nodiscard]] Vec2 compute_intrinsic_size(const BoxConstraints& constraints) const override {
+        const bool is_horizontal = (m_direction == FlexDirection::Row || m_direction == FlexDirection::RowReverse);
+        float main_sum = 0.0f;
+        float cross_max = 0.0f;
+        size_t count = 0;
+        for (const RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
+            if (const auto* box = child->as_render_box()) {
+                Vec2 sz = box->compute_intrinsic_size(constraints.loosen());
+                main_sum += is_horizontal ? sz.x : sz.y;
+                cross_max = std::max(cross_max, is_horizontal ? sz.y : sz.x);
+                ++count;
+            }
+        }
+        if (count > 1) {
+            main_sum += m_gap * static_cast<float>(count - 1);
+        }
+        Vec2 desired = is_horizontal ? Vec2{main_sum, cross_max} : Vec2{cross_max, main_sum};
+        return constraints.constrain(desired);
+    }
+
     [[nodiscard]] FlexDirection direction() const noexcept { return m_direction; }
     void set_direction(FlexDirection dir) {
         if (m_direction != dir) {

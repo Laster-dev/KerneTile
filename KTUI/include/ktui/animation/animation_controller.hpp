@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/fn.hpp>
+
 #include "spring_curve.hpp"
 #include "animated_value.hpp"
 #include <functional>

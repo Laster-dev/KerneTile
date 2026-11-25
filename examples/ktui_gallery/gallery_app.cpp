@@ -131,6 +131,15 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             NavigationViewItem::separator(),
             NavigationViewItem{
+                .id = "cat_layout", .label = "布局系统", .icon = NavigationIcon::Layout, .badge = "4", .expanded = true,
+                .children = {
+                    NavigationViewItem{ .id = "layout_flex",        .label = "Flex 弹性布局",     .badge = "New" },
+                    NavigationViewItem{ .id = "layout_wrap",        .label = "Wrap 流式换行",     .badge = "New" },
+                    NavigationViewItem{ .id = "layout_grid",        .label = "Grid 二维网格",     .badge = "New" },
+                    NavigationViewItem{ .id = "layout_stack_align", .label = "ZStack 与对齐容器", .badge = "New" }
+                }
+            },
+            NavigationViewItem{
                 .id = "cat_basic_input", .label = "基础输入", .icon = NavigationIcon::Controls, .badge = "14", .expanded = false,
                 .children = {
                     NavigationViewItem{ .id = "button",               .label = "Button" },
@@ -214,6 +223,10 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .search_placeholder = "搜索控件",
         .open_pane_length = 236.0f,
         .page_builder = [this](const std::string& page_id) -> WidgetPtr {
+            if (page_id == "layout_flex")          return pages::build_layout_flex_page(*this);
+            if (page_id == "layout_wrap")          return pages::build_layout_wrap_page(*this);
+            if (page_id == "layout_grid")          return pages::build_layout_grid_page(*this);
+            if (page_id == "layout_stack_align")   return pages::build_layout_stack_align_page(*this);
             if (page_id == "button")               return pages::build_button_page(*this);
             if (page_id == "toggle_button")        return pages::build_toggle_button_page(*this);
             if (page_id == "segmented_control")    return pages::build_segmented_control_page(*this);

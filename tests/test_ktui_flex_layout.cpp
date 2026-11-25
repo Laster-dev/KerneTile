@@ -2,7 +2,12 @@
 #include <ktui/layout/flex_engine.hpp>
 #include <ktui/tree/render_flex.hpp>
 #include <ktui/tree/reconciliation.hpp>
+#include <ktui/widgets/wrap.hpp>
+#include <ktui/widgets/grid.hpp>
+#include <ktui/widgets/zstack.hpp>
+#include <ktui/widgets/layout_primitives.hpp>
 #include <iostream>
+#include <cstdlib>
 #include <cassert>
 #include <vector>
 #include <cmath>
@@ -268,9 +273,118 @@ void test_reconciler_children_sync() {
     std::cout << "  -> Reconciler 原地复用更新与多余节点回收验证成功！" << std::endl;
 }
 
+#define KT_EXPECT(cond) do { if (!(cond)) { std::cerr << "FAIL: " #cond " at line " << __LINE__ << std::endl; std::exit(1); } } while (0)
+
+void test_flex_shrink_and_unbounded_stretch() {
+    std::cout << "[Test 8] FlexEngine flex_shrink 溢出压缩与无界交叉轴 Stretch 测试..." << std::endl;
+
+    // 1. flex_shrink: 容器宽 300，放入 100(shrink=0) + 200(shrink=1) + 200(shrink=2)
+    // overflow = 200; weights = 1*200 + 2*200 = 600 -> child1 缩 200*(200/600)=66.67, child2 缩 200*(400/600)=133.33
+    auto row = std::make_unique<RenderFlex>(FlexDirection::Row, JustifyContent::FlexStart, AlignItems::FlexStart, 0.0f);
+    auto c0 = std::make_unique<RenderSizedBox>(Vec2{100.0f, 30.0f});
+    c0->set_flex_data(FlexItemData{0.0f, 0.0f, FlexFit::Tight, std::nullopt});
+    auto c1 = std::make_unique<RenderSizedBox>(Vec2{200.0f, 30.0f});
+    c1->set_flex_data(FlexItemData{0.0f, 1.0f, FlexFit::Tight, std::nullopt});
+    auto c2 = std::make_unique<RenderSizedBox>(Vec2{200.0f, 30.0f});
+    c2->set_flex_data(FlexItemData{0.0f, 2.0f, FlexFit::Tight, std::nullopt});
+    row->append_child(c0.get());
+    row->append_child(c1.get());
+    row->append_child(c2.get());
+    row->layout(BoxConstraints(0.0f, 300.0f, 0.0f, 100.0f));
+
+    KT_EXPECT(std::abs(c0->size().x - 100.0f) < 0.5f);
+    KT_EXPECT(std::abs(c1->size().x - 133.33f) < 1.0f);
+    KT_EXPECT(std::abs(c2->size().x - 66.67f) < 1.0f);
+    KT_EXPECT(std::abs((c0->size().x + c1->size().x + c2->size().x) - 300.0f) < 1.0f);
+
+    // 2. 无界交叉轴 AlignItems::Stretch: 矮子项应拉伸至同行最高子项高度 80
+    auto stretch_row = std::make_unique<RenderFlex>(FlexDirection::Row, JustifyContent::FlexStart, AlignItems::Stretch, 0.0f);
+    auto short_box = std::make_unique<RenderSizedBox>(Vec2{60.0f, 20.0f});
+    auto tall_box  = std::make_unique<RenderSizedBox>(Vec2{60.0f, 80.0f});
+    stretch_row->append_child(short_box.get());
+    stretch_row->append_child(tall_box.get());
+    stretch_row->layout(BoxConstraints(0.0f, 300.0f, 0.0f, BoxConstraints::kInfinity));
+
+    KT_EXPECT(std::abs(stretch_row->size().y - 80.0f) < 0.5f);
+    KT_EXPECT(std::abs(short_box->size().y - 80.0f) < 0.5f);
+
+    std::cout << "  -> flex_shrink 压缩与无界交叉轴 Stretch 验证通过！" << std::endl;
+}
+
+void test_wrap_layout() {
+    std::cout << "[Test 9] Wrap 流式自动换行布局测试..." << std::endl;
+
+    auto wrap = std::make_unique<RenderWrap>(FlexDirection::Row, 10.0f, 12.0f, JustifyContent::FlexStart, AlignItems::Center);
+    auto a = make_render_node<RenderSizedBox>(Vec2{100.0f, 30.0f});
+    auto b = make_render_node<RenderSizedBox>(Vec2{100.0f, 40.0f});
+    auto c = make_render_node<RenderSizedBox>(Vec2{100.0f, 30.0f});
+    wrap->set_child_boxes({a, b, c});
+    // 容器最大宽 250 -> a(100) + 10 + b(100) = 210 <= 250 (第 1 行高 40); c 折到第 2 行 (y = 40 + 12 = 52)
+    wrap->layout(BoxConstraints(0.0f, 250.0f, 0.0f, BoxConstraints::kInfinity));
+
+    KT_EXPECT(std::abs(a->offset().x - 0.0f) < 0.5f);
+    KT_EXPECT(std::abs(a->offset().y - 5.0f) < 0.5f); // 在高 40 的行内垂直居中 -> (40-30)/2 = 5
+    KT_EXPECT(std::abs(b->offset().x - 110.0f) < 0.5f);
+    KT_EXPECT(std::abs(c->offset().x - 0.0f) < 0.5f);
+    KT_EXPECT(std::abs(c->offset().y - 52.0f) < 0.5f);
+    KT_EXPECT(std::abs(wrap->size().y - 82.0f) < 0.5f);
+
+    std::cout << "  -> Wrap 自动折行、行内居中与总高度计算验证通过！" << std::endl;
+}
+
+void test_grid_layout() {
+    std::cout << "[Test 10] Grid 二维网格 (固定列 / 权重轨道 / 响应式 / 跨列) 测试..." << std::endl;
+
+    // 1. 权重轨道 {1, 2, 1} + 跨列 (span=2)
+    auto grid = std::make_unique<RenderGrid>(3, 0.0f, std::vector<float>{1.0f, 2.0f, 1.0f}, 10.0f, 8.0f, 40.0f);
+    auto span_item = make_render_node<RenderGridItem>(2);
+    span_item->set_child_box(make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f}));
+    auto cell1 = make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f});
+    auto cell2 = make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f});
+    grid->set_child_boxes({span_item, cell1, cell2});
+    // avail_w = 420, gaps = 20 -> track_avail = 400 -> tracks = 100, 200, 100
+    // span_item (col 0..1) = 100 + 10 + 200 = 310; cell1 (col 2) = 100 at x=320; cell2 wraps to row 2 (y=48)
+    grid->layout(BoxConstraints(420.0f, 420.0f, 0.0f, BoxConstraints::kInfinity));
+
+    KT_EXPECT(std::abs(span_item->size().x - 310.0f) < 0.5f);
+    KT_EXPECT(std::abs(cell1->offset().x - 320.0f) < 0.5f);
+    KT_EXPECT(std::abs(cell1->size().x - 100.0f) < 0.5f);
+    KT_EXPECT(std::abs(cell2->offset().y - 48.0f) < 0.5f);
+    KT_EXPECT(std::abs(grid->size().y - 88.0f) < 0.5f);
+
+    // 2. 响应式 min_item_width = 150 -> 在 500px 宽容器内应解析为 3 列 (150*3 + 10*2 = 470 <= 500)
+    auto resp = std::make_unique<RenderGrid>(1, 150.0f, std::vector<float>{}, 10.0f, 10.0f, 40.0f);
+    resp->set_child_boxes({make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f})});
+    resp->layout(BoxConstraints(500.0f, 500.0f, 0.0f, BoxConstraints::kInfinity));
+    KT_EXPECT(resp->resolved_columns() == 3);
+
+    std::cout << "  -> Grid 权重轨道、跨列合并与响应式自适应列数验证通过！" << std::endl;
+}
+
+void test_zstack_alignment_and_aspect_ratio() {
+    std::cout << "[Test 11] ZStack 九宫格对齐与 AspectRatio 固定宽高比测试..." << std::endl;
+
+    auto z = std::make_unique<RenderZStack>(Alignment::bottom_right(), StackFit::Loose, EdgeInsets(10.0f, 10.0f));
+    auto bg = make_render_node<RenderSizedBox>(Vec2{100.0f, 80.0f});
+    auto badge = make_render_node<RenderSizedBox>(Vec2{20.0f, 20.0f});
+    z->set_child_boxes({bg, badge});
+    z->layout(BoxConstraints::tight(Vec2{200.0f, 120.0f}));
+    // inner = 180x100 -> bottom_right offset for 20x20 = (160, 80) + padding (10, 10) = (170, 90)
+    KT_EXPECT(std::abs(badge->offset().x - 170.0f) < 0.5f);
+    KT_EXPECT(std::abs(badge->offset().y - 90.0f) < 0.5f);
+
+    auto ar = std::make_unique<RenderAspectRatio>(16.0f / 9.0f);
+    ar->set_child_box(make_render_node<RenderSizedBox>(Vec2{10.0f, 10.0f}));
+    ar->layout(BoxConstraints(0.0f, 320.0f, 0.0f, 500.0f));
+    KT_EXPECT(std::abs(ar->size().x - 320.0f) < 0.5f);
+    KT_EXPECT(std::abs(ar->size().y - 180.0f) < 0.5f);
+
+    std::cout << "  -> ZStack 九宫格对齐与 AspectRatio 16:9 约束验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
-    std::cout << "   KTUI 阶段 5: RenderTree 与 Flex 布局引擎测试   " << std::endl;
+    std::cout << "   KTUI 阶段 5: RenderTree 与全布局系统测试       " << std::endl;
     std::cout << "==================================================" << std::endl;
 
     test_box_constraints_basics();
@@ -280,9 +394,13 @@ int main() {
     test_column_and_cross_axis_alignment();
     test_relayout_boundary_isolation();
     test_reconciler_children_sync();
+    test_flex_shrink_and_unbounded_stretch();
+    test_wrap_layout();
+    test_grid_layout();
+    test_zstack_alignment_and_aspect_ratio();
 
     std::cout << "==================================================" << std::endl;
-    std::cout << "   恭喜！阶段 5 RenderTree 与 Flex 布局 100% 通过!  " << std::endl;
+    std::cout << "   恭喜！阶段 5 RenderTree 与全布局系统 100% 通过! " << std::endl;
     std::cout << "==================================================" << std::endl;
 
     return 0;

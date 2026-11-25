@@ -16,14 +16,6 @@
 
 namespace kernetile::compute {
 namespace {
-bool check(VkResult result, const char* operation) noexcept {
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        std::fprintf(stderr, "KerneTile Vulkan: %s (%d)\n", operation ? operation : "", static_cast<int>(result));
-        return false;
-    }
-    return true;
-}
-
 struct Buffer {
     VkBuffer handle{};
     VkDeviceMemory memory{};
@@ -39,16 +31,40 @@ struct Image {
 
 class VulkanBackend final : public Backend {
 public:
+    bool check(VkResult result, const char* operation) noexcept {
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            std::fprintf(stderr, "KerneTile Vulkan: %s (%d)\n", operation ? operation : "", static_cast<int>(result));
+            m_failed = true;
+            return false;
+        }
+        return true;
+    }
+
+    static constexpr size_t kFramesInFlight = 2;
+
+    struct FrameSlot {
+        VkCommandPool pool{};
+        VkCommandBuffer cmd{};
+        VkFence in_flight{};
+        VkSemaphore acquired{};
+        VkSemaphore finished{};
+        VkDescriptorSet descriptors{};
+        std::array<Buffer, 6> buffers{};
+    };
+
     ~VulkanBackend() override {
         if (m_device) {
             vkDeviceWaitIdle(m_device);
             destroy(m_output);
             destroy(m_atlas);
-            for (auto& buffer : m_buffers) destroy(buffer);
+            for (auto& slot : m_slots) {
+                for (auto& buffer : slot.buffers) destroy(buffer);
+                if (slot.in_flight) vkDestroyFence(m_device, slot.in_flight, nullptr);
+                if (slot.acquired) vkDestroySemaphore(m_device, slot.acquired, nullptr);
+                if (slot.finished) vkDestroySemaphore(m_device, slot.finished, nullptr);
+                if (slot.pool) vkDestroyCommandPool(m_device, slot.pool, nullptr);
+            }
             if (m_swapchain) vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
-            vkDestroySemaphore(m_device, m_acquired, nullptr);
-            vkDestroySemaphore(m_device, m_finished, nullptr);
-            vkDestroyCommandPool(m_device, m_pool, nullptr);
             vkDestroySampler(m_device, m_sampler, nullptr);
             vkDestroyPipeline(m_device, m_pipeline, nullptr);
             vkDestroyPipelineLayout(m_device, m_pipeline_layout, nullptr);
@@ -106,19 +122,25 @@ public:
 
         VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         pool.queueFamilyIndex = m_family;
-        check(vkCreateCommandPool(m_device, &pool, nullptr, &m_pool), "Vulkan command pool");
-        if (m_failed) return;
-        VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-        allocation.commandPool = m_pool;
-        allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocation.commandBufferCount = 1;
-        check(vkAllocateCommandBuffers(m_device, &allocation, &m_cmd), "Vulkan command buffer");
-        if (m_failed) return;
         VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        check(vkCreateSemaphore(m_device, &semaphore, nullptr, &m_acquired), "Vulkan acquire semaphore");
-        if (m_failed) return;
-        check(vkCreateSemaphore(m_device, &semaphore, nullptr, &m_finished), "Vulkan present semaphore");
-        if (m_failed) return;
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        for (auto& slot : m_slots) {
+            check(vkCreateCommandPool(m_device, &pool, nullptr, &slot.pool), "Vulkan command pool");
+            if (m_failed) return;
+            VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+            allocation.commandPool = slot.pool;
+            allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocation.commandBufferCount = 1;
+            check(vkAllocateCommandBuffers(m_device, &allocation, &slot.cmd), "Vulkan command buffer");
+            if (m_failed) return;
+            check(vkCreateFence(m_device, &fence, nullptr, &slot.in_flight), "Vulkan frame fence");
+            if (m_failed) return;
+            check(vkCreateSemaphore(m_device, &semaphore, nullptr, &slot.acquired), "Vulkan acquire semaphore");
+            if (m_failed) return;
+            check(vkCreateSemaphore(m_device, &semaphore, nullptr, &slot.finished), "Vulkan present semaphore");
+            if (m_failed) return;
+        }
         create_pipeline();
     }
 
@@ -126,26 +148,33 @@ public:
 
     bool submit(const Frame& frame) override {
         if (m_failed) return false;
-        if (!check(vkQueueWaitIdle(m_queue), "Wait for Vulkan frame")) { m_failed = true; return false; }
+        auto& slot = m_slots[m_frame_slot];
+        if (!check(vkWaitForFences(m_device, 1, &slot.in_flight, VK_TRUE, UINT64_MAX), "Wait Vulkan frame fence")) {
+            return false;
+        }
         if (!m_swapchain || frame.width != m_width || frame.height != m_height || m_recreate) {
+            if (!check(vkDeviceWaitIdle(m_device), "Wait Vulkan resize")) return false;
             resize(frame);
             if (m_failed || !m_swapchain) return false;
         }
         uint32_t index = 0;
-        auto acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
+        auto acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, slot.acquired, VK_NULL_HANDLE, &index);
         if (acquire == VK_ERROR_OUT_OF_DATE_KHR) {
+            if (!check(vkDeviceWaitIdle(m_device), "Wait Vulkan out-of-date resize")) return false;
             resize(frame);
             if (m_failed || !m_swapchain) return false;
-            acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_acquired, VK_NULL_HANDLE, &index);
+            acquire = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, slot.acquired, VK_NULL_HANDLE, &index);
         }
         if (!check(acquire, "Acquire Vulkan backbuffer") ||
-            !check(vkResetCommandPool(m_device, m_pool, 0), "Reset Vulkan command pool")) {
-            m_failed = true; return false;
+            !check(vkResetFences(m_device, 1, &slot.in_flight), "Reset Vulkan frame fence") ||
+            !check(vkResetCommandPool(m_device, slot.pool, 0), "Reset Vulkan command pool")) {
+            return false;
         }
+        m_cmd = slot.cmd;
         VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        if (!check(vkBeginCommandBuffer(m_cmd, &begin), "Begin Vulkan frame")) { m_failed = true; return false; }
-        if (!frame.tiles.empty()) compose(frame);
+        if (!check(vkBeginCommandBuffer(m_cmd, &begin), "Begin Vulkan frame")) return false;
+        if (!frame.tiles.empty()) compose(slot, frame);
         transition(m_output.handle, m_output.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         m_output.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -159,24 +188,25 @@ public:
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
         transition(back, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                    VK_ACCESS_TRANSFER_WRITE_BIT, 0);
-        if (!check(vkEndCommandBuffer(m_cmd), "End Vulkan frame")) { m_failed = true; return false; }
+        if (!check(vkEndCommandBuffer(m_cmd), "End Vulkan frame")) return false;
 
         const VkPipelineStageFlags wait = VK_PIPELINE_STAGE_TRANSFER_BIT;
         VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submit.waitSemaphoreCount = submit.signalSemaphoreCount = submit.commandBufferCount = 1;
-        submit.pWaitSemaphores = &m_acquired;
+        submit.pWaitSemaphores = &slot.acquired;
         submit.pWaitDstStageMask = &wait;
         submit.pCommandBuffers = &m_cmd;
-        submit.pSignalSemaphores = &m_finished;
-        if (!check(vkQueueSubmit(m_queue, 1, &submit, VK_NULL_HANDLE), "Submit Vulkan frame")) { m_failed = true; return false; }
+        submit.pSignalSemaphores = &slot.finished;
+        if (!check(vkQueueSubmit(m_queue, 1, &submit, slot.in_flight), "Submit Vulkan frame")) return false;
         VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         present.waitSemaphoreCount = present.swapchainCount = 1;
-        present.pWaitSemaphores = &m_finished;
+        present.pWaitSemaphores = &slot.finished;
         present.pSwapchains = &m_swapchain;
         present.pImageIndices = &index;
         const auto status = vkQueuePresentKHR(m_queue, &present);
         m_recreate = status == VK_ERROR_OUT_OF_DATE_KHR || status == VK_SUBOPTIMAL_KHR;
-        if (!m_recreate && !check(status, "Present Vulkan frame")) { m_failed = true; return false; }
+        if (!m_recreate && !check(status, "Present Vulkan frame")) return false;
+        m_frame_slot = (m_frame_slot + 1) % kFramesInFlight;
         return true;
     }
 
@@ -228,19 +258,28 @@ private:
         set.bindingCount = static_cast<uint32_t>(bindings.size());
         set.pBindings = bindings.data();
         check(vkCreateDescriptorSetLayout(m_device, &set, nullptr, &m_set_layout), "Vulkan descriptor layout");
-        const VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
-            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1}, {VK_DESCRIPTOR_TYPE_SAMPLER, 1},
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}};
+        const VkDescriptorPoolSize sizes[] = {
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<uint32_t>(4 * kFramesInFlight)},
+            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(kFramesInFlight)},
+            {VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<uint32_t>(kFramesInFlight)},
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, static_cast<uint32_t>(kFramesInFlight)},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<uint32_t>(kFramesInFlight)}};
         VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        pool.maxSets = 1;
+        pool.maxSets = static_cast<uint32_t>(kFramesInFlight);
         pool.poolSizeCount = static_cast<uint32_t>(std::size(sizes));
         pool.pPoolSizes = sizes;
         check(vkCreateDescriptorPool(m_device, &pool, nullptr, &m_descriptor_pool), "Vulkan descriptor pool");
+        std::array<VkDescriptorSetLayout, kFramesInFlight> set_layouts{};
+        set_layouts.fill(m_set_layout);
+        std::array<VkDescriptorSet, kFramesInFlight> allocated_sets{};
         VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         allocation.descriptorPool = m_descriptor_pool;
-        allocation.descriptorSetCount = 1;
-        allocation.pSetLayouts = &m_set_layout;
-        check(vkAllocateDescriptorSets(m_device, &allocation, &m_descriptors), "Vulkan descriptors");
+        allocation.descriptorSetCount = static_cast<uint32_t>(kFramesInFlight);
+        allocation.pSetLayouts = set_layouts.data();
+        check(vkAllocateDescriptorSets(m_device, &allocation, allocated_sets.data()), "Vulkan descriptors");
+        for (size_t i = 0; i < kFramesInFlight; ++i) {
+            m_slots[i].descriptors = allocated_sets[i];
+        }
         VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layout.setLayoutCount = 1;
         layout.pSetLayouts = &m_set_layout;
@@ -370,8 +409,8 @@ private:
         check(vkCreateImageView(m_device, &view, nullptr, &out.view), "View Vulkan image");
     }
 
-    Buffer& upload(size_t slot, VkBufferUsageFlags usage, size_t required) {
-        auto& buffer = m_buffers[slot];
+    Buffer& upload(FrameSlot& frame_slot, size_t slot, VkBufferUsageFlags usage, size_t required) {
+        auto& buffer = frame_slot.buffers[slot];
         if (buffer.size >= required) return buffer;
         destroy(buffer);
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -402,7 +441,7 @@ private:
                              0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    void upload_atlas(const Frame& frame) {
+    void upload_atlas(FrameSlot& slot, const Frame& frame) {
         const bool first = !m_atlas.handle;
         if (first) image(m_atlas, frame.atlas_width, frame.atlas_height, VK_FORMAT_R8_UNORM,
                          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -420,7 +459,7 @@ private:
             regions.push_back(region);
             total += (size_t(rect.w) * rect.h + 3) & ~size_t(3);
         }
-        auto& buffer = upload(5, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, total);
+        auto& buffer = upload(slot, 5, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, total);
         for (size_t i = 0; i < rects.size(); ++i) {
             const auto& rect = rects[i];
             auto* dest = static_cast<uint8_t*>(buffer.bytes) + regions[i].bufferOffset;
@@ -438,8 +477,8 @@ private:
                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
 
-    void compose(const Frame& frame) {
-        upload_atlas(frame);
+    void compose(FrameSlot& slot, const Frame& frame) {
+        upload_atlas(slot, frame);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
         std::array<uint32_t, 24> params{};
@@ -457,7 +496,7 @@ private:
         std::array<VkWriteDescriptorSet, 8> writes{};
         for (uint32_t i = 0; i < writes.size(); ++i) {
             writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            writes[i].dstSet = m_descriptors;
+            writes[i].dstSet = slot.descriptors;
             writes[i].dstBinding = i;
             writes[i].descriptorCount = 1;
             writes[i].descriptorType = descriptor_types[i];
@@ -465,7 +504,7 @@ private:
         for (size_t i = 0; i < input.size(); ++i) {
             const bool uniform = i == 4;
             const auto required = std::max<size_t>(input[i].size(), 4);
-            auto& buffer = upload(i, uniform ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, required);
+            auto& buffer = upload(slot, i, uniform ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, required);
             if (!input[i].empty()) std::memcpy(buffer.bytes, input[i].data(), input[i].size());
             buffers[i] = {buffer.handle, 0, required};
             writes[uniform ? 7 : i].pBufferInfo = &buffers[i];
@@ -480,7 +519,7 @@ private:
         writes[6].pImageInfo = &output;
         vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
         vkCmdBindPipeline(m_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
-        vkCmdBindDescriptorSets(m_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &m_descriptors, 0, nullptr);
+        vkCmdBindDescriptorSets(m_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &slot.descriptors, 0, nullptr);
         vkCmdDispatch(m_cmd, groups_x, (count + groups_x - 1) / groups_x, 1);
     }
 
@@ -494,23 +533,21 @@ private:
     VkSwapchainKHR m_swapchain{};
     VkExtent2D m_extent{};
     std::vector<VkImage> m_backbuffers;
-    VkCommandPool m_pool{};
     VkCommandBuffer m_cmd{};
-    VkSemaphore m_acquired{}, m_finished{};
+    std::array<FrameSlot, kFramesInFlight> m_slots{};
+    size_t m_frame_slot{0};
     VkDescriptorSetLayout m_set_layout{};
     VkDescriptorPool m_descriptor_pool{};
-    VkDescriptorSet m_descriptors{};
     VkPipelineLayout m_pipeline_layout{};
     VkPipeline m_pipeline{};
     VkSampler m_sampler{};
     Image m_atlas, m_output;
-    std::array<Buffer, 6> m_buffers{};
     uint32_t m_width{}, m_height{};
     bool m_failed = false, m_recreate = false;
 };
 } // namespace
 
-std::unique_ptr<Backend> create(void* window, void* display) {
+std::unique_ptr<Backend> create(void* window, void* display, bool) {
 #if defined(__ANDROID__)
     if (!window) return nullptr;
 #else

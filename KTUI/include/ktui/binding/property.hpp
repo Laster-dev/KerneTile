@@ -76,6 +76,16 @@ public:
     }
 
     void unsubscribe(uint64_t id) {
+        if (m_notify_depth > 0) {
+            for (auto& e : m_listeners) {
+                if (e.id == id) {
+                    e.id = 0;
+                    e.listener = nullptr;
+                    m_needs_compact = true;
+                }
+            }
+            return;
+        }
         auto it = std::remove_if(m_listeners.begin(), m_listeners.end(),
                                  [id](const Entry& e) { return e.id == id; });
         m_listeners.erase(it, m_listeners.end());
@@ -85,11 +95,22 @@ public:
 
 private:
     void notify(uint64_t token) {
-        auto current_listeners = m_listeners;
-        for (auto& entry : current_listeners) {
-            if (entry.listener) {
-                entry.listener(m_value, token);
+        if (m_listeners.empty()) return;
+        const size_t initial_count = m_listeners.size();
+        ++m_notify_depth;
+        for (size_t i = 0; i < initial_count && i < m_listeners.size(); ++i) {
+            if (m_listeners[i].id != 0 && m_listeners[i].listener) {
+                // 复制轻量可调用句柄（Fn 内部为 SBO，零堆分配）以防回调内部 push_back 触发 vector 扩容
+                auto fn = m_listeners[i].listener;
+                fn(m_value, token);
             }
+        }
+        --m_notify_depth;
+        if (m_notify_depth == 0 && m_needs_compact) {
+            auto it = std::remove_if(m_listeners.begin(), m_listeners.end(),
+                                     [](const Entry& e) { return e.id == 0; });
+            m_listeners.erase(it, m_listeners.end());
+            m_needs_compact = false;
         }
     }
 
@@ -101,6 +122,8 @@ private:
     T m_value{};
     uint64_t m_version = 0;
     std::vector<Entry> m_listeners;
+    uint32_t m_notify_depth = 0;
+    bool m_needs_compact = false;
     mutable std::shared_ptr<bool> m_alive;
     inline static std::atomic<uint64_t> s_next_listener_id{0};
 };

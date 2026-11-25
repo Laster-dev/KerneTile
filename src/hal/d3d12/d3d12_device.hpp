@@ -17,6 +17,7 @@ public:
         std::span<const uint8_t> bytecode) override;
 
     [[nodiscard]] std::unique_ptr<CommandRecorder> create_command_recorder() override;
+    [[nodiscard]] std::unique_ptr<CommandRecorder> create_command_recorder(ID3D12CommandAllocator* allocator);
     [[nodiscard]] std::unique_ptr<Swapchain> create_swapchain(
         void* native_window_handle, 
         uint32_t width, 
@@ -24,6 +25,8 @@ public:
 
     void submit(std::unique_ptr<CommandRecorder> recorder) override;
     void wait_idle() override;
+    [[nodiscard]] uint64_t signal_fence();
+    void wait_fence(uint64_t value);
     [[nodiscard]] std::string_view get_device_name() const noexcept override { return m_device_name; }
 
     [[nodiscard]] ID3D12Device* get_native_device() const noexcept { return m_device.Get(); }

@@ -1,9 +1,43 @@
 #pragma once
 
+#include <ktui/pal/platform_types.hpp>
 #include <optional>
 #include <cstdint>
 
 namespace ktui {
+
+// 二维归一化对齐锚点 (x, y ∈ [-1, 1]: -1 为起点, 0 为居中, +1 为终点)
+struct Alignment {
+    float x{-1.0f};
+    float y{-1.0f};
+
+    constexpr Alignment() noexcept = default;
+    constexpr Alignment(float ax, float ay) noexcept : x(ax), y(ay) {}
+
+    [[nodiscard]] static constexpr Alignment top_left() noexcept      { return {-1.0f, -1.0f}; }
+    [[nodiscard]] static constexpr Alignment top_center() noexcept    { return { 0.0f, -1.0f}; }
+    [[nodiscard]] static constexpr Alignment top_right() noexcept     { return { 1.0f, -1.0f}; }
+    [[nodiscard]] static constexpr Alignment center_left() noexcept   { return {-1.0f,  0.0f}; }
+    [[nodiscard]] static constexpr Alignment center() noexcept        { return { 0.0f,  0.0f}; }
+    [[nodiscard]] static constexpr Alignment center_right() noexcept  { return { 1.0f,  0.0f}; }
+    [[nodiscard]] static constexpr Alignment bottom_left() noexcept   { return {-1.0f,  1.0f}; }
+    [[nodiscard]] static constexpr Alignment bottom_center() noexcept { return { 0.0f,  1.0f}; }
+    [[nodiscard]] static constexpr Alignment bottom_right() noexcept  { return { 1.0f,  1.0f}; }
+
+    [[nodiscard]] constexpr Vec2 compute_offset(Vec2 parent_size, Vec2 child_size) const noexcept {
+        float dx = (parent_size.x - child_size.x) * (x + 1.0f) * 0.5f;
+        float dy = (parent_size.y - child_size.y) * (y + 1.0f) * 0.5f;
+        return Vec2{dx, dy};
+    }
+
+    bool operator==(const Alignment&) const noexcept = default;
+};
+
+// ZStack 子项约束适配模式
+enum class StackFit : uint8_t {
+    Loose,  // 向子节点传递松约束，按子项固有尺寸呈现
+    Expand  // 强制子节点扩展填满容器尺寸
+};
 
 // Flex 主轴排布方向
 enum class FlexDirection : uint8_t {

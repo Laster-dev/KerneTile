@@ -71,8 +71,29 @@ int main() {
     auto rounded = prims_button;
     rounded.back().radius_top_left = 4.0f;
     auto bin_rounded = binner.bin_primitives(grid_4k, rounded);
-    assert(tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count > 0);
-    assert(tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count == 0);
+    const auto d_r1 = tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count;
+    const auto d_r2 = tracker.update(grid_4k, bin_rounded.headers, bin_rounded.indices, rounded).dirty_count;
+    if (d_r1 == 0 || d_r2 != 0) {
+        std::cerr << "FAIL: rounded transition expected >0 then 0, got " << d_r1 << ", " << d_r2 << std::endl;
+        return 1;
+    }
+
+    // Scenario D (Index Shift Immunity): Inserting a new primitive at index 0 must ONLY dirty its own tiles,
+    // not invalidate unrelated downstream tiles whose array indices shifted.
+    std::vector<UiPrimitive> shifted;
+    UiPrimitive badge{};
+    badge.min_x = 0.0f; badge.min_y = 0.0f;
+    badge.max_x = 12.0f; badge.max_y = 12.0f; // 仅占 tile (0,0)
+    badge.color_a = 1.0f;
+    shifted.push_back(badge);
+    shifted.insert(shifted.end(), rounded.begin(), rounded.end());
+    auto bin_shifted = binner.bin_primitives(grid_4k, shifted);
+    auto dirty_shifted = tracker.update(grid_4k, bin_shifted.headers, bin_shifted.indices, shifted);
+    std::cout << "  -> Scenario D (Front Insert / Index Shift): dirty_tiles=" << dirty_shifted.dirty_count << std::endl;
+    if (dirty_shifted.dirty_count != 1) {
+        std::cerr << "FAIL: expected 1 dirty tile on front insert, got " << dirty_shifted.dirty_count << std::endl;
+        return 1;
+    }
 
     std::cout << "[TEST] test_dirty_tracking PASSED successfully!" << std::endl;
     return 0;

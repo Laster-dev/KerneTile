@@ -40,6 +40,6 @@ public:
     virtual bool submit(const Frame& frame) = 0;
 };
 
-std::unique_ptr<Backend> create(void* window, void* display);
+std::unique_ptr<Backend> create(void* window, void* display, bool prefer_warp = false);
 
 } // namespace kernetile::compute

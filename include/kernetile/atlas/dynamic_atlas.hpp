@@ -46,6 +46,7 @@ public:
 
         auto total_rect_opt = m_packer.allocate(total_w, total_h);
         if (!total_rect_opt.has_value()) {
+            m_overflowed = true;
             return std::nullopt;
         }
 
@@ -150,7 +151,13 @@ public:
         m_packer.reset();
         std::fill(m_pixels.begin(), m_pixels.end(), uint8_t(0));
         m_dirty_rects.clear();
+        m_dirty_rects.push_back(RectU32{0, 0, m_width, m_height});
+        m_overflowed = false;
+        ++m_generation;
     }
+
+    [[nodiscard]] bool has_overflowed() const noexcept { return m_overflowed; }
+    [[nodiscard]] uint64_t generation() const noexcept { return m_generation; }
 
     [[nodiscard]] std::span<const RectU32> get_dirty_rects() const noexcept {
         return m_dirty_rects;
@@ -180,6 +187,8 @@ private:
     ShelfAtlasPacker m_packer;
     std::vector<uint8_t> m_pixels;
     std::vector<RectU32> m_dirty_rects;
+    uint64_t m_generation{1};
+    bool m_overflowed{false};
 };
 
 } // namespace kernetile::atlas

@@ -63,11 +63,13 @@ fn clipped(p: vec2f, first_clip: u32) -> bool {
     return false;
 }
 
+// Abramowitz & Stegun 7.1.27 四阶有理近似 (与 HLSL / CpuTileRasterizer::erf_approx 严格一致)
 fn erf_approx(x: vec2f) -> vec2f {
     let v = abs(x);
-    let t = 1.0 / (1.0 + 0.3275911 * v);
-    return sign(x) * (1.0 - (((((1.061405429 * t - 1.453152027) * t)
-        + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-v * v));
+    let v2 = v * v;
+    let t = 1.0 / (1.0 + 0.278393 * v + 0.230389 * v2 + 0.000972 * v2 * v + 0.078108 * v2 * v2);
+    let t2 = t * t;
+    return sign(x) * (1.0 - t2 * t2);
 }
 
 fn coverage(p: vec2f, prim: Primitive) -> f32 {

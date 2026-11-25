@@ -252,7 +252,7 @@ private:
 };
 } // namespace
 
-std::unique_ptr<Backend> create(void* window, void*) {
+std::unique_ptr<Backend> create(void* window, void*, bool) {
     if (window) {
         if (int id = start_webgpu(shader_source, static_cast<int>(reinterpret_cast<uintptr_t>(window)))) {
             return std::make_unique<WebBackend>(id);

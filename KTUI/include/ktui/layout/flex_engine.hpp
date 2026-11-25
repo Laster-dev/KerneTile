@@ -24,15 +24,27 @@ public:
     static void layout_flex(RenderBox* container, const BoxConstraints& constraints, const Params& params) {
         if (!container) return;
 
-        // 收集所有 RenderBox 子节点
-        std::vector<RenderBox*> children;
+        // 栈上小缓冲收集子节点 (<= 32 子项零堆分配，超出自动回退 vector)
+        constexpr size_t kStackCap = 32;
+        RenderBox* stack_children[kStackCap];
+        std::vector<RenderBox*> heap_children;
+        size_t N = 0;
+
         for (RenderNode* child = container->first_child(); child != nullptr; child = child->next_sibling()) {
-            if (auto* box = (child ? (child)->as_render_box() : nullptr)) {
-                children.push_back(box);
+            if (auto* box = child->as_render_box()) {
+                if (N < kStackCap && heap_children.empty()) {
+                    stack_children[N++] = box;
+                } else {
+                    if (heap_children.empty()) {
+                        heap_children.assign(stack_children, stack_children + N);
+                    }
+                    heap_children.push_back(box);
+                    ++N;
+                }
             }
         }
+        RenderBox** children = heap_children.empty() ? stack_children : heap_children.data();
 
-        const size_t N = children.size();
         const bool is_horizontal = (params.direction == FlexDirection::Row || params.direction == FlexDirection::RowReverse);
 
         auto get_main = [is_horizontal](Vec2 v) noexcept -> float { return is_horizontal ? v.x : v.y; };
@@ -53,27 +65,26 @@ public:
 
         const float total_gap = (N > 1) ? params.gap * static_cast<float>(N - 1) : 0.0f;
 
-        // ==================== Pass 1: 测量与空间分配 ====================
+        // ==================== Pass 1: 测量、flex_shrink 压缩与 flex_grow 分配 ====================
         float total_grow = 0.0f;
         float fixed_main_used = total_gap;
         float max_child_cross = 0.0f;
+        const bool cross_bounded = (max_cross_constraint < BoxConstraints::kInfinity);
+        const bool main_bounded = (max_main_constraint < BoxConstraints::kInfinity);
 
         // 第一遍：测量固定尺寸 (非 flex_grow) 子项
-        for (RenderBox* child : children) {
+        for (size_t i = 0; i < N; ++i) {
+            RenderBox* child = children[i];
             const auto& flex = child->flex_data();
             if (flex.flex_grow > 0.0f) {
                 total_grow += flex.flex_grow;
             } else {
-                // 固定尺寸子项：使用松约束测量
                 AlignItems align = flex.align_self.value_or(params.align_items);
-                float cross_min = (align == AlignItems::Stretch && max_cross_constraint < BoxConstraints::kInfinity) ? max_cross_constraint : 0.0f;
+                float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
 
-                BoxConstraints child_constraints;
-                if (is_horizontal) {
-                    child_constraints = BoxConstraints(0.0f, max_main_constraint, cross_min, max_cross_constraint);
-                } else {
-                    child_constraints = BoxConstraints(cross_min, max_cross_constraint, 0.0f, max_main_constraint);
-                }
+                BoxConstraints child_constraints = is_horizontal
+                    ? BoxConstraints(0.0f, max_main_constraint, cross_min, max_cross_constraint)
+                    : BoxConstraints(cross_min, max_cross_constraint, 0.0f, max_main_constraint);
 
                 child->layout(child_constraints, true);
                 fixed_main_used += get_main(child->size());
@@ -81,29 +92,63 @@ public:
             }
         }
 
+        // 若固定子项总和超出主轴上限，按 flex_shrink * base_main 比例执行弹性收缩
+        if (main_bounded && fixed_main_used > max_main_constraint) {
+            const float overflow = fixed_main_used - max_main_constraint;
+            float total_shrink_weight = 0.0f;
+            for (size_t i = 0; i < N; ++i) {
+                RenderBox* child = children[i];
+                const auto& flex = child->flex_data();
+                if (flex.flex_grow <= 0.0f && flex.flex_shrink > 0.0f) {
+                    total_shrink_weight += flex.flex_shrink * get_main(child->size());
+                }
+            }
+            if (total_shrink_weight > 0.001f) {
+                fixed_main_used = total_gap;
+                max_child_cross = 0.0f;
+                for (size_t i = 0; i < N; ++i) {
+                    RenderBox* child = children[i];
+                    const auto& flex = child->flex_data();
+                    if (flex.flex_grow > 0.0f) continue;
+
+                    float base_main = get_main(child->size());
+                    if (flex.flex_shrink > 0.0f && base_main > 0.0f) {
+                        float shrink_amount = overflow * ((flex.flex_shrink * base_main) / total_shrink_weight);
+                        float target_main = std::max(0.0f, base_main - shrink_amount);
+                        AlignItems align = flex.align_self.value_or(params.align_items);
+                        float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
+                        BoxConstraints shrunk_constraints = is_horizontal
+                            ? BoxConstraints(0.0f, target_main, cross_min, max_cross_constraint)
+                            : BoxConstraints(cross_min, max_cross_constraint, 0.0f, target_main);
+                        child->layout(shrunk_constraints, true);
+                    }
+                    fixed_main_used += get_main(child->size());
+                    max_child_cross = std::max(max_child_cross, get_cross(child->size()));
+                }
+            }
+        }
+
         // 确定可供弹性分配的总主轴基准长度
-        float target_container_main = (total_grow > 0.0f && max_main_constraint < BoxConstraints::kInfinity) ? max_main_constraint : fixed_main_used;
+        float target_container_main = (total_grow > 0.0f && main_bounded) ? max_main_constraint : fixed_main_used;
         float remaining_free_space = std::max(0.0f, target_container_main - fixed_main_used);
 
         // 第二遍：为 flex_grow 子项分配剩余空间并排版
         if (total_grow > 0.0f) {
             float space_per_grow = remaining_free_space / total_grow;
-            for (RenderBox* child : children) {
+            for (size_t i = 0; i < N; ++i) {
+                RenderBox* child = children[i];
                 const auto& flex = child->flex_data();
                 if (flex.flex_grow > 0.0f) {
                     float allocated_main = flex.flex_grow * space_per_grow;
                     AlignItems align = flex.align_self.value_or(params.align_items);
-                    float cross_min = (align == AlignItems::Stretch && max_cross_constraint < BoxConstraints::kInfinity) ? max_cross_constraint : 0.0f;
+                    float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
 
-                    BoxConstraints child_constraints;
                     float child_main_min = (flex.fit == FlexFit::Tight) ? allocated_main : 0.0f;
                     float child_main_max = allocated_main;
 
-                    if (is_horizontal) {
-                        child_constraints = BoxConstraints(child_main_min, child_main_max, cross_min, max_cross_constraint);
-                    } else {
-                        child_constraints = BoxConstraints(cross_min, max_cross_constraint, child_main_min, child_main_max);
-                    }
+                    BoxConstraints child_constraints = is_horizontal
+                        ? BoxConstraints(child_main_min, child_main_max, cross_min, max_cross_constraint)
+                        : BoxConstraints(cross_min, max_cross_constraint, child_main_min, child_main_max);
 
                     child->layout(child_constraints, true);
                     max_child_cross = std::max(max_child_cross, get_cross(child->size()));
@@ -113,13 +158,13 @@ public:
 
         // 计算所有子项加间距的实际主轴占用总长
         float actual_main_used = total_gap;
-        for (RenderBox* child : children) {
-            actual_main_used += get_main(child->size());
+        for (size_t i = 0; i < N; ++i) {
+            actual_main_used += get_main(children[i]->size());
         }
 
         // 确定容器自身的最终尺寸
         float target_main = (total_grow > 0.0f || min_main_constraint == max_main_constraint)
-            ? (max_main_constraint < BoxConstraints::kInfinity ? max_main_constraint : actual_main_used)
+            ? (main_bounded ? max_main_constraint : actual_main_used)
             : actual_main_used;
         float final_container_main = std::clamp(
             target_main,
@@ -131,6 +176,21 @@ public:
             min_cross_constraint,
             max_cross_constraint
         );
+
+        // 交叉轴无界场景下补齐 AlignItems::Stretch 二次拉伸（如 ScrollView 内 Row/Column 子项等高/等宽对齐）
+        if (!cross_bounded && final_container_cross > 0.0f) {
+            for (size_t i = 0; i < N; ++i) {
+                RenderBox* child = children[i];
+                AlignItems align = child->flex_data().align_self.value_or(params.align_items);
+                if (align == AlignItems::Stretch && get_cross(child->size()) + 0.5f < final_container_cross) {
+                    float child_main = get_main(child->size());
+                    BoxConstraints stretch_constraints = is_horizontal
+                        ? BoxConstraints(child_main, child_main, final_container_cross, final_container_cross)
+                        : BoxConstraints(final_container_cross, final_container_cross, child_main, child_main);
+                    child->layout(stretch_constraints, true);
+                }
+            }
+        }
 
         container->set_size(make_vec(final_container_main, final_container_cross));
 

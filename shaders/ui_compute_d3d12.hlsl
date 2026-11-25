@@ -54,11 +54,13 @@ float box_distance(float2 p, float4 bounds, float4 radii) {
     return length(max(q, 0)) + min(max(q.x, q.y), 0) - radius;
 }
 
+// Abramowitz & Stegun 7.1.27 四阶有理近似 (与 CpuTileRasterizer::erf_approx 严格一致，无 exp() 开销，最大误差 ~0.21 LSB)
 float2 erf_approx(float2 x) {
     float2 v = abs(x);
-    float2 t = 1.0 / (1.0 + 0.3275911 * v);
-    return sign(x) * (1.0 - (((((1.061405429 * t - 1.453152027) * t)
-        + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-v * v));
+    float2 v2 = v * v;
+    float2 t = 1.0 / (1.0 + 0.278393 * v + 0.230389 * v2 + 0.000972 * v2 * v + 0.078108 * v2 * v2);
+    float2 t2 = t * t;
+    return sign(x) * (1.0 - t2 * t2);
 }
 
 float coverage(float2 p, Primitive prim) {

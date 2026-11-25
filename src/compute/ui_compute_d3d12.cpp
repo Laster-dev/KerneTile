@@ -24,7 +24,21 @@ using namespace hal::d3d12;
 
 class D3D12Backend final : public Backend {
 public:
-    explicit D3D12Backend(void* window) : m_window(window), m_device(false, false, false) {
+    static constexpr size_t kFramesInFlight = 2;
+
+    explicit D3D12Backend(void* window, bool prefer_warp)
+        : m_window(window), m_device(prefer_warp, prefer_warp, false) {
+        if (!m_device.is_valid()) {
+            m_failed = true;
+            return;
+        }
+        for (auto& slot : m_slots) {
+            if (FAILED(m_device.get_native_device()->CreateCommandAllocator(
+                    D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&slot.allocator)))) {
+                m_failed = true;
+                return;
+            }
+        }
 #if defined(KT_PRECOMPILED_DXBC)
         m_pipeline = m_device.create_compute_pipeline({ui_compute_dxbc, sizeof(ui_compute_dxbc)});
 #else
@@ -48,16 +62,21 @@ public:
 
     bool submit(const Frame& frame) override {
         if (!ready()) return false;
-        m_device.wait_idle();
-        m_atlas_upload.reset();
+        auto& slot = m_slots[m_frame_slot];
+        // 仅等待当前帧槽对应的 GPU Fence 完成，实现 2 帧并发流水线而非每帧全队列 wait_idle
+        m_device.wait_fence(slot.fence_value);
+        if (FAILED(slot.allocator->Reset())) {
+            m_failed = true;
+            return false;
+        }
         resize(frame);
         if (!m_swapchain || !m_output) {
             m_failed = true;
             return false;
         }
-        auto recorder = m_device.create_command_recorder();
+        auto recorder = m_device.create_command_recorder(slot.allocator.Get());
         auto& commands = static_cast<D3D12CommandRecorder&>(*recorder);
-        if (!frame.tiles.empty()) compose(commands, frame);
+        if (!frame.tiles.empty()) compose(commands, slot, frame);
         auto& back = *static_cast<D3D12Swapchain&>(*m_swapchain).get_current_back_buffer();
         commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
         commands.resource_barrier(back, ResourceState::Present, ResourceState::CopyDst);
@@ -66,14 +85,30 @@ public:
         commands.close();
         m_device.submit(std::move(recorder));
         m_swapchain->present(false);
+        slot.fence_value = m_device.signal_fence();
+        m_frame_slot = (m_frame_slot + 1) % kFramesInFlight;
         return true;
     }
 
 private:
+    struct FrameSlot {
+        ComPtr<ID3D12CommandAllocator> allocator;
+        std::array<std::unique_ptr<D3D12Buffer>, 4> uploads;
+        std::unique_ptr<D3D12Buffer> atlas_upload;
+        uint64_t fence_value{0};
+    };
+
+    void wait_all_frames() {
+        for (const auto& slot : m_slots) {
+            m_device.wait_fence(slot.fence_value);
+        }
+    }
+
     void resize(const Frame& frame) {
         if (!m_swapchain) {
             m_swapchain = m_device.create_swapchain(m_window, frame.width, frame.height);
         } else if (m_swapchain->get_width() != frame.width || m_swapchain->get_height() != frame.height) {
+            wait_all_frames();
             m_swapchain->resize(frame.width, frame.height);
             m_output.reset();
         }
@@ -81,8 +116,8 @@ private:
             TextureDesc{frame.width, frame.height, TextureFormat::RGBA8_UNORM, true});
     }
 
-    D3D12Buffer& upload_buffer(size_t slot, size_t size) {
-        auto& buffer = m_uploads[slot];
+    D3D12Buffer& upload_buffer(FrameSlot& slot, size_t index, size_t size) {
+        auto& buffer = slot.uploads[index];
         if (!buffer || buffer->get_size_bytes() < size) {
             buffer = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
                 BufferDesc{size, BufferUsage::Upload});
@@ -90,7 +125,16 @@ private:
         return *buffer;
     }
 
-    void compose(D3D12CommandRecorder& commands, const Frame& frame) {
+    D3D12Buffer& atlas_upload_buffer(FrameSlot& slot, size_t size) {
+        auto& buffer = slot.atlas_upload;
+        if (!buffer || buffer->get_size_bytes() < size) {
+            buffer = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
+                BufferDesc{std::max<size_t>(256, size), BufferUsage::Upload});
+        }
+        return *buffer;
+    }
+
+    void compose(D3D12CommandRecorder& commands, FrameSlot& slot, const Frame& frame) {
         const bool first_atlas = !m_atlas;
         if (first_atlas) m_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
             TextureDesc{frame.atlas_width, frame.atlas_height, TextureFormat::R8_UNORM, false});
@@ -105,9 +149,8 @@ private:
                 total += aligned(aligned(rect.w, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) * rect.h,
                                  D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
             }
-            m_atlas_upload = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
-                BufferDesc{std::max<size_t>(256, total), BufferUsage::Upload});
-            auto* bytes = static_cast<uint8_t*>(m_atlas_upload->map());
+            auto& staging = atlas_upload_buffer(slot, total);
+            auto* bytes = static_cast<uint8_t*>(staging.map());
             commands.resource_barrier(*m_atlas, m_atlas->get_current_state(), ResourceState::CopyDst);
             size_t offset = 0;
             for (const auto& rect : rects) {
@@ -116,7 +159,7 @@ private:
                     const size_t source = size_t(rect.y + row) * frame.atlas_width + rect.x;
                     std::memcpy(bytes + offset + size_t(row) * pitch, frame.atlas.data() + source, rect.w);
                 }
-                D3D12_TEXTURE_COPY_LOCATION src{m_atlas_upload->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+                D3D12_TEXTURE_COPY_LOCATION src{staging.get_native_resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
                 src.PlacedFootprint.Offset = offset;
                 src.PlacedFootprint.Footprint = {DXGI_FORMAT_R8_UNORM, rect.w, rect.h, 1, pitch};
                 D3D12_TEXTURE_COPY_LOCATION dst{m_atlas->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
@@ -132,7 +175,7 @@ private:
         const std::array input{std::as_bytes(frame.primitives), std::as_bytes(frame.indices),
                                std::as_bytes(frame.tiles), std::as_bytes(frame.clips)};
         for (uint32_t i = 0; i < input.size(); ++i) {
-            auto& buffer = upload_buffer(i, std::max<size_t>(sizeof(core::UiPrimitive), input[i].size()));
+            auto& buffer = upload_buffer(slot, i, std::max<size_t>(sizeof(core::UiPrimitive), input[i].size()));
             if (!input[i].empty()) std::memcpy(buffer.map(), input[i].data(), input[i].size());
             commands.set_storage_buffer(i, buffer);
         }
@@ -158,15 +201,15 @@ private:
     std::unique_ptr<ComputePipeline> m_pipeline;
     std::unique_ptr<Swapchain> m_swapchain;
     std::unique_ptr<D3D12Texture> m_output, m_atlas;
-    std::array<std::unique_ptr<D3D12Buffer>, 4> m_uploads;
-    std::unique_ptr<D3D12Buffer> m_atlas_upload;
+    std::array<FrameSlot, kFramesInFlight> m_slots;
+    size_t m_frame_slot{0};
     bool m_failed = false;
 };
 } // namespace
 
-std::unique_ptr<Backend> create(void* window, void*) {
+std::unique_ptr<Backend> create(void* window, void*, bool prefer_warp) {
     if (!window) return nullptr;
-    auto backend = std::make_unique<D3D12Backend>(window);
+    auto backend = std::make_unique<D3D12Backend>(window, prefer_warp);
     return backend->ready() ? std::move(backend) : nullptr;
 }
 

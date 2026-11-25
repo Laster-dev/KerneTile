@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/fn.hpp>
+
 #include "animatable.hpp"
 #include "spring_presets.hpp"
 #include "animation_transaction.hpp"

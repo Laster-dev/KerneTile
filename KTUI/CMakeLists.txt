@@ -5,6 +5,7 @@ set(KTUI_PAL_SOURCES
     src/pal/platform_backend.cpp
     src/pal/mica_wallpaper.cpp
     src/app/application.cpp
+    src/app/window.cpp
     src/presentation/svg_engine.cpp
 )
 
@@ -12,6 +13,10 @@ if (WIN32)
     list(APPEND KTUI_PAL_SOURCES src/pal/win32_backend.cpp)
 elseif (ANDROID)
     list(APPEND KTUI_PAL_SOURCES src/pal/android_backend.cpp)
+elseif (EMSCRIPTEN)
+    list(APPEND KTUI_PAL_SOURCES src/pal/web_backend.cpp)
+else()
+    list(APPEND KTUI_PAL_SOURCES src/pal/linux_backend.cpp)
 endif()
 
 add_library(ktui_pal STATIC ${KTUI_PAL_SOURCES})

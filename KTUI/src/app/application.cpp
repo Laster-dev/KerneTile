@@ -133,11 +133,24 @@ int Application::run() {
     // Android 端由 Choreographer 按屏幕刷新率回调 Application::step_frame()
     return m_exit_code;
 #else
-    constexpr auto kFrameInterval = std::chrono::microseconds(8333); // 120 FPS 高刷丝滑节拍 (配合 Win32 高精度等待定时器)
+    auto active_refresh_hz = [this]() -> uint32_t {
+        uint32_t max_hz = 0;
+        for (const auto& win : m_windows) {
+            if (win && !win->is_closed() && win->platform_window()) {
+                uint32_t hz = win->platform_window()->refresh_rate();
+                if (hz > max_hz) max_hz = hz;
+            }
+        }
+        if (max_hz == 0) max_hz = 60;
+        return std::clamp(max_hz, 30u, 240u);
+    };
+
     constexpr auto kFrameJitterTolerance = std::chrono::microseconds(500);
-    auto last_render_time = std::chrono::steady_clock::now() - kFrameInterval;
+    auto last_render_time = std::chrono::steady_clock::now() - std::chrono::microseconds(1000000 / active_refresh_hz());
 
     while (m_running) {
+        const uint32_t hz = active_refresh_hz();
+        const auto frame_interval = std::chrono::microseconds(1000000 / hz);
         auto now = std::chrono::steady_clock::now();
         auto elapsed_since_render = now - last_render_time;
 
@@ -154,8 +167,8 @@ int Application::run() {
         }
 
         if (has_pending_render) {
-            if (elapsed_since_render + kFrameJitterTolerance >= kFrameInterval) {
-                // 到达帧周期，准时推进并呈现新帧
+            if (elapsed_since_render + kFrameJitterTolerance >= frame_interval) {
+                // 到达显示器原生刷新周期，准时推进并呈现新帧
                 last_render_time = now;
                 for (auto& win : m_windows) {
                     if (win && !win->is_closed() && win->root_render_box()) {
@@ -171,10 +184,10 @@ int Application::run() {
         }
 
         uint32_t wait_ms = compute_wait_timeout();
-        // 若有待渲染帧但未到帧节拍，精准休眠到下一帧周期
+        // 若有待渲染帧但未到原生帧节拍，精准休眠到下一帧周期
         if (has_pending_render) {
             now = std::chrono::steady_clock::now();
-            auto remaining = kFrameInterval - (now - last_render_time);
+            auto remaining = frame_interval - (now - last_render_time);
             if (remaining > std::chrono::microseconds(500)) {
                 uint32_t rem_ms = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count());
                 if (rem_ms == 0) rem_ms = 1;

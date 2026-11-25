@@ -12,7 +12,7 @@ public:
         : m_config(config),
           m_grid(config.width, config.height),
           m_dirty_tracker(m_grid.get_total_tiles()),
-          m_atlas(1024, 1024, atlas::AtlasFormat::R8_UNORM)
+          m_atlas(2048, 2048, atlas::AtlasFormat::R8_UNORM)
     {
 
 
@@ -29,6 +29,16 @@ public:
     }
 
     void begin_frame() override {
+        // 图集满载或发生溢出时在帧首执行分代安全驱逐，避免长时运行丢字或破坏当帧图元 UV
+        if (m_atlas.has_overflowed() || m_atlas.get_utilization() >= 0.92) {
+            m_atlas.reset();
+            m_mask_cache.clear();
+            if (m_text_streamer) {
+                m_text_streamer->clear_cache();
+            }
+            m_dirty_tracker.reset();
+            m_gpu_full_frame = true;
+        }
         m_primitives.clear();
         m_clip_stack.clear();
         m_frame_index++;
@@ -180,29 +190,23 @@ public:
     void end_frame() override {
         auto t0 = std::chrono::high_resolution_clock::now();
 
-        // 1. 瓦片网格图元分箱与实心遮挡剔除
+        // 1. 瓦片网格图元分箱、裁剪链求交与实心遮挡剔除
+        const auto& clips = m_clip_stack.get_clips();
         m_last_binning = m_binner.bin_primitives(
             m_grid,
             m_primitives,
-            m_config.enable_occlusion_culling);
+            m_config.enable_occlusion_culling,
+            clips);
 
         auto t1 = std::chrono::high_resolution_clock::now();
 
-        const auto& clips = m_clip_stack.get_clips();
-        if (clips.size() != m_previous_clips.size() ||
-            (!clips.empty() && std::memcmp(clips.data(), m_previous_clips.data(),
-                clips.size() * sizeof(core::ClipRect)) != 0)) {
-            m_dirty_tracker.reset();
-            m_gpu_full_frame = true;
-            m_previous_clips = clips;
-        }
-
-        // 2. FNV-1a 脏瓦片哈希追踪
+        // 2. FNV-1a 脏瓦片哈希追踪 (按图元内容与裁剪几何链精确局部标脏，避免 Clip 变动全屏失效)
         m_last_dirty_result = m_dirty_tracker.update(
             m_grid,
             m_last_binning.headers,
             m_last_binning.indices,
-            m_primitives);
+            m_primitives,
+            clips);
 
         // 记录性能与帧指标
         m_last_stats.frame_index = m_frame_index;
@@ -214,7 +218,7 @@ public:
     }
 
     void set_compute_target(void* window, void* display) override {
-        m_backend = m_config.force_cpu_fallback ? nullptr : compute::create(window, display);
+        m_backend = m_config.force_cpu_fallback ? nullptr : compute::create(window, display, m_config.prefer_warp);
         m_gpu_full_frame = true;
         m_gpu_active = false;
     }
@@ -266,7 +270,7 @@ public:
         if (m_gpu_active) {
             m_dirty_tracker.reset();
             m_last_dirty_result = m_dirty_tracker.update(m_grid, m_last_binning.headers,
-                m_last_binning.indices, m_primitives);
+                m_last_binning.indices, m_primitives, m_clip_stack.get_clips());
             m_last_stats.dirty_tiles = m_last_dirty_result.dirty_count;
         }
         m_gpu_full_frame = true;
@@ -353,7 +357,6 @@ private:
     mutable std::unique_ptr<hal::GraphicsDevice> m_device;
     std::unique_ptr<compute::Backend> m_backend;
     std::vector<compute::Tile> m_compute_tiles;
-    std::vector<core::ClipRect> m_previous_clips;
     bool m_gpu_full_frame = true;
     bool m_gpu_active = false;
     bool m_mica_enabled = false;

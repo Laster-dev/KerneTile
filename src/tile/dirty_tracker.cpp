@@ -14,7 +14,8 @@ const DirtyTrackingResult& DirtyTracker::update(
     const TileGrid& grid,
     std::span<const core::TileHeader> headers,
     std::span<const uint32_t> indices,
-    std::span<const core::UiPrimitive> primitives)
+    std::span<const core::UiPrimitive> primitives,
+    std::span<const core::ClipRect> clips)
 {
     uint32_t total_tiles = grid.get_total_tiles();
     if (m_prev_signatures.size() < total_tiles) {
@@ -24,21 +25,50 @@ const DirtyTrackingResult& DirtyTracker::update(
     m_result.dirty_coords.clear();
     m_result.dirty_tiles.clear();
 
-    // 0. 预计算每个独立图元的 64-bit 签名 (将 O(tiles * prims * fields) 降至 O(prims * fields))
+    // 0a. 预计算裁剪链内容签名 (不含数组索引，避免局部裁剪索引偏移引发无关瓦片全屏失效)
+    const size_t clip_count = clips.size();
+    if (m_clip_signatures.size() < clip_count) {
+        m_clip_signatures.resize(clip_count);
+    }
+    for (size_t c = 0; c < clip_count; ++c) {
+        uint64_t h = 0xcbf29ce484222325ULL;
+        uint32_t cur = static_cast<uint32_t>(c);
+        for (uint32_t depth = 0; depth < 64 && cur != core::INVALID_INDEX_U32 && cur < clip_count; ++depth) {
+            const auto& cl = clips[cur];
+            uint64_t w0 = 0, w1 = 0, w2 = 0;
+            std::memcpy(&w0, &cl.min_x, sizeof(uint64_t));          // min_x, min_y
+            std::memcpy(&w1, &cl.max_x, sizeof(uint64_t));          // max_x, max_y
+            uint32_t rad_bits = 0;
+            std::memcpy(&rad_bits, &cl.corner_radius, sizeof(uint32_t));
+            w2 = (static_cast<uint64_t>(cl.flags) << 32u) | static_cast<uint64_t>(rad_bits);
+            h = fnv1a_64_step(h, w0);
+            h = fnv1a_64_step(h, w1);
+            h = fnv1a_64_step(h, w2);
+            cur = cl.parent_index;
+        }
+        m_clip_signatures[c] = h;
+    }
+
+    // 0b. 预计算每个独立图元的 64-bit 内容签名 (不混入数组索引 p，避免前序图元增删引发雪崩失效)
     size_t prim_count = primitives.size();
     if (m_prim_signatures.size() < prim_count) {
         m_prim_signatures.resize(prim_count);
     }
     for (size_t p = 0; p < prim_count; ++p) {
-        const auto& prim = primitives[p];
+        core::UiPrimitive normalized = primitives[p];
+        const uint16_t clip_idx = normalized.clip_index;
+        // 剥离瞬时 clip_index 偏移，改为混入实际裁剪几何链签名
+        normalized.clip_index = core::INVALID_INDEX_U16;
+
         uint64_t h = 0xcbf29ce484222325ULL;
-        h = fnv1a_64_step(h, static_cast<uint64_t>(p));
-        // UiPrimitive has a packed, fixed GPU layout. Every byte can affect the pixels.
-        const auto* bytes = reinterpret_cast<const unsigned char*>(&prim);
-        for (size_t offset = 0; offset < sizeof(prim); offset += sizeof(uint64_t)) {
+        const auto* bytes = reinterpret_cast<const unsigned char*>(&normalized);
+        for (size_t offset = 0; offset < sizeof(normalized); offset += sizeof(uint64_t)) {
             uint64_t field;
             std::memcpy(&field, bytes + offset, sizeof(field));
             h = fnv1a_64_step(h, field);
+        }
+        if (clip_idx != core::INVALID_INDEX_U16 && clip_idx < clip_count) {
+            h = fnv1a_64_step(h, m_clip_signatures[clip_idx]);
         }
         m_prim_signatures[p] = h;
     }

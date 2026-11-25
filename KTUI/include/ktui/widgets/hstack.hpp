@@ -13,6 +13,7 @@ struct HStack : BindableMixin<HStack, RenderFlexBox> {
     AlignItems align_items{AlignItems::Center}; // 水平栏桌面默认垂直居中
     float spacing{6.0f}; // 桌面紧凑标准间距 6px
     EdgeInsets padding{EdgeInsets::zero()};
+    bool reverse{false};
     std::vector<WidgetPtr> content{};
 
     operator WidgetPtr() const&;
@@ -29,7 +30,7 @@ public:
 
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = make_render_node<RenderFlexBox>(
-            FlexDirection::Row,
+            m_desc.reverse ? FlexDirection::RowReverse : FlexDirection::Row,
             m_desc.justify,
             m_desc.align_items,
             m_desc.spacing,
@@ -52,7 +53,7 @@ public:
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto flex_box = std::static_pointer_cast<RenderFlexBox>(node)) {
-            flex_box->set_direction(FlexDirection::Row);
+            flex_box->set_direction(m_desc.reverse ? FlexDirection::RowReverse : FlexDirection::Row);
             flex_box->set_justify(m_desc.justify);
             flex_box->set_align_items(m_desc.align_items);
             flex_box->set_gap(m_desc.spacing);

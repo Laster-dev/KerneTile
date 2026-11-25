@@ -77,7 +77,24 @@ WidgetPtr build_home_page(GalleryApp& app) {
         .spacing = 14.0f,
         .content = {
             Text { .text = "KTUI Gallery", .font_size = 24.0f, .font_weight = FontWeight::SemiBold },
-            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 41 个独立控件展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            Text { .text = "对标 Windows 11 WinUI 3 Gallery · 45 个独立控件与布局展厅 · 云母平滑聚焦 · 圆形涟漪主题切换 · 跨平台触控手势", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "布局系统 (Layout)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Wrap {
+                        .spacing = 8.0f,
+                        .run_spacing = 8.0f,
+                        .content = {
+                            nav_chip(app, "Flex 弹性布局", "layout_flex", true),
+                            nav_chip(app, "Wrap 流式换行", "layout_wrap", true),
+                            nav_chip(app, "Grid 二维网格", "layout_grid", true),
+                            nav_chip(app, "ZStack 与对齐容器", "layout_stack_align", true)
+                        }
+                    }
+                }
+            }),
             app.make_card(VStack {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,

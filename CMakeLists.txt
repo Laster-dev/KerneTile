@@ -389,6 +389,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/main.cpp
     examples/ktui_gallery/gallery_app.cpp
     examples/ktui_gallery/pages/home_page.cpp
+    examples/ktui_gallery/pages/layout_pages.cpp
     examples/ktui_gallery/pages/basic_input_pages.cpp
     examples/ktui_gallery/pages/progress_page.cpp
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
@@ -410,14 +411,6 @@ endif()
 target_link_libraries(ktui_gallery PRIVATE
     ktui_pal
     kernetile_engine
-    kernetile_hal
-    kernetile_tile
-    kernetile_text
-    kernetile_fx
-    kernetile_input
-    kernetile_platform
-    kernetile_cpu
-    kernetile_core
 )
 if (MSVC AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(ktui_gallery PRIVATE $<$<CONFIG:Release>:/Ob0>)
@@ -464,7 +457,18 @@ if (BUILD_TESTING)
 
     function(add_kernetile_test test_name source_file)
         add_executable(${test_name} ${source_file})
-        target_link_libraries(${test_name} PRIVATE kernetile_engine kernetile_hal kernetile_tile kernetile_text kernetile_fx kernetile_input kernetile_platform kernetile_cpu)
+        target_link_libraries(${test_name} PRIVATE kernetile_engine)
+        add_test(NAME ${test_name} COMMAND ${test_name} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    endfunction()
+
+    function(add_ktui_test test_name source_file)
+        add_executable(${test_name} ${source_file})
+        target_include_directories(${test_name} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+        target_link_libraries(${test_name} PRIVATE ${ARGN})
         add_test(NAME ${test_name} COMMAND ${test_name} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     endfunction()
 
@@ -527,241 +531,21 @@ if (BUILD_TESTING)
     add_kernetile_test(test_renderer_lifecycle tests/test_renderer_lifecycle.cpp)
     add_kernetile_test(bench_4k_scenarios tests/bench_4k_scenarios.cpp)
 
-    # KTUI 阶段 1 测试
-    add_executable(test_ktui_pal_headless tests/test_ktui_pal_headless.cpp)
-    target_include_directories(test_ktui_pal_headless PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_pal_headless PRIVATE ktui_pal kernetile_core)
-    add_test(NAME test_ktui_pal_headless COMMAND test_ktui_pal_headless WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 2 测试
-    add_executable(test_ktui_data_binding tests/test_ktui_data_binding.cpp)
-    target_include_directories(test_ktui_data_binding PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_data_binding PRIVATE kernetile_core)
-    add_test(NAME test_ktui_data_binding COMMAND test_ktui_data_binding WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 3 测试
-    add_executable(test_ktui_spring_physics tests/test_ktui_spring_physics.cpp)
-    target_include_directories(test_ktui_spring_physics PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_spring_physics PRIVATE kernetile_core)
-    add_test(NAME test_ktui_spring_physics COMMAND test_ktui_spring_physics WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 4 测试
-    add_executable(test_ktui_app_and_theme tests/test_ktui_app_and_theme.cpp)
-    target_include_directories(test_ktui_app_and_theme PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_app_and_theme PRIVATE ktui_pal kernetile_core)
-    add_test(NAME test_ktui_app_and_theme COMMAND test_ktui_app_and_theme WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 5 测试
-    add_executable(test_ktui_flex_layout tests/test_ktui_flex_layout.cpp)
-    target_include_directories(test_ktui_flex_layout PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_flex_layout PRIVATE kernetile_core)
-    add_test(NAME test_ktui_flex_layout COMMAND test_ktui_flex_layout WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 6 测试
-    add_executable(test_ktui_dirty_and_render tests/test_ktui_dirty_and_render.cpp)
-    target_include_directories(test_ktui_dirty_and_render PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_dirty_and_render PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_dirty_and_render COMMAND test_ktui_dirty_and_render WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 阶段 7 测试 (端到端实战验证)
-    add_executable(test_ktui_e2e_app tests/test_ktui_e2e_app.cpp)
-    target_include_directories(test_ktui_e2e_app PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_e2e_app PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_e2e_app COMMAND test_ktui_e2e_app WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI 动效算法管理器与 Button 三层规范单元测试
-    add_executable(test_ktui_button_and_motion tests/test_ktui_button_and_motion.cpp)
-    target_include_directories(test_ktui_button_and_motion PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_button_and_motion PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_button_and_motion COMMAND test_ktui_button_and_motion WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI TextBox 样式移植与三层解耦单元测试
-    add_executable(test_ktui_textbox tests/test_ktui_textbox.cpp)
-    target_include_directories(test_ktui_textbox PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_textbox PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_textbox COMMAND test_ktui_textbox WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI Checkbox 样式移植与三层解耦单元测试
-    add_executable(test_ktui_checkbox tests/test_ktui_checkbox.cpp)
-    target_include_directories(test_ktui_checkbox PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_checkbox PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_checkbox COMMAND test_ktui_checkbox WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI Slider, ProgressBar & ProgressRing 单元测试
-    add_executable(test_ktui_slider_progress tests/test_ktui_slider_progress.cpp)
-    target_include_directories(test_ktui_slider_progress PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_slider_progress PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_fx
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_core
-    )
-    add_test(NAME test_ktui_slider_progress COMMAND test_ktui_slider_progress WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI WinUI 3 ComboBox 单元测试
-    add_executable(test_ktui_combobox tests/test_ktui_combobox.cpp)
-    target_include_directories(test_ktui_combobox PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_combobox PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_fx
-        kernetile_core
-    )
-    add_test(NAME test_ktui_combobox COMMAND test_ktui_combobox WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI WinUI 3 NavigationView 单元测试
-    add_executable(test_ktui_navigation_view tests/test_ktui_navigation_view.cpp)
-    target_include_directories(test_ktui_navigation_view PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_navigation_view PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_fx
-        kernetile_core
-    )
-    add_test(NAME test_ktui_navigation_view COMMAND test_ktui_navigation_view WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # KTUI WinUI 3 InfoBar, ContentDialog, MenuFlyout & Split/DropDownButton 单元测试
-    add_executable(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp)
-    target_include_directories(test_ktui_overlays_and_menus PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_overlays_and_menus PRIVATE
-        ktui_pal
-        kernetile_engine
-        kernetile_hal
-        kernetile_tile
-        kernetile_text
-        kernetile_input
-        kernetile_platform
-        kernetile_cpu
-        kernetile_fx
-        kernetile_core
-    )
-    add_test(NAME test_ktui_overlays_and_menus COMMAND test_ktui_overlays_and_menus WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    # KTUI 自动化单元测试套件 (统一通过 add_ktui_test 宏注册)
+    add_ktui_test(test_ktui_pal_headless     tests/test_ktui_pal_headless.cpp     ktui_pal kernetile_core)
+    add_ktui_test(test_ktui_data_binding     tests/test_ktui_data_binding.cpp     kernetile_core)
+    add_ktui_test(test_ktui_spring_physics   tests/test_ktui_spring_physics.cpp   kernetile_core)
+    add_ktui_test(test_ktui_app_and_theme    tests/test_ktui_app_and_theme.cpp    ktui_pal kernetile_core)
+    add_ktui_test(test_ktui_flex_layout      tests/test_ktui_flex_layout.cpp      kernetile_core)
+    add_ktui_test(test_ktui_dirty_and_render tests/test_ktui_dirty_and_render.cpp ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_e2e_app          tests/test_ktui_e2e_app.cpp          ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_button_and_motion tests/test_ktui_button_and_motion.cpp ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_textbox          tests/test_ktui_textbox.cpp          ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_checkbox         tests/test_ktui_checkbox.cpp         ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_slider_progress  tests/test_ktui_slider_progress.cpp  ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_combobox         tests/test_ktui_combobox.cpp         ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_navigation_view  tests/test_ktui_navigation_view.cpp  ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp ktui_pal kernetile_engine)
 endif()
 
 

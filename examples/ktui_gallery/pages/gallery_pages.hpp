@@ -62,4 +62,10 @@ ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
 // ==================== 图形与矢量 (Media & Vector) ====================
 ktui::WidgetPtr build_svg_page(GalleryApp& app);
 
+// ==================== 布局系统 (Layout) ====================
+ktui::WidgetPtr build_layout_flex_page(GalleryApp& app);
+ktui::WidgetPtr build_layout_wrap_page(GalleryApp& app);
+ktui::WidgetPtr build_layout_grid_page(GalleryApp& app);
+ktui::WidgetPtr build_layout_stack_align_page(GalleryApp& app);
+
 } // namespace gallery::pages

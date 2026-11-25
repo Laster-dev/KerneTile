@@ -93,6 +93,30 @@ struct GalleryApp {
     ktui::Property<bool> infobar_open{true};
     ktui::Property<ktui::InfoBarSeverity> infobar_severity{ktui::InfoBarSeverity::Informational};
 
+    // Layout 展厅交互状态
+    ktui::Property<int> layout_flex_justify_idx{0};
+    ktui::Property<ktui::JustifyContent> layout_flex_justify{ktui::JustifyContent::FlexStart};
+    ktui::Property<int> layout_flex_align_idx{1};
+    ktui::Property<ktui::AlignItems> layout_flex_align{ktui::AlignItems::Center};
+    ktui::Property<float> layout_flex_gap{10.0f};
+    ktui::Property<bool> layout_flex_reverse{false};
+    ktui::Property<ktui::FlexDirection> layout_flex_dir{ktui::FlexDirection::Row};
+    ktui::Property<std::string> layout_flex_gap_label{"主轴间距 (spacing): 10 px"};
+
+    ktui::Property<int> layout_wrap_align_idx{0};
+    ktui::Property<ktui::JustifyContent> layout_wrap_align{ktui::JustifyContent::FlexStart};
+    ktui::Property<float> layout_wrap_spacing{8.0f};
+    ktui::Property<std::string> layout_wrap_spacing_label{"流式行列间距: 8 px"};
+
+    ktui::Property<int> layout_grid_cols_idx{1};
+    ktui::Property<uint32_t> layout_grid_cols{3};
+    ktui::Property<float> layout_grid_gap{10.0f};
+    ktui::Property<std::string> layout_grid_gap_label{"网格间距: 10 px"};
+
+    ktui::Property<int> layout_zstack_align_idx{4};
+    ktui::Property<ktui::Alignment> layout_zstack_align{ktui::Alignment::center()};
+    ktui::Property<std::string> layout_zstack_align_label{"当前对齐锚点: Center (0.0, 0.0)"};
+
     ktui::Property<ktui::Color> window_bg{ktui::Color::transparent()};
     ktui::Property<ktui::Color> card_bg{ktui::Color{1.0f, 1.0f, 1.0f, 0.045f}};
     ktui::Property<ktui::Color> card_border{ktui::Color{1.0f, 1.0f, 1.0f, 0.07f}};

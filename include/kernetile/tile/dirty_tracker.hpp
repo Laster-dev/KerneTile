@@ -33,12 +33,13 @@ public:
         m_prev_signatures.resize(initial_tile_capacity, 0);
     }
 
-    // 更新帧图元并检测脏瓦片
+    // 更新帧图元并检测脏瓦片 (支持传入裁剪栈以精确追踪局部裁剪变化，避免全屏失效)
     [[nodiscard]] const DirtyTrackingResult& update(
         const TileGrid& grid,
         std::span<const core::TileHeader> headers,
         std::span<const uint32_t> indices,
-        std::span<const core::UiPrimitive> primitives);
+        std::span<const core::UiPrimitive> primitives,
+        std::span<const core::ClipRect> clips = {});
 
     [[nodiscard]] const DirtyTrackingResult& get_result() const noexcept {
         return m_result;
@@ -52,6 +53,7 @@ public:
 private:
     std::vector<uint64_t> m_prev_signatures;
     std::vector<uint64_t> m_prim_signatures;
+    std::vector<uint64_t> m_clip_signatures;
     DirtyTrackingResult m_result;
     bool m_force_all_dirty{false};
 };

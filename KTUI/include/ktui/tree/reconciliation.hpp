@@ -3,6 +3,7 @@
 #include "render_box.hpp"
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include <functional>
 #include <string>
 
@@ -15,16 +16,20 @@ struct WidgetKey {
     bool operator==(const WidgetKey&) const noexcept = default;
 };
 
-// 增量调和器 (Reconciler - 借鉴 React Fiber / Flutter Element 调和算法精髓)
-// 保持 RenderNode 树的结构稳定，仅在类型改变时重建，在属性变化时直接原地更新，避免无谓的内存重新分配
+// 增量调和器 (Reconciler - 支持按位置与按 Key 稳定复用，兼容原始指针与 shared_ptr 所有权)
 class Reconciler {
 public:
-    // 同步子节点列表：通过比较旧 RenderNode 树与新子项规格，完成原地更新、创建或删除
-    template <typename ItemSpec, typename FactoryFn, typename UpdaterFn>
+    struct DefaultRawDeleter {
+        void operator()(RenderNode* node) const noexcept { delete node; }
+    };
+
+    // 按位置索引同步子节点列表 (可选自定义 destroy_fn，托管所有权时可传入空操作避免 Double Free)
+    template <typename ItemSpec, typename FactoryFn, typename UpdaterFn, typename DestroyFn = DefaultRawDeleter>
     static void sync_children(RenderNode* parent,
                               const std::vector<ItemSpec>& new_specs,
                               FactoryFn&& create_fn,
-                              UpdaterFn&& update_fn) {
+                              UpdaterFn&& update_fn,
+                              DestroyFn&& destroy_fn = DestroyFn{}) {
         if (!parent) return;
 
         RenderNode* current_child = parent->first_child();
@@ -34,12 +39,10 @@ public:
             const auto& spec = new_specs[i];
 
             if (current_child != nullptr) {
-                // 复用并就地更新
                 RenderNode* next = current_child->next_sibling();
                 update_fn(current_child, spec);
                 current_child = next;
             } else {
-                // 新增子节点并挂接
                 RenderNode* new_node = create_fn(spec);
                 if (new_node) {
                     parent->append_child(new_node);
@@ -47,13 +50,64 @@ public:
             }
         }
 
-        // 移除多余的旧节点
         while (current_child != nullptr) {
             RenderNode* to_remove = current_child;
             current_child = current_child->next_sibling();
             parent->remove_child(to_remove);
-            delete to_remove;
+            destroy_fn(to_remove);
         }
+    }
+
+    // 基于 WidgetKey 的稳定增量调和 (支持中间插入、删除、重排时保留节点状态，且安全管理 shared_ptr 所有权)
+    template <typename ItemSpec, typename KeyFn, typename FactoryFn, typename UpdaterFn>
+    static void sync_owned_children_keyed(RenderNode* parent,
+                                          std::vector<std::shared_ptr<RenderBox>>& owned_storage,
+                                          std::vector<std::string>& owned_keys,
+                                          const std::vector<ItemSpec>& new_specs,
+                                          KeyFn&& key_fn,
+                                          FactoryFn&& create_fn,
+                                          UpdaterFn&& update_fn) {
+        if (!parent) return;
+
+        std::unordered_map<std::string, std::shared_ptr<RenderBox>> old_map;
+        old_map.reserve(owned_storage.size());
+        const size_t old_count = std::min(owned_storage.size(), owned_keys.size());
+        for (size_t i = 0; i < old_count; ++i) {
+            if (owned_storage[i]) {
+                old_map.emplace(std::move(owned_keys[i]), std::move(owned_storage[i]));
+            }
+        }
+
+        // 先从父节点摘除全部旧子节点以便按新顺序精确挂接 (不触发析构)
+        while (RenderNode* c = parent->first_child()) {
+            parent->remove_child(c);
+        }
+
+        std::vector<std::shared_ptr<RenderBox>> next_storage;
+        std::vector<std::string> next_keys;
+        next_storage.reserve(new_specs.size());
+        next_keys.reserve(new_specs.size());
+
+        for (const auto& spec : new_specs) {
+            std::string key = key_fn(spec);
+            std::shared_ptr<RenderBox> node;
+            if (auto it = old_map.find(key); it != old_map.end()) {
+                node = std::move(it->second);
+                old_map.erase(it);
+                update_fn(node.get(), spec);
+            } else {
+                node = create_fn(spec);
+            }
+            if (node) {
+                parent->append_child(node.get());
+                next_storage.push_back(std::move(node));
+                next_keys.push_back(std::move(key));
+            }
+        }
+
+        owned_storage = std::move(next_storage);
+        owned_keys = std::move(next_keys);
+        // old_map 中剩余未复用的 shared_ptr 在作用域结束时自动安全释放
     }
 };
 
