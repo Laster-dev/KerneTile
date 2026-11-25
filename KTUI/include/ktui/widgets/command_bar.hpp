@@ -89,15 +89,11 @@ public:
         const float w = size().x;
         const float h = size().y;
 
-        // 1. WinUI 3 CommandBar 浅层容器底板与 1px 柔和描边
+        // 1. WinUI 3 CommandBar 无边框柔和浅层底板
         Color bar_bg = theme.is_dark
             ? Color{1.0f, 1.0f, 1.0f, 0.032f}
             : Color{1.0f, 1.0f, 1.0f, 0.55f};
-        Color bar_bd = theme.is_dark
-            ? Color{1.0f, 1.0f, 1.0f, 0.07f}
-            : Color{0.0f, 0.0f, 0.0f, 0.07f};
         ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), bar_bg, 6.0f, 0.0f);
-        ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), bar_bd, 6.0f, 1.0f);
 
         Color text_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.94f} : Color{0.0f, 0.0f, 0.0f, 0.90f};
         Color muted_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.62f} : Color{0.0f, 0.0f, 0.0f, 0.58f};

@@ -27,6 +27,7 @@ ktui::WidgetPtr build_rating_control_page(GalleryApp& app);
 
 // ==================== 文本与数值 (Text & Numbers) ====================
 ktui::WidgetPtr build_label_page(GalleryApp& app);
+ktui::WidgetPtr build_rich_text_block_page(GalleryApp& app);
 ktui::WidgetPtr build_textbox_page(GalleryApp& app);
 ktui::WidgetPtr build_text_area_page(GalleryApp& app);
 ktui::WidgetPtr build_auto_suggest_box_page(GalleryApp& app);

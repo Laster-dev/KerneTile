@@ -259,7 +259,7 @@ public:
                 if (m_selection_mode == TreeViewSelectionMode::Multiple) {
                     if (auto* cb = find_checkbox(row.node->id)) {
                         cb->clear_needs_paint();
-                        PaintContext::OffsetScope scope(ctx, Vec2{std::round(x), std::round(row_cy - 9.0f)});
+                        PaintContext::OffsetScope scope(ctx, Vec2{std::round(x), row_cy - 9.0f});
                         cb->paint(ctx);
                         if (cb->needs_paint()) any_cb_animating = true;
                     }
@@ -268,7 +268,7 @@ public:
 
                 Color tc = text_col; tc.a *= alpha_s;
                 if (!row.node->svg_path.empty()) {
-                    Rect ir = Rect::from_xywh(std::round(x), std::round(row_cy - 7.5f), 15.0f, 15.0f);
+                    Rect ir = Rect::from_xywh(std::round(x), row_cy - 7.5f, 15.0f, 15.0f);
                     Color ic = is_sel ? theme.colors.primary : text_col;
                     ic.a *= alpha_s;
                     SvgEngine::draw_svg_path(ctx, row.node->svg_path, 24.0f, 24.0f, ir, ic);
@@ -278,7 +278,7 @@ public:
                 float label_w = std::max(8.0f, col0_max_x - x);
                 ctx.push_clip(Rect::from_xywh(x, rr.min_y, label_w, rh));
                 Vec2 ts = TextMeasure::measure(row.node->label, 13.5f);
-                ctx.draw_text(row.node->label, PointF{std::round(x), std::round(row_cy - ts.y * 0.5f)}, 13.5f, tc);
+                ctx.draw_text(row.node->label, PointF{std::round(x), row_cy - ts.y * 0.5f}, 13.5f, tc);
                 ctx.pop_clip();
 
                 // TreeListView 附加列绘制
@@ -291,7 +291,7 @@ public:
                             const std::string& cell = row.node->sub_columns[c - 1];
                             ctx.push_clip(Rect::from_xywh(col_x + 6.0f, rr.min_y, std::max(0.0f, cw - 12.0f), rh));
                             Vec2 cs = TextMeasure::measure(cell, 12.5f);
-                            ctx.draw_text(cell, PointF{std::round(col_x + 10.0f), std::round(row_cy - cs.y * 0.5f)}, 12.5f, sc);
+                            ctx.draw_text(cell, PointF{std::round(col_x + 10.0f), row_cy - cs.y * 0.5f}, 12.5f, sc);
                             ctx.pop_clip();
                         }
                         col_x += cw;

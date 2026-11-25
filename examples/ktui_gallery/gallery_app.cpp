@@ -290,6 +290,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
             }),
             make_cat("cat_text", "文本与数值", NavigationIcon::Inputs, false, {
                 {"label",              "Label",              nullptr},
+                {"rich_text_block",    "RichTextBlock",      "New"},
                 {"textbox",            "TextBox",            nullptr},
                 {"text_area",          "TextArea",           nullptr},
                 {"auto_suggest_box",   "AutoSuggestBox",     nullptr},
@@ -383,6 +384,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"color_picker",         pages::build_color_picker_page},
                 {"rating_control",       pages::build_rating_control_page},
                 {"label",                pages::build_label_page},
+                {"rich_text_block",      pages::build_rich_text_block_page},
                 {"textbox",              pages::build_textbox_page},
                 {"text_area",            pages::build_text_area_page},
                 {"auto_suggest_box",     pages::build_auto_suggest_box_page},

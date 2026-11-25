@@ -40,6 +40,9 @@ public:
         if (entry.id == 0) {
             entry.id = m_next_id++;
         }
+        if (entry.content) {
+            entry.content->set_offset(entry.global_pos);
+        }
         m_entries.push_back(std::move(entry));
         return m_entries.back().id;
     }
@@ -48,6 +51,11 @@ public:
     void hide(uint64_t id) {
         if (m_captured_id == id) {
             m_captured_id = 0;
+            m_captured_target = nullptr;
+        }
+        if (m_hovered_id == id) {
+            m_hovered_id = 0;
+            m_hovered_target = nullptr;
         }
         auto it = std::find_if(m_entries.begin(), m_entries.end(), [id](const OverlayEntry& e) {
             return e.id == id;
@@ -65,6 +73,14 @@ public:
     void dismiss_top() {
         if (!m_entries.empty()) {
             auto top = std::move(m_entries.back());
+            if (m_captured_id == top.id) {
+                m_captured_id = 0;
+                m_captured_target = nullptr;
+            }
+            if (m_hovered_id == top.id) {
+                m_hovered_id = 0;
+                m_hovered_target = nullptr;
+            }
             m_entries.pop_back();
             if (top.on_dismiss) {
                 top.on_dismiss();
@@ -85,6 +101,14 @@ public:
         auto it = m_entries.begin();
         while (it != m_entries.end()) {
             if (!it->is_modal && it->dismiss_on_outside_click) {
+                if (m_captured_id == it->id) {
+                    m_captured_id = 0;
+                    m_captured_target = nullptr;
+                }
+                if (m_hovered_id == it->id) {
+                    m_hovered_id = 0;
+                    m_hovered_target = nullptr;
+                }
                 if (it->on_dismiss) cbs.push_back(std::move(it->on_dismiss));
                 it = m_entries.erase(it);
             } else {
@@ -182,20 +206,23 @@ public:
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
                 if (content_guard->hit_test(hit_res, local_p)) {
                     m_captured_id = eid;
+                    m_captured_target = nullptr;
                     PointerEvent ev(PlatformEventType::PointerDown, pos, button);
                     ev.device_kind = device_kind;
                     for (const auto& h : hit_res.path()) {
                         if (h.target && h.target->on_pointer_down) {
                             PointerEvent tev = ev;
                             tev.local_position = h.local_position;
+                            m_captured_target = h.target;
                             h.target->on_pointer_down(tev);
-                            if (tev.is_propagation_stopped()) break;
+                            if (m_captured_id != eid || tev.is_propagation_stopped()) break;
                         }
                     }
                     return true;
                 }
                 if (passthrough) continue;
                 m_captured_id = eid;
+                m_captured_target = nullptr;
                 return true;
             } else {
                 // 点击在浮层外部
@@ -217,15 +244,27 @@ public:
     bool handle_pointer_move(Vec2 pos, PointerDeviceKind device_kind = PointerDeviceKind::Mouse) {
         if (m_entries.empty()) return false;
 
-        // 若当前存在拖拽捕获浮层（如拖拽浮层内的滚动条滑块或触控拖拽），即使指针移出浮层边界仍持续转发 Move
+        // 若当前存在拖拽捕获浮层（如拖拽浮层内的 Slider/滚动条滑块或触控拖拽），即使指针移出浮层边界仍持续转发 Move 给实际捕获节点
         if (m_captured_id != 0) {
             for (auto& entry : m_entries) {
-                if (entry.id == m_captured_id && entry.content && entry.content->on_pointer_move) {
-                    PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
-                    ev.device_kind = device_kind;
-                    ev.local_position = PointF{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                    entry.content->on_pointer_move(ev);
-                    return true;
+                if (entry.id == m_captured_id && entry.content) {
+                    auto content_guard = entry.content;
+                    RenderBox* target = m_captured_target ? m_captured_target : content_guard.get();
+                    if (target && target->on_pointer_move) {
+                        PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                        ev.device_kind = device_kind;
+                        Vec2 tg = target->global_offset();
+                        ev.local_position = PointF{pos.x - tg.x, pos.y - tg.y};
+                        target->on_pointer_move(ev);
+                        return true;
+                    }
+                    if (content_guard->on_pointer_move) {
+                        PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                        ev.device_kind = device_kind;
+                        ev.local_position = PointF{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
+                        content_guard->on_pointer_move(ev);
+                        return true;
+                    }
                 }
             }
         }
@@ -238,10 +277,28 @@ public:
             Rect entry_rect = Rect::from_xywh(entry.global_pos.x, entry.global_pos.y, sz.x, sz.y);
 
             if (entry_rect.contains(pos)) {
+                auto content_guard = entry.content;
+                uint64_t eid = entry.id;
                 HitTestResult hit_res;
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                if (entry.content->hit_test(hit_res, local_p)) {
+                if (content_guard->hit_test(hit_res, local_p)) {
+                    // 维护浮层内深层子控件的 PointerEnter / PointerExit 悬停态
+                    RenderBox* top_hit = hit_res.path().empty() ? nullptr : hit_res.path().front().target;
+                    if (top_hit != m_hovered_target) {
+                        if (m_hovered_target && m_hovered_target->on_pointer_exit) {
+                            PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                            m_hovered_target->on_pointer_exit(exit_ev);
+                        }
+                        m_hovered_id = eid;
+                        m_hovered_target = top_hit;
+                        if (m_hovered_target && m_hovered_target->on_pointer_enter) {
+                            PointerEvent enter_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                            enter_ev.local_position = hit_res.path().front().local_position;
+                            m_hovered_target->on_pointer_enter(enter_ev);
+                        }
+                    }
                     PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                    ev.device_kind = device_kind;
                     for (const auto& h : hit_res.path()) {
                         if (h.target && h.target->on_pointer_move) {
                             PointerEvent tev = ev;
@@ -254,9 +311,20 @@ public:
                 }
                 if (entry.allow_hit_passthrough) continue;
                 return true;
-            } else if (entry.content->on_pointer_exit) {
-                PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
-                entry.content->on_pointer_exit(exit_ev);
+            } else {
+                if (m_hovered_id == entry.id && m_hovered_target) {
+                    RenderBox* prev = m_hovered_target;
+                    m_hovered_id = 0;
+                    m_hovered_target = nullptr;
+                    if (prev->on_pointer_exit) {
+                        PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                        prev->on_pointer_exit(exit_ev);
+                    }
+                }
+                if (entry.content->on_pointer_exit) {
+                    PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                    entry.content->on_pointer_exit(exit_ev);
+                }
             }
             if (entry.is_modal) return true;
         }
@@ -301,7 +369,9 @@ public:
         if (m_entries.empty()) return false;
 
         uint64_t captured = m_captured_id;
+        RenderBox* captured_target = m_captured_target;
         m_captured_id = 0;
+        m_captured_target = nullptr;
 
         for (size_t i = m_entries.size(); i > 0; --i) {
             auto& entry = m_entries[i - 1];
@@ -314,10 +384,25 @@ public:
                 auto content_guard = entry.content; // 持有强引用，防止回调内 hide_overlay 导致野指针
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
                 bool passthrough = entry.allow_hit_passthrough && entry.id != captured;
+
+                // 若按下时已捕获具体子控件（如 Slider / ToggleSwitch / Button），释放事件优先发回该捕获节点（支持拖出边界后释放）
+                if (entry.id == captured && captured_target && captured_target != content_guard.get()) {
+                    if (captured_target->on_pointer_up) {
+                        PointerEvent ev(PlatformEventType::PointerUp, pos, button);
+                        Vec2 tg = captured_target->global_offset();
+                        ev.local_position = PointF{pos.x - tg.x, pos.y - tg.y};
+                        captured_target->on_pointer_up(ev);
+                        if (ev.is_propagation_stopped()) return true;
+                    }
+                }
+
                 HitTestResult hit_res;
                 if (entry_rect.contains(pos) && content_guard->hit_test(hit_res, local_p)) {
                     PointerEvent ev(PlatformEventType::PointerUp, pos, button);
                     for (const auto& h : hit_res.path()) {
+                        if (h.target == captured_target && entry.id == captured && captured_target != content_guard.get()) {
+                            continue; // 已在上方分发过，避免重复触发
+                        }
                         if (h.target && h.target->on_pointer_up) {
                             PointerEvent tev = ev;
                             tev.local_position = h.local_position;
@@ -344,6 +429,9 @@ private:
     std::vector<OverlayEntry> m_entries;
     uint64_t m_next_id{1};
     uint64_t m_captured_id{0};
+    RenderBox* m_captured_target{nullptr};
+    uint64_t m_hovered_id{0};
+    RenderBox* m_hovered_target{nullptr};
 };
 
 } // namespace ktui

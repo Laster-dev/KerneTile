@@ -578,6 +578,21 @@ int main() {
     rich_lbl_node->layout(BoxConstraints::loose(Vec2{300.0f, 60.0f}));
     assert(rich_lbl_node->size().x > 20.0f && rich_lbl_node->size().y >= 16.0f);
 
-    std::cout << "All 40 KTUI widget, overlay & architecture tests passed!" << std::endl;
+    // 41. MenuFlyout 子菜单预测锥 (Safe Triangle) 几何判定校验
+    {
+        PointF apex{100.0f, 50.0f};
+        PointF sub_top{180.0f, 40.0f};
+        PointF sub_bot{180.0f, 200.0f};
+        // 斜向朝子菜单移动的点位于预测锥内
+        assert(RenderMenuFlyout::point_in_triangle(PointF{140.0f, 90.0f}, apex, sub_top, sub_bot));
+        // 垂直向下移动的点位于预测锥外 (应立即切换)
+        assert(!RenderMenuFlyout::point_in_triangle(PointF{100.0f, 90.0f}, apex, sub_top, sub_bot));
+        // 反向向左移动的点位于预测锥外
+        assert(!RenderMenuFlyout::point_in_triangle(PointF{80.0f, 70.0f}, apex, sub_top, sub_bot));
+        // 退化共线三角形不误拦截
+        assert(!RenderMenuFlyout::point_in_triangle(PointF{180.0f, 90.0f}, PointF{180.0f, 50.0f}, sub_top, sub_bot));
+    }
+
+    std::cout << "All 41 KTUI widget, overlay & architecture tests passed!" << std::endl;
     return 0;
 }

@@ -95,6 +95,7 @@
 #include <ktui/widgets/tooltip.hpp>
 #include <ktui/widgets/content_dialog.hpp>
 #include <ktui/widgets/menu_flyout.hpp>
+#include <ktui/widgets/menu_bar.hpp>
 #include <ktui/widgets/dropdown_button.hpp>
 #include <ktui/widgets/command_bar.hpp>
 #include <ktui/widgets/expander.hpp>
@@ -128,3 +129,4 @@
 #include <ktui/widgets/hex_viewer.hpp>
 #include <ktui/widgets/syntax_filter_bar.hpp>
 #include <ktui/widgets/status_bar.hpp>
+#include <ktui/widgets/rich_text_block.hpp>
