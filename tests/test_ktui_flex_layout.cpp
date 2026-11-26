@@ -309,6 +309,22 @@ void test_flex_shrink_and_unbounded_stretch() {
     KT_EXPECT(std::abs(stretch_row->size().y - 80.0f) < 0.5f);
     KT_EXPECT(std::abs(short_box->size().y - 80.0f) < 0.5f);
 
+    // 3. 有限但非紧约束交叉轴 AlignItems::Stretch (如 VStack 内的 HStack，min_h=0, max_h=600)
+    // 绝不能被强行拉满到 600px，而应先按子项固有高度 32px 度量，再二次拉伸矮子项至 32px!
+    auto bounded_loose_row = std::make_unique<RenderFlex>(FlexDirection::Row, JustifyContent::FlexStart, AlignItems::Stretch, 0.0f);
+    auto b1 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 32.0f});
+    b1->set_flex_data(FlexItemData{1.0f, 1.0f, FlexFit::Tight, std::nullopt});
+    auto b2 = std::make_unique<RenderSizedBox>(Vec2{50.0f, 20.0f});
+    b2->set_flex_data(FlexItemData{1.0f, 1.0f, FlexFit::Tight, std::nullopt});
+    bounded_loose_row->append_child(b1.get());
+    bounded_loose_row->append_child(b2.get());
+    bounded_loose_row->layout(BoxConstraints(400.0f, 400.0f, 0.0f, 600.0f));
+
+    KT_EXPECT(std::abs(bounded_loose_row->size().x - 400.0f) < 0.5f);
+    KT_EXPECT(std::abs(bounded_loose_row->size().y - 32.0f) < 0.5f);
+    KT_EXPECT(std::abs(b1->size().y - 32.0f) < 0.5f);
+    KT_EXPECT(std::abs(b2->size().y - 32.0f) < 0.5f);
+
     std::cout << "  -> flex_shrink 压缩与无界交叉轴 Stretch 验证通过！" << std::endl;
 }
 

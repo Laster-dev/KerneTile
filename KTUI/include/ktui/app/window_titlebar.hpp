@@ -496,8 +496,8 @@ private:
 
     std::string m_icon_text;
     std::vector<TitlebarAction> m_actions;
-    bool m_show_pin{true};
-    bool m_show_theme{true};
+    bool m_show_pin{false};
+    bool m_show_theme{false};
     bool m_show_minimize{true};
     bool m_show_maximize{true};
     bool m_show_close{true};

@@ -163,7 +163,27 @@ All widgets inherit `BindableMixin` and support fine-grained one-way and two-way
       .alignment = ktui::Alignment::center()
   }
   ```
-- **`Expanded` / `Spacer` / `ScrollView` / `Wrap` / `Grid` / `ZStack` / `SplitView` / `DockPanel`**:
+- **`Grid` & `GridItem`** (exact field order):
+  ```cpp
+  ktui::Grid {
+      .columns = 4,
+      .min_item_width = 0.0f,         // > 0 enables responsive auto-fit columns
+      .column_weights = {},           // optional e.g. {1.0f, 2.0f, 1.0f}
+      .column_spacing = 6.0f,
+      .row_spacing = 6.0f,
+      .cell_height = 44.0f,           // <= 0 auto-sizes each row to tallest child; set explicit height for uniform keypads
+      .padding = ktui::EdgeInsets::zero(),
+      .content = {
+          ktui::GridItem { .column_span = 2, .child = ktui::Button { .text = "0", .height = 44.0f } },
+          ktui::Button { .text = ".", .height = 44.0f },
+          ktui::Button { .text = "=", .variant = ktui::ButtonVariant::Accent, .height = 44.0f }
+      }
+  }
+  ```
+- **Layout Sizing Tips**:
+  - For display panels with large fonts (e.g. calculator display `font_size = 38.0f` + expression line), prefer **omitting `.height`** (auto-size from children + `.padding`) or give generous height (`>= 104.0f`), so `Box` (`clip_content = true` by default) never clips the bottom of large numerals.
+  - Wrap scrollable pages or tall keypads in `ktui::ScrollView` so small windows never compress children below usable heights.
+- **`Expanded` / `Spacer` / `ScrollView` / `Wrap` / `ZStack` / `SplitView` / `DockPanel`**:
   - `ktui::Expanded { .child = ... }` fills remaining main-axis space inside `HStack` / `VStack`.
   - `ktui::ScrollView { .child = ... }` provides smooth wheel + drag scrolling.
   - `ktui::ZStack { .alignment = ktui::Alignment::center(), .content = { bg, fg } }` overlays widgets (ideal for wallpaper backgrounds).
@@ -252,11 +272,17 @@ win->on_files_dropped([&](const std::vector<std::string>& files, ktui::PointF po
 
 ---
 
-## 8. Theme & Multi-Window
+## 8. Titlebar, Theme & Multi-Window
 
-- Toggle dark / light theme live:
+- **Custom Titlebar Buttons (Opt-in for Pin & Theme)**:
+  - By default, custom titlebars show only Window Icon, Title, Minimize, Maximize, and Close. Always-on-top (`Pin`) and Theme toggle buttons are **off by default** and must be enabled explicitly if the app needs them:
+    ```cpp
+    win->titlebar().set_icon_text("∑");
+    win->titlebar().set_pin_button_visible(true);   // optional
+    win->titlebar().set_theme_button_visible(true); // optional
+    win->titlebar().add_action("+", "New Window", [&]() { ... });
+    ```
+- **Toggle dark / light theme live**:
   `app.theme.set(is_dark ? ktui::Theme::dark() : ktui::Theme::light());`
-- Spawn an independent secondary window:
+- **Spawn an independent secondary window**:
   Call `auto child = app.create_window(child_desc); child->set_content(...); child->show();` and retain any reactive `Property<T>` objects while the window is open.
-- Custom titlebar actions:
-  `win->titlebar().add_action("+", "New Window", [&]() { ... });`

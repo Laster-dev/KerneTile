@@ -238,6 +238,8 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     });
 
 #if !defined(__ANDROID__)
+    window->titlebar().set_pin_button_visible(true);
+    window->titlebar().set_theme_button_visible(true);
     window->titlebar().add_action("+", "新建工具窗口", [this]() { spawn_child_window(); });
 #endif
 

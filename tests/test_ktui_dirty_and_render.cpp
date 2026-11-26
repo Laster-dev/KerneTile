@@ -358,6 +358,14 @@ void test_frameless_titlebar_hittest_and_buttons() {
     assert(desc.custom_titlebar == true);
 
     WindowTitlebar tb;
+    // 默认关闭置顶与主题切换按钮，需由调用方按需手动开启
+    assert(!tb.is_pin_button_visible());
+    assert(!tb.is_theme_button_visible());
+    tb.set_pin_button_visible(true);
+    tb.set_theme_button_visible(true);
+    assert(tb.is_pin_button_visible());
+    assert(tb.is_theme_button_visible());
+
     int action_hits = 0;
     tb.add_action("+", "新建", [&]() { ++action_hits; });
     const Vec2 sz{500.0f, 360.0f};

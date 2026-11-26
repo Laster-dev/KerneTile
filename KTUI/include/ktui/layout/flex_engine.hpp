@@ -70,9 +70,12 @@ public:
         float fixed_main_used = total_gap;
         float max_child_cross = 0.0f;
         const bool cross_bounded = (max_cross_constraint < BoxConstraints::kInfinity);
+        const bool cross_tight = cross_bounded && (std::abs(max_cross_constraint - min_cross_constraint) < 0.01f);
         const bool main_bounded = (max_main_constraint < BoxConstraints::kInfinity);
 
         // 第一遍：测量固定尺寸 (非 flex_grow) 子项
+        // 注意：仅当容器自身交叉轴为严格紧约束 (cross_tight) 时才在 Pass 1 强制拉伸子项；
+        // 若容器交叉轴是松散上限 (如 VStack 内的 HStack，min_h=0, max_h=视口高)，须先按固有尺寸度量再二次对齐！
         for (size_t i = 0; i < N; ++i) {
             RenderBox* child = children[i];
             const auto& flex = child->flex_data();
@@ -80,7 +83,7 @@ public:
                 total_grow += flex.flex_grow;
             } else {
                 AlignItems align = flex.align_self.value_or(params.align_items);
-                float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
+                float cross_min = (align == AlignItems::Stretch && cross_tight) ? max_cross_constraint : 0.0f;
 
                 BoxConstraints child_constraints = is_horizontal
                     ? BoxConstraints(0.0f, max_main_constraint, cross_min, max_cross_constraint)
@@ -116,7 +119,7 @@ public:
                         float shrink_amount = overflow * ((flex.flex_shrink * base_main) / total_shrink_weight);
                         float target_main = std::max(0.0f, base_main - shrink_amount);
                         AlignItems align = flex.align_self.value_or(params.align_items);
-                        float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
+                        float cross_min = (align == AlignItems::Stretch && cross_tight) ? max_cross_constraint : 0.0f;
                         BoxConstraints shrunk_constraints = is_horizontal
                             ? BoxConstraints(0.0f, target_main, cross_min, max_cross_constraint)
                             : BoxConstraints(cross_min, max_cross_constraint, 0.0f, target_main);
@@ -141,7 +144,7 @@ public:
                 if (flex.flex_grow > 0.0f) {
                     float allocated_main = flex.flex_grow * space_per_grow;
                     AlignItems align = flex.align_self.value_or(params.align_items);
-                    float cross_min = (align == AlignItems::Stretch && cross_bounded) ? max_cross_constraint : 0.0f;
+                    float cross_min = (align == AlignItems::Stretch && cross_tight) ? max_cross_constraint : 0.0f;
 
                     float child_main_min = (flex.fit == FlexFit::Tight) ? allocated_main : 0.0f;
                     float child_main_max = allocated_main;
@@ -177,8 +180,8 @@ public:
             max_cross_constraint
         );
 
-        // 交叉轴无界场景下补齐 AlignItems::Stretch 二次拉伸（如 ScrollView 内 Row/Column 子项等高/等宽对齐）
-        if (!cross_bounded && final_container_cross > 0.0f) {
+        // 交叉轴非严格紧约束场景下补齐 AlignItems::Stretch 二次拉伸（确保矮子项拉伸至容器实际交叉轴尺寸而非 max_cross_constraint）
+        if (!cross_tight && final_container_cross > 0.0f) {
             for (size_t i = 0; i < N; ++i) {
                 RenderBox* child = children[i];
                 AlignItems align = child->flex_data().align_self.value_or(params.align_items);
