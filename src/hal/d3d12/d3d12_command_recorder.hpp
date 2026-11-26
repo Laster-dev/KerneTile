@@ -109,17 +109,32 @@ public:
     }
 
     void set_compute_atlas(const D3D12Texture& atlas) {
-        D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
-        desc.Format = to_dxgi_format(atlas.get_format());
-        desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        desc.Texture2D.MipLevels = 1;
-        auto cpu = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
-        auto gpu = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
-        cpu.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
-        gpu.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
-        m_device->CreateShaderResourceView(atlas.get_native_resource(), &desc, cpu);
-        m_cmd_list->SetComputeRootDescriptorTable(5, gpu);
+        set_compute_atlases(atlas, atlas);
+    }
+
+    void set_compute_atlases(const D3D12Texture& atlas, const D3D12Texture& color_atlas) {
+        auto cpu_base = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
+        auto gpu_base = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
+        cpu_base.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
+        gpu_base.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc0{};
+        desc0.Format = to_dxgi_format(atlas.get_format());
+        desc0.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc0.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc0.Texture2D.MipLevels = 1;
+        m_device->CreateShaderResourceView(atlas.get_native_resource(), &desc0, cpu_base);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu1 = cpu_base;
+        cpu1.ptr += m_srv_uav_descriptor_size;
+        D3D12_SHADER_RESOURCE_VIEW_DESC desc1{};
+        desc1.Format = to_dxgi_format(color_atlas.get_format());
+        desc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        desc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        desc1.Texture2D.MipLevels = 1;
+        m_device->CreateShaderResourceView(color_atlas.get_native_resource(), &desc1, cpu1);
+
+        m_cmd_list->SetComputeRootDescriptorTable(5, gpu_base);
     }
 
     void dispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) override {

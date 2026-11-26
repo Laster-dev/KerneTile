@@ -97,6 +97,7 @@ EM_JS(void, stop_webgpu, (int id), {
     states.delete(id);
     if (state.output) state.output.destroy();
     if (state.atlas) state.atlas.destroy();
+    if (state.colorAtlas) state.colorAtlas.destroy();
     if (state.buffers) {
         for (var i = 0; i < state.buffers.length; ++i) {
             if (state.buffers[i]) state.buffers[i].destroy();
@@ -109,7 +110,9 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
     const void* prim, unsigned prim_bytes, const void* indices, unsigned index_bytes,
     const void* tiles, unsigned tile_count, const void* clips, unsigned clip_bytes,
     const void* atlas, unsigned atlas_width, unsigned atlas_height, const void* atlas_updates, unsigned update_count,
-    unsigned mica_enabled, const uint32_t* mica_grid), {
+    unsigned mica_enabled, const uint32_t* mica_grid,
+    const void* color_atlas, unsigned color_atlas_width, unsigned color_atlas_height,
+    const void* color_atlas_updates, unsigned color_update_count), {
     var state = Module['ktuiGpuStates'] && Module['ktuiGpuStates'].get(id);
     if (!state || !state.ready) return 0;
     var canvas = state.canvas;
@@ -154,6 +157,35 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                     uploadAtlas(HEAPU32[rect], HEAPU32[rect + 1], HEAPU32[rect + 2], HEAPU32[rect + 3]);
             }
 
+            var caW = (color_atlas && color_atlas_width > 0) ? color_atlas_width : 1;
+            var caH = (color_atlas && color_atlas_height > 0) ? color_atlas_height : 1;
+            var recreateColorAtlas = !state.colorAtlas || state.colorAtlasW !== caW || state.colorAtlasH !== caH;
+            if (recreateColorAtlas) {
+                if (state.colorAtlas) state.colorAtlas.destroy();
+                state.colorAtlas = device.createTexture({
+                    size: [caW, caH], format: 'rgba8unorm',
+                    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
+                });
+                state.colorAtlasView = state.colorAtlas.createView();
+                state.colorAtlasW = caW;
+                state.colorAtlasH = caH;
+            }
+            if (color_atlas && color_atlas_width > 0 && color_atlas_height > 0) {
+                var uploadColorAtlas = function(x, y, w, h) {
+                    var offset = color_atlas + (y * color_atlas_width + x) * 4;
+                    var bytes = HEAPU8.subarray(offset, offset + ((h - 1) * color_atlas_width + w) * 4);
+                    device.queue.writeTexture({texture: state.colorAtlas, origin: [x, y]}, bytes,
+                        {bytesPerRow: color_atlas_width * 4, rowsPerImage: h}, [w, h]);
+                };
+                if (recreateColorAtlas) {
+                    uploadColorAtlas(0, 0, color_atlas_width, color_atlas_height);
+                } else {
+                    var crect = color_atlas_updates >>> 2;
+                    for (var ci = 0; ci < color_update_count; ++ci, crect += 4)
+                        uploadColorAtlas(HEAPU32[crect], HEAPU32[crect + 1], HEAPU32[crect + 2], HEAPU32[crect + 3]);
+                }
+            }
+
             var upload = function(slot, bytes, minimum, usage) {
                 var required = Math.max(minimum, bytes.byteLength);
                 var buffer = state.buffers[slot];
@@ -186,7 +218,8 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                 state.atlasView,
                 state.sampler,
                 state.outputView,
-                upload(4, uniformData, 96, GPUBufferUsage.UNIFORM)
+                upload(4, uniformData, 96, GPUBufferUsage.UNIFORM),
+                state.colorAtlasView
             ];
             var group = device.createBindGroup({
                 layout: state.compute.getBindGroupLayout(0),
@@ -244,7 +277,9 @@ public:
             frame.clips.data(), frame.clips.size_bytes(),
             frame.atlas.data(), frame.atlas_width, frame.atlas_height,
             frame.atlas_updates.data(), frame.atlas_updates.size(),
-            frame.mica_enabled ? 1u : 0u, frame.mica_grid.data()) != 0;
+            frame.mica_enabled ? 1u : 0u, frame.mica_grid.data(),
+            frame.color_atlas.data(), frame.color_atlas_width, frame.color_atlas_height,
+            frame.color_atlas_updates.data(), frame.color_atlas_updates.size()) != 0;
     }
 
 private:

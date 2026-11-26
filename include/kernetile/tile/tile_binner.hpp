@@ -43,6 +43,15 @@ private:
         uint8_t  solid{0};
     };
 
+    struct ResolvedClip {
+        float min_x{0.0f};
+        float min_y{0.0f};
+        float max_x{0.0f};
+        float max_y{0.0f};
+        uint8_t has_radius{0};
+    };
+
+    std::vector<ResolvedClip> m_resolved_clips;
     std::vector<PrimBinMeta> m_prim_meta;
     std::vector<uint32_t> m_tile_counts;
     std::vector<uint32_t> m_tile_occluded_from;

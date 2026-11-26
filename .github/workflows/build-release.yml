@@ -81,19 +81,35 @@ jobs:
             -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe" `
             -DCMAKE_CXX_FLAGS="--target=${{ matrix.target }}"
 
-      - name: Build ktui_gallery (Windows ${{ matrix.arch }})
+      - name: Build ktui_gallery (Windows ${{ matrix.arch }} D3D12)
         shell: pwsh
         run: |
           cmake --build build-win-${{ matrix.arch }} --target ktui_gallery
           New-Item -ItemType Directory -Force -Path dist/windows-${{ matrix.arch }} | Out-Null
           Copy-Item build-win-${{ matrix.arch }}/ktui_gallery.exe dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
+
+      - name: Configure & Build ktui_gallery Pure GDI (Windows ${{ matrix.arch }} Zero-D3D12)
+        shell: pwsh
+        run: |
+          cmake -B build-win-${{ matrix.arch }}-gdi -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=OFF `
+            -DKERNETILE_WINDOWS_PURE_GDI=ON `
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_proc }} `
+            -DCMAKE_CXX_COMPILER="${env:LLVM_BIN}/clang-cl.exe" `
+            -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target }} `
+            -DCMAKE_LINKER="${env:LLVM_BIN}/lld-link.exe" `
+            -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe" `
+            -DCMAKE_CXX_FLAGS="--target=${{ matrix.target }}"
+          cmake --build build-win-${{ matrix.arch }}-gdi --target ktui_gallery
+          Copy-Item build-win-${{ matrix.arch }}-gdi/ktui_gallery.exe dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}-gdi.exe
           Get-Item dist/windows-${{ matrix.arch }}/* | Select-Object Name, Length
 
-      - name: Upload Artifact (Windows ${{ matrix.arch }})
+      - name: Upload Artifacts (Windows ${{ matrix.arch }} D3D12 & Pure GDI)
         uses: actions/upload-artifact@v4
         with:
           name: ktui_gallery-windows-${{ matrix.arch }}
-          path: dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
+          path: dist/windows-${{ matrix.arch }}/*
 
   # ============================================================================
   # Linux Native: x64 (x86_64) & arm64 (aarch64)
@@ -275,6 +291,64 @@ jobs:
           path: dist/web/ktui_gallery-web.html
 
   # ============================================================================
+  # Single-File C++20 Amalgamation (kernetile.hpp + kernetile.cpp)
+  #   自动合并全部公开头文件与实现，脱离 CMake 实测 MSVC D3D12 与 Pure-GDI 单行编译通过后发布
+  # ============================================================================
+  build-amalgamation:
+    name: Single-File SDK (kernetile.hpp + kernetile.cpp)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Developer Environment (amd64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Generate Single-File Amalgamation
+        shell: pwsh
+        run: |
+          python scripts/amalgamate.py --out dist/amalgamation
+          Get-Item dist/amalgamation/* | Select-Object Name, Length
+
+      - name: Smoke-Test Single-File & C++20 Module Builds (D3D12 & Pure-GDI, No CMake)
+        shell: pwsh
+        run: |
+          Push-Location dist/amalgamation
+          # 1. Dual-file (kernetile.hpp + kernetile.cpp)
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_hello.cpp kernetile.cpp /Fe:hello_d3d12.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_hello.cpp kernetile.cpp /Fe:hello_gdi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # 2. Single-file C++20 Module (kernetile.ixx -> import kernetile;)
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /interface /c kernetile.ixx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:hello_mod.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 /interface /c kernetile.ixx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:hello_mod_gdi.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item hello_d3d12.exe, hello_gdi.exe, hello_mod.exe, hello_mod_gdi.exe | Select-Object Name, Length
+          Remove-Item *.obj, *.exe, *.ifc -Force
+          Pop-Location
+
+      - name: Package Single-File Zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/release-amalg | Out-Null
+          Compress-Archive -Path dist/amalgamation/* -DestinationPath dist/release-amalg/kernetile-single-file.zip -Force
+          Get-Item dist/release-amalg/kernetile-single-file.zip | Select-Object Name, Length
+
+      - name: Upload Artifact (Single-File SDK)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernetile-single-file
+          path: dist/release-amalg/kernetile-single-file.zip
+
+  # ============================================================================
   # 自动发布到 GitHub Release：
   #   - 推送 v* Tag：发布正式版本 Release
   #   - 推送 main 分支 / 手动触发：自动更新 rolling 的 `latest` Release
@@ -282,7 +356,7 @@ jobs:
   release:
     name: Publish GitHub Release
     if: github.event_name != 'pull_request'
-    needs: [build-windows, build-linux-native, build-android, build-web]
+    needs: [build-windows, build-linux-native, build-android, build-web, build-amalgamation]
     runs-on: ubuntu-24.04
     steps:
       - name: Download All Artifacts
@@ -303,7 +377,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Build (main)
-          body: "自动构建于提交 `${{ github.sha }}`，包含 Windows (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
+          body: "自动构建于提交 `${{ github.sha }}`，包含单文件双文件 SDK 发行包 (`kernetile-single-file.zip`: `kernetile.hpp` + `kernetile.cpp`)、Windows D3D12 与纯 GDI 低内存版 (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
           prerelease: true
           make_latest: false
           files: release-assets/*

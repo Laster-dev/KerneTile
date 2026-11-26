@@ -129,6 +129,8 @@ public:
     bool is_hovered{false};
     bool is_active{false};
     bool is_focusable{false};
+    bool is_draggable{false};
+    bool is_drop_target{false};
     CursorShape cursor_shape{CursorShape::Arrow};
 
     Fn<void(PointerEvent&)> on_pointer_preview; // 隧道/捕获阶段预览回调 (供触控滚动与边缘滑动手势识别)
@@ -139,6 +141,14 @@ public:
     Fn<void(PointerEvent&)> on_pointer_exit;
     Fn<void(KeyEvent&)> on_key;
     Fn<void(FocusEvent&)> on_focus;
+
+    // 拖拽与文件拖放回调 (窗口内控件拖拽 + OS 文件拖放统一协议)
+    Fn<void(DragEvent&)> on_drag_start;
+    Fn<void(DragEvent&)> on_drag_enter;
+    Fn<void(DragEvent&)> on_drag_over;
+    Fn<void(DragEvent&)> on_drag_leave;
+    Fn<void(DragEvent&)> on_drop;
+    Fn<void(DragEvent&)> on_drag_end;
 
     // ==================== Flex Item 附加属性 ====================
     [[nodiscard]] const FlexItemData& flex_data() const noexcept { return m_flex_data; }

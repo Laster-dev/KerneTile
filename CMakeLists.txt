@@ -146,6 +146,10 @@ else()
 endif()
 
 option(KERNETILE_GPU_COMPUTE "Enable GPU tile composition for the window renderer" ON)
+option(KERNETILE_WINDOWS_PURE_GDI "Build Windows pure CPU + GDI backend without D3D12/DXGI (minimal RAM & binary size)" OFF)
+if (WIN32 AND KERNETILE_WINDOWS_PURE_GDI)
+    set(KERNETILE_GPU_COMPUTE OFF CACHE BOOL "Disabled automatically by KERNETILE_WINDOWS_PURE_GDI" FORCE)
+endif()
 
 # 核心接口库
 add_library(kernetile_core INTERFACE)
@@ -168,7 +172,7 @@ target_link_libraries(kernetile_tile PUBLIC kernetile_core)
 set(HAL_SOURCES
     src/hal/null/null_device.cpp
 )
-if (WIN32)
+if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
     list(APPEND HAL_SOURCES src/hal/d3d12/d3d12_device.cpp)
 endif()
 
@@ -177,9 +181,11 @@ target_include_directories(kernetile_hal PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/null
 )
-if (WIN32)
+if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
     target_include_directories(kernetile_hal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/hal/d3d12)
     target_link_libraries(kernetile_hal PUBLIC d3d12.lib dxgi.lib)
+elseif (WIN32 AND KERNETILE_WINDOWS_PURE_GDI)
+    target_compile_definitions(kernetile_hal PUBLIC KERNETILE_PURE_GDI=1)
 elseif (EMSCRIPTEN)
     # Emscripten 环境使用零依赖纯内存 NullDevice 设备与多线程/单线程 CPU 瓦片光栅器
 elseif (ANDROID)
@@ -398,6 +404,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/pages/basic_input_pages.cpp
     examples/ktui_gallery/pages/progress_page.cpp
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
+    examples/ktui_gallery/pages/media_desktop_pages.cpp
     examples/ktui_gallery/pages/settings_about_pages.cpp
 )
 if (ANDROID)
@@ -485,12 +492,12 @@ if (BUILD_TESTING)
     # 阶段 1 测试
     add_kernetile_test(test_sdf tests/test_sdf.cpp)
     add_kernetile_test(test_shadow tests/test_shadow.cpp)
-    if (WIN32)
+    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
         add_kernetile_test(test_shader_compilation tests/test_shader_compilation.cpp)
     endif()
 
     # 阶段 2 测试 (Windows D3D12 硬件测试)
-    if (WIN32)
+    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
         add_kernetile_test(test_hal_lifecycle tests/test_hal_lifecycle.cpp)
         add_kernetile_test(test_compute_uav_readback tests/test_compute_uav_readback.cpp)
     endif()
@@ -498,7 +505,7 @@ if (BUILD_TESTING)
     # 阶段 3 测试
     add_kernetile_test(test_tile_binning tests/test_tile_binning.cpp)
     add_kernetile_test(test_dirty_tracking tests/test_dirty_tracking.cpp)
-    if (WIN32)
+    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
         add_kernetile_test(test_gpu_tile_compute tests/test_gpu_tile_compute.cpp)
     endif()
 
@@ -526,7 +533,7 @@ if (BUILD_TESTING)
     add_kernetile_test(test_platform_sync tests/test_platform_sync.cpp)
 
     # 阶段 9 测试
-    if (WIN32)
+    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
         add_kernetile_test(test_warp_adapter tests/test_warp_adapter.cpp)
     endif()
     add_kernetile_test(test_cpu_rasterizer tests/test_cpu_rasterizer.cpp)
@@ -553,6 +560,24 @@ if (BUILD_TESTING)
     add_ktui_test(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_pro_controls     tests/test_ktui_pro_controls.cpp     ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_terminal         tests/test_ktui_terminal.cpp         ktui_pal kernetile_engine)
+    add_ktui_test(test_ktui_image_and_desktop tests/test_ktui_image_and_desktop.cpp ktui_pal kernetile_engine)
+    # 同步编译验证可选桌面模块 (SystemTray + Rich Clipboard) 开启状态，确保零回归且不影响默认核心体积
+    add_executable(test_ktui_optional_desktop
+        tests/test_ktui_image_and_desktop.cpp
+        KTUI/src/pal/system_tray.cpp
+        KTUI/src/pal/rich_clipboard.cpp
+    )
+    target_compile_definitions(test_ktui_optional_desktop PRIVATE
+        KTUI_ENABLE_SYSTEM_TRAY=1
+        KTUI_ENABLE_RICH_CLIPBOARD=1
+    )
+    target_include_directories(test_ktui_optional_desktop PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_ktui_optional_desktop PRIVATE ktui_pal kernetile_engine)
+    add_test(NAME test_ktui_optional_desktop COMMAND test_ktui_optional_desktop WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
 
 

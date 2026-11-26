@@ -27,7 +27,7 @@ public:
     static constexpr size_t kFramesInFlight = 2;
 
     explicit D3D12Backend(void* window, bool prefer_warp)
-        : m_window(window), m_device(prefer_warp, prefer_warp, false) {
+        : m_window(window), m_device(prefer_warp, prefer_warp, false, window) {
         if (!m_device.is_valid()) {
             m_failed = true;
             return;
@@ -114,6 +114,7 @@ private:
         std::unique_ptr<CommandRecorder> recorder;
         std::array<std::unique_ptr<D3D12Buffer>, 4> uploads;
         std::unique_ptr<D3D12Buffer> atlas_upload;
+        std::unique_ptr<D3D12Buffer> color_atlas_upload;
         uint64_t fence_value{0};
     };
 
@@ -146,6 +147,15 @@ private:
 
     D3D12Buffer& atlas_upload_buffer(FrameSlot& slot, size_t size) {
         auto& buffer = slot.atlas_upload;
+        if (!buffer || buffer->get_size_bytes() < size) {
+            buffer = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
+                BufferDesc{std::max<size_t>(256, size), BufferUsage::Upload});
+        }
+        return *buffer;
+    }
+
+    D3D12Buffer& color_atlas_upload_buffer(FrameSlot& slot, size_t size) {
+        auto& buffer = slot.color_atlas_upload;
         if (!buffer || buffer->get_size_bytes() < size) {
             buffer = std::make_unique<D3D12Buffer>(m_device.get_native_device(),
                 BufferDesc{std::max<size_t>(256, size), BufferUsage::Upload});
@@ -197,6 +207,57 @@ private:
             commands.resource_barrier(*m_atlas, m_atlas->get_current_state(), ResourceState::ComputeShaderResource);
         }
 
+        // 彩色 RGBA8 图集按需惰性创建与增量上传 (未调用 draw_image 时零显存分配，t5 直接复用 m_atlas 占位)
+        const bool has_color_atlas = (frame.color_atlas_width > 0 && frame.color_atlas_height > 0 && !frame.color_atlas.empty());
+        if (has_color_atlas) {
+            const uint32_t ca_w = frame.color_atlas_width;
+            const uint32_t ca_h = frame.color_atlas_height;
+            const bool recreate_color = !m_color_atlas ||
+                m_color_atlas->get_width() != ca_w || m_color_atlas->get_height() != ca_h;
+            if (recreate_color) {
+                if (m_color_atlas) wait_all_frames();
+                m_color_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                    TextureDesc{ca_w, ca_h, TextureFormat::RGBA8_UNORM, false});
+            }
+            std::vector<DirtyRect> full_color_rect_storage;
+            std::span<const DirtyRect> color_rects = frame.color_atlas_updates;
+            if (recreate_color) {
+                full_color_rect_storage.push_back(DirtyRect{0, 0, ca_w, ca_h});
+                color_rects = full_color_rect_storage;
+            }
+            if (!color_rects.empty()) {
+                const auto aligned = [](size_t value, size_t alignment) {
+                    return (value + alignment - 1) & ~(alignment - 1);
+                };
+                size_t total = 0;
+                for (const auto& rect : color_rects) {
+                    total += aligned(aligned(size_t(rect.w) * 4u, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) * rect.h,
+                                     D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+                }
+                auto& staging = color_atlas_upload_buffer(slot, total);
+                auto* bytes = static_cast<uint8_t*>(staging.map());
+                commands.resource_barrier(*m_color_atlas, m_color_atlas->get_current_state(), ResourceState::CopyDst);
+                size_t offset = 0;
+                for (const auto& rect : color_rects) {
+                    const auto row_bytes = size_t(rect.w) * 4u;
+                    const auto pitch = static_cast<UINT>(aligned(row_bytes, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT));
+                    for (uint32_t row = 0; row < rect.h; ++row) {
+                        const size_t source = (size_t(rect.y + row) * ca_w + rect.x) * 4u;
+                        std::memcpy(bytes + offset + size_t(row) * pitch, frame.color_atlas.data() + source, row_bytes);
+                    }
+                    D3D12_TEXTURE_COPY_LOCATION src{staging.get_native_resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+                    src.PlacedFootprint.Offset = offset;
+                    src.PlacedFootprint.Footprint = {DXGI_FORMAT_R8G8B8A8_UNORM, rect.w, rect.h, 1, pitch};
+                    D3D12_TEXTURE_COPY_LOCATION dst{m_color_atlas->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+                    commands.get_native_list()->CopyTextureRegion(&dst, rect.x, rect.y, 0, &src, nullptr);
+                    offset += aligned(size_t(pitch) * rect.h, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+                }
+                commands.resource_barrier(*m_color_atlas, ResourceState::CopyDst, ResourceState::ComputeShaderResource);
+            } else if (recreate_color) {
+                commands.resource_barrier(*m_color_atlas, m_color_atlas->get_current_state(), ResourceState::ComputeShaderResource);
+            }
+        }
+
         commands.set_compute_pipeline(*m_pipeline);
         const std::array input{std::as_bytes(frame.primitives), std::as_bytes(frame.indices),
                                std::as_bytes(frame.tiles), std::as_bytes(frame.clips)};
@@ -207,7 +268,7 @@ private:
         }
         commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::UnorderedAccess);
         commands.set_storage_texture(0, *m_output);
-        commands.set_compute_atlas(*m_atlas);
+        commands.set_compute_atlases(*m_atlas, m_color_atlas ? *m_color_atlas : *m_atlas);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
         std::array<uint32_t, 24> parameters{};
@@ -226,7 +287,7 @@ private:
     D3D12Device m_device;
     std::unique_ptr<ComputePipeline> m_pipeline;
     std::unique_ptr<Swapchain> m_swapchain;
-    std::unique_ptr<D3D12Texture> m_output, m_atlas;
+    std::unique_ptr<D3D12Texture> m_output, m_atlas, m_color_atlas;
     std::array<FrameSlot, kFramesInFlight> m_slots;
     size_t m_frame_slot{0};
     bool m_failed = false;

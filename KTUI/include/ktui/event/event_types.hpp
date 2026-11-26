@@ -78,4 +78,41 @@ public:
     explicit FocusEvent(bool gained) noexcept : gained_focus(gained) {}
 };
 
+// 拖拽事件阶段
+enum class DragEventType : uint8_t {
+    DragStart = 0,
+    DragEnter,
+    DragOver,
+    DragLeave,
+    Drop,
+    DragEnd
+};
+
+// 拖拽载荷 (同时支持窗口内控件拖拽与操作系统文件拖放)
+struct DragPayload {
+    std::string mime_type;              // 例如 "text/plain", "text/uri-list", "application/x-ktui-item"
+    std::string data;                   // 自定义载荷数据 (文本/JSON/ID 等)
+    std::vector<std::string> files;     // OS 文件拖放路径列表
+    RenderBox* source{nullptr};         // 窗口内拖拽源节点 (OS 外部拖放时为 nullptr)
+
+    [[nodiscard]] bool empty() const noexcept {
+        return mime_type.empty() && data.empty() && files.empty();
+    }
+};
+
+// 统一拖拽事件 (支持窗口内控件拖拽与 OS 文件拖放)
+class DragEvent : public UIEvent {
+public:
+    DragEventType type{DragEventType::DragOver};
+    PointF position{0.0f, 0.0f};        // 视口绝对坐标
+    PointF local_position{0.0f, 0.0f};  // 目标控件局部坐标
+    DragPayload payload;
+    KeyModifiers modifiers;
+    bool accepted{false};               // DragStart/DragOver/Drop 回调置 true 表示接受拖拽/投放
+
+    DragEvent() = default;
+    DragEvent(DragEventType t, PointF pos, DragPayload p = {}, KeyModifiers mods = {})
+        : type(t), position(pos), local_position(pos), payload(std::move(p)), modifiers(mods) {}
+};
+
 } // namespace ktui

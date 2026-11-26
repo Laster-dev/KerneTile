@@ -27,6 +27,7 @@ public:
         m_config.height = new_height;
         m_grid = tile::TileGrid(new_width, new_height);
         m_dirty_tracker = tile::DirtyTracker(m_grid.get_total_tiles());
+        m_dirty_tracker.reset(); // 强制全量重绘 (包含空/Mica 背景瓦片)，彻底杜绝宽变步长错位花屏
         m_gpu_full_frame = true;
     }
 
@@ -38,6 +39,12 @@ public:
             if (m_text_streamer) {
                 m_text_streamer->clear_cache();
             }
+            m_dirty_tracker.reset();
+            m_gpu_full_frame = true;
+        }
+        if (m_color_atlas && (m_color_atlas->has_overflowed() || m_color_atlas->get_utilization() >= 0.92)) {
+            m_color_atlas->reset();
+            m_image_cache.clear();
             m_dirty_tracker.reset();
             m_gpu_full_frame = true;
         }
@@ -190,6 +197,119 @@ public:
         push_primitive(prim);
     }
 
+    bool has_cached_image(uint64_t cache_key) const noexcept override {
+        return m_image_cache.find(cache_key) != m_image_cache.end();
+    }
+
+    void invalidate_cached_image(uint64_t cache_key) override {
+        if (m_image_cache.erase(cache_key) > 0) {
+            m_dirty_tracker.reset();
+            m_gpu_full_frame = true;
+        }
+    }
+
+    void draw_image(
+        uint64_t cache_key,
+        math::Rect dst_rect_px,
+        uint32_t img_width,
+        uint32_t img_height,
+        const uint8_t* rgba8_pixels,
+        float corner_radius,
+        math::Color tint,
+        math::Rect uv_rect,
+        uint32_t frame_revision) override
+    {
+        if (tint.a <= 0.001f || img_width == 0 || img_height == 0) return;
+
+        if (!m_color_atlas) {
+            uint32_t sz = std::clamp(m_config.color_atlas_size, 256u, 4096u);
+            if (img_width + 2 > sz || img_height + 2 > sz) {
+                sz = std::min(4096u, std::max(sz, std::max(img_width + 2, img_height + 2)));
+            }
+            m_color_atlas = std::make_unique<atlas::DynamicAtlas>(sz, sz, atlas::AtlasFormat::RGBA8_UNORM);
+        }
+
+        auto it = m_image_cache.find(cache_key);
+        if (it != m_image_cache.end()) {
+            // 同 cache_key 尺寸变化时淘汰旧槽位；尺寸一致且 frame_revision 变化时原地覆写像素（零分配、零 reset 频闪）
+            auto& entry = it->second;
+            if (entry.region.content_rect.w != img_width || entry.region.content_rect.h != img_height) {
+                m_image_cache.erase(it);
+                it = m_image_cache.end();
+            } else if (entry.revision != frame_revision && rgba8_pixels) {
+                m_color_atlas->update_region(entry.region, rgba8_pixels,
+                                             static_cast<size_t>(img_width) * 4u, true);
+                entry.revision = frame_revision;
+            }
+        }
+        if (it == m_image_cache.end()) {
+            if (!rgba8_pixels) return;
+            auto reg = m_color_atlas->allocate_and_upload(img_width, img_height, rgba8_pixels,
+                                                          static_cast<size_t>(img_width) * 4u, true);
+            if (!reg.has_value()) {
+                // 若当帧彩色图集空间不足，重建/扩容后重试一次
+                uint32_t cur_sz = m_color_atlas->get_width();
+                uint32_t req_sz = std::max(img_width + 2, img_height + 2);
+                uint32_t new_sz = std::min(4096u, std::max(cur_sz, req_sz));
+                if (new_sz > cur_sz) {
+                    m_color_atlas = std::make_unique<atlas::DynamicAtlas>(new_sz, new_sz, atlas::AtlasFormat::RGBA8_UNORM);
+                } else {
+                    m_color_atlas->reset();
+                }
+                m_image_cache.clear();
+                m_dirty_tracker.reset();
+                m_gpu_full_frame = true;
+                reg = m_color_atlas->allocate_and_upload(img_width, img_height, rgba8_pixels,
+                                                         static_cast<size_t>(img_width) * 4u, true);
+                if (!reg.has_value()) return;
+            }
+            it = m_image_cache.emplace(cache_key, CachedImageEntry{*reg, frame_revision}).first;
+        }
+
+        const auto& entry = it->second;
+        const auto& region = entry.region;
+        const float u0_base = static_cast<float>(region.u0) * (1.0f / 65535.0f);
+        const float v0_base = static_cast<float>(region.v0) * (1.0f / 65535.0f);
+        const float u1_base = static_cast<float>(region.u1) * (1.0f / 65535.0f);
+        const float v1_base = static_cast<float>(region.v1) * (1.0f / 65535.0f);
+
+        const float sub_u0 = std::clamp(uv_rect.min_x, 0.0f, 1.0f);
+        const float sub_v0 = std::clamp(uv_rect.min_y, 0.0f, 1.0f);
+        const float sub_u1 = std::clamp(uv_rect.max_x, 0.0f, 1.0f);
+        const float sub_v1 = std::clamp(uv_rect.max_y, 0.0f, 1.0f);
+
+        const float fin_u0 = u0_base + (u1_base - u0_base) * sub_u0;
+        const float fin_v0 = v0_base + (v1_base - v0_base) * sub_v0;
+        const float fin_u1 = u0_base + (u1_base - u0_base) * sub_u1;
+        const float fin_v1 = v0_base + (v1_base - v0_base) * sub_v1;
+
+        core::UiPrimitive prim{};
+        prim.min_x = dst_rect_px.min_x;
+        prim.min_y = dst_rect_px.min_y;
+        prim.max_x = dst_rect_px.max_x;
+        prim.max_y = dst_rect_px.max_y;
+
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+
+        prim.color_r = tint.r * tint.a;
+        prim.color_g = tint.g * tint.a;
+        prim.color_b = tint.b * tint.a;
+        prim.color_a = tint.a;
+
+        prim.atlas_u0 = atlas::AtlasRegion::to_fixed_uv(fin_u0);
+        prim.atlas_v0 = atlas::AtlasRegion::to_fixed_uv(fin_v0);
+        prim.atlas_u1 = atlas::AtlasRegion::to_fixed_uv(fin_u1);
+        prim.atlas_v1 = atlas::AtlasRegion::to_fixed_uv(fin_v1);
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsIcon);
+        // 动图切帧时把 frame_revision 写入未用的 shadow_offset_y，使 DirtyTracker 仅标脏该图像覆盖的瓦片
+        prim.shadow_offset_y = static_cast<float>(entry.revision & 0xFFFFu);
+
+        push_primitive(prim);
+    }
+
     void end_frame() override {
         auto t0 = std::chrono::high_resolution_clock::now();
 
@@ -258,13 +378,23 @@ public:
             }
             const uint32_t atlas_width = m_atlas.get_width();
             const uint32_t atlas_height = m_atlas.get_height();
+            const uint32_t color_atlas_width = m_color_atlas ? m_color_atlas->get_width() : 0u;
+            const uint32_t color_atlas_height = m_color_atlas ? m_color_atlas->get_height() : 0u;
+            const std::span<const uint8_t> color_atlas_span = m_color_atlas
+                ? std::span<const uint8_t>{m_color_atlas->get_pixels(), size_t(color_atlas_width) * color_atlas_height * 4u}
+                : std::span<const uint8_t>{};
+            const std::span<const atlas::RectU32> color_atlas_updates = m_color_atlas
+                ? m_color_atlas->get_dirty_rects()
+                : std::span<const atlas::RectU32>{};
             const compute::Frame frame{m_config.width, m_config.height, m_primitives,
                 m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                 {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
-                atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid};
+                atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid,
+                color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates};
             const auto start = std::chrono::steady_clock::now();
             if (m_backend->submit(frame)) {
                 m_atlas.clear_dirty_rects();
+                if (m_color_atlas) m_color_atlas->clear_dirty_rects();
                 m_gpu_full_frame = false;
                 m_gpu_active = true;
                 m_last_stats.render_time_us =
@@ -285,9 +415,11 @@ public:
                     const compute::Frame retry_frame{m_config.width, m_config.height, m_primitives,
                         m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                         {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
-                        atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid};
+                        atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid,
+                        color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates};
                     if (m_backend->submit(retry_frame)) {
                         m_atlas.clear_dirty_rects();
+                        if (m_color_atlas) m_color_atlas->clear_dirty_rects();
                         m_gpu_full_frame = false;
                         m_gpu_active = true;
                         return true;
@@ -331,10 +463,17 @@ public:
         params.atlas_pixels = m_atlas.get_pixels();
         params.atlas_width = m_atlas.get_width();
         params.atlas_height = m_atlas.get_height();
+        params.color_atlas_pixels = m_color_atlas ? m_color_atlas->get_pixels() : nullptr;
+        params.color_atlas_width = m_color_atlas ? m_color_atlas->get_width() : 0u;
+        params.color_atlas_height = m_color_atlas ? m_color_atlas->get_height() : 0u;
         params.mica_enabled = m_mica_enabled;
         params.mica_grid = m_mica_grid;
 
         cpu::CpuTileRasterizer::render(params, dst_buffer);
+
+        // CPU 渲染路径下同样消费掉图集脏矩形记录，防止动图播放时 m_dirty_rects 无限累积
+        m_atlas.clear_dirty_rects();
+        if (m_color_atlas) m_color_atlas->clear_dirty_rects();
 
         auto t1 = std::chrono::high_resolution_clock::now();
         m_last_stats.render_time_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
@@ -379,7 +518,13 @@ private:
     tile::DirtyTracker m_dirty_tracker;
     fx::ClipStack m_clip_stack{};
     atlas::DynamicAtlas m_atlas;
+    std::unique_ptr<atlas::DynamicAtlas> m_color_atlas{};
+    struct CachedImageEntry {
+        atlas::AtlasRegion region;
+        uint32_t revision{0};
+    };
     std::unordered_map<uint64_t, atlas::AtlasRegion> m_mask_cache{};
+    std::unordered_map<uint64_t, CachedImageEntry> m_image_cache{};
 
     std::unique_ptr<text::TextStreamer> m_text_streamer{};
     mutable std::unique_ptr<hal::GraphicsDevice> m_device;

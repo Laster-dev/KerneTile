@@ -31,6 +31,10 @@ struct Frame {
     std::span<const atlas::RectU32> atlas_updates;
     bool mica_enabled{false};
     std::array<uint32_t, 16> mica_grid{};
+    std::span<const uint8_t> color_atlas{};
+    uint32_t color_atlas_width{0};
+    uint32_t color_atlas_height{0};
+    std::span<const atlas::RectU32> color_atlas_updates{};
 };
 
 class Backend {

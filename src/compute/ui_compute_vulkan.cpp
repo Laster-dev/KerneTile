@@ -49,7 +49,7 @@ public:
         VkSemaphore acquired{};
         VkSemaphore finished{};
         VkDescriptorSet descriptors{};
-        std::array<Buffer, 6> buffers{};
+        std::array<Buffer, 7> buffers{};
     };
 
     ~VulkanBackend() override {
@@ -57,6 +57,7 @@ public:
             vkDeviceWaitIdle(m_device);
             destroy(m_output);
             destroy(m_atlas);
+            destroy(m_color_atlas);
             for (auto& slot : m_slots) {
                 for (auto& buffer : slot.buffers) destroy(buffer);
                 if (slot.in_flight) vkDestroyFence(m_device, slot.in_flight, nullptr);
@@ -212,11 +213,12 @@ public:
 
 private:
     static constexpr VkFormat output_format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    static constexpr std::array<VkDescriptorType, 8> descriptor_types{
+    static constexpr std::array<VkDescriptorType, 9> descriptor_types{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER,
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
 
     void pick_device() {
         uint32_t count = 0;
@@ -251,7 +253,7 @@ private:
     }
 
     void create_pipeline() {
-        std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 9> bindings{};
         for (uint32_t i = 0; i < bindings.size(); ++i)
             bindings[i] = {i, descriptor_types[i], 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         VkDescriptorSetLayoutCreateInfo set{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -260,7 +262,7 @@ private:
         check(vkCreateDescriptorSetLayout(m_device, &set, nullptr, &m_set_layout), "Vulkan descriptor layout");
         const VkDescriptorPoolSize sizes[] = {
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<uint32_t>(4 * kFramesInFlight)},
-            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(kFramesInFlight)},
+            {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<uint32_t>(2 * kFramesInFlight)},
             {VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<uint32_t>(kFramesInFlight)},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, static_cast<uint32_t>(kFramesInFlight)},
             {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<uint32_t>(kFramesInFlight)}};
@@ -477,8 +479,63 @@ private:
                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
 
+    void upload_color_atlas(FrameSlot& slot, const Frame& frame) {
+        const uint32_t ca_w = (frame.color_atlas_width > 0 && !frame.color_atlas.empty()) ? frame.color_atlas_width : 1u;
+        const uint32_t ca_h = (frame.color_atlas_height > 0 && !frame.color_atlas.empty()) ? frame.color_atlas_height : 1u;
+        const bool recreate = !m_color_atlas.handle || m_color_atlas_w != ca_w || m_color_atlas_h != ca_h;
+        if (recreate) {
+            if (m_color_atlas.handle) {
+                vkDeviceWaitIdle(m_device);
+                destroy(m_color_atlas);
+            }
+            image(m_color_atlas, ca_w, ca_h, VK_FORMAT_R8G8B8A8_UNORM,
+                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+            m_color_atlas_w = ca_w;
+            m_color_atlas_h = ca_h;
+        }
+        if (frame.color_atlas.empty() || frame.color_atlas_width == 0 || frame.color_atlas_height == 0) {
+            if (recreate) {
+                m_color_atlas.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                transition(m_color_atlas.handle, VK_IMAGE_LAYOUT_UNDEFINED, m_color_atlas.layout,
+                           0, VK_ACCESS_SHADER_READ_BIT);
+            }
+            return;
+        }
+        if (!recreate && frame.color_atlas_updates.empty()) return;
+        const atlas::RectU32 full{0, 0, frame.color_atlas_width, frame.color_atlas_height};
+        const auto rects = recreate ? std::span(&full, 1) : frame.color_atlas_updates;
+        size_t total = 0;
+        std::vector<VkBufferImageCopy> regions;
+        for (const auto& rect : rects) {
+            VkBufferImageCopy region{};
+            region.bufferOffset = total;
+            region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.imageOffset = {static_cast<int>(rect.x), static_cast<int>(rect.y), 0};
+            region.imageExtent = {rect.w, rect.h, 1};
+            regions.push_back(region);
+            total += size_t(rect.w) * rect.h * 4u;
+        }
+        auto& buffer = upload(slot, 6, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, std::max<size_t>(4, total));
+        for (size_t i = 0; i < rects.size(); ++i) {
+            const auto& rect = rects[i];
+            auto* dest = static_cast<uint8_t*>(buffer.bytes) + regions[i].bufferOffset;
+            for (uint32_t row = 0; row < rect.h; ++row) {
+                const auto* source = frame.color_atlas.data() + (size_t(rect.y + row) * frame.color_atlas_width + rect.x) * 4u;
+                std::memcpy(dest + size_t(row) * rect.w * 4u, source, size_t(rect.w) * 4u);
+            }
+        }
+        transition(m_color_atlas.handle, m_color_atlas.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        vkCmdCopyBufferToImage(m_cmd, buffer.handle, m_color_atlas.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<uint32_t>(regions.size()), regions.data());
+        m_color_atlas.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        transition(m_color_atlas.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, m_color_atlas.layout,
+                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
+
     void compose(FrameSlot& slot, const Frame& frame) {
         upload_atlas(slot, frame);
+        upload_color_atlas(slot, frame);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
         std::array<uint32_t, 24> params{};
@@ -493,7 +550,7 @@ private:
             std::as_bytes(frame.indices), std::as_bytes(frame.tiles), std::as_bytes(frame.clips),
             std::as_bytes(std::span(params))};
         std::array<VkDescriptorBufferInfo, 5> buffers{};
-        std::array<VkWriteDescriptorSet, 8> writes{};
+        std::array<VkWriteDescriptorSet, 9> writes{};
         for (uint32_t i = 0; i < writes.size(); ++i) {
             writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             writes[i].dstSet = slot.descriptors;
@@ -514,9 +571,11 @@ private:
         const VkDescriptorImageInfo atlas{VK_NULL_HANDLE, m_atlas.view, m_atlas.layout};
         const VkDescriptorImageInfo sampler{m_sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
         const VkDescriptorImageInfo output{VK_NULL_HANDLE, m_output.view, m_output.layout};
+        const VkDescriptorImageInfo color_atlas{VK_NULL_HANDLE, m_color_atlas.view, m_color_atlas.layout};
         writes[4].pImageInfo = &atlas;
         writes[5].pImageInfo = &sampler;
         writes[6].pImageInfo = &output;
+        writes[8].pImageInfo = &color_atlas;
         vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
         vkCmdBindPipeline(m_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
         vkCmdBindDescriptorSets(m_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline_layout, 0, 1, &slot.descriptors, 0, nullptr);
@@ -541,7 +600,8 @@ private:
     VkPipelineLayout m_pipeline_layout{};
     VkPipeline m_pipeline{};
     VkSampler m_sampler{};
-    Image m_atlas, m_output;
+    Image m_atlas, m_color_atlas, m_output;
+    uint32_t m_color_atlas_w{}, m_color_atlas_h{};
     uint32_t m_width{}, m_height{};
     bool m_failed = false, m_recreate = false;
 };

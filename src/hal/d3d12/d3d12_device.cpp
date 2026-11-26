@@ -25,7 +25,7 @@ static std::vector<uint8_t> read_binary_file(const std::string& path) {
     return {};
 }
 
-D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
+D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit, void* target_window) {
     UINT dxgi_flags = 0;
 #ifdef _DEBUG
     ComPtr<ID3D12Debug> debug_controller;
@@ -41,16 +41,48 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit) {
     if (prefer_warp) {
         if (!throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter failed")) return;
     } else {
-        for (UINT i = 0; m_factory->EnumAdapters1(i, &m_adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
-            DXGI_ADAPTER_DESC1 desc;
-            m_adapter->GetDesc1(&desc);
-            if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
-                // 找到第一个物理硬件适配器
-                if (SUCCEEDED(D3D12CreateDevice(m_adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
-                    break;
+        // 优先匹配当前窗口所在显示器直连的物理 GPU 适配器 (仅读取 DXGI 输出元数据，绝不提前对其它 GPU 调用 D3D12CreateDevice，避免双显卡同进程加载两套驱动)
+        HMONITOR target_mon = target_window
+            ? MonitorFromWindow(static_cast<HWND>(target_window), MONITOR_DEFAULTTONEAREST)
+            : nullptr;
+        if (target_mon) {
+            ComPtr<IDXGIAdapter1> cand;
+            for (UINT i = 0; m_factory->EnumAdapters1(i, &cand) != DXGI_ERROR_NOT_FOUND; ++i) {
+                DXGI_ADAPTER_DESC1 desc{};
+                cand->GetDesc1(&desc);
+                if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
+                    bool owns_monitor = false;
+                    ComPtr<IDXGIOutput> output;
+                    for (UINT j = 0; cand->EnumOutputs(j, &output) != DXGI_ERROR_NOT_FOUND; ++j) {
+                        DXGI_OUTPUT_DESC out_desc{};
+                        if (SUCCEEDED(output->GetDesc(&out_desc)) && out_desc.Monitor == target_mon) {
+                            owns_monitor = true;
+                            output.Reset();
+                            break;
+                        }
+                        output.Reset();
+                    }
+                    if (owns_monitor &&
+                        SUCCEEDED(D3D12CreateDevice(cand.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
+                        m_adapter = cand;
+                        break;
+                    }
                 }
+                cand.Reset();
             }
-            m_adapter.Reset();
+        }
+        // 回退：若窗口不在任何直连输出上 (如远程桌面/虚拟屏)，选第一个可用物理硬件适配器
+        if (!m_adapter) {
+            for (UINT i = 0; m_factory->EnumAdapters1(i, &m_adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+                DXGI_ADAPTER_DESC1 desc{};
+                m_adapter->GetDesc1(&desc);
+                if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
+                    if (SUCCEEDED(D3D12CreateDevice(m_adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
+                        break;
+                    }
+                }
+                m_adapter.Reset();
+            }
         }
         // 如果未找到硬件适配器，自动降级至 WARP
         if (!m_adapter) {
@@ -162,10 +194,10 @@ void D3D12Device::init_root_signatures() {
     root_params[4].DescriptorTable.pDescriptorRanges = &uav_range;
     root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    // t4 Table
+    // t4 & t5 Table (t4: R8 Glyph Atlas, t5: RGBA8 Color Atlas)
     D3D12_DESCRIPTOR_RANGE srv_range{};
     srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srv_range.NumDescriptors = 1;
+    srv_range.NumDescriptors = 2;
     srv_range.BaseShaderRegister = 4;
     srv_range.RegisterSpace = 0;
     srv_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;

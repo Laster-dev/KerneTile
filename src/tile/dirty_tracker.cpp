@@ -25,27 +25,25 @@ const DirtyTrackingResult& DirtyTracker::update(
     m_result.dirty_coords.clear();
     m_result.dirty_tiles.clear();
 
-    // 0a. 预计算裁剪链内容签名 (不含数组索引，避免局部裁剪索引偏移引发无关瓦片全屏失效)
+    // 0a. O(1) 增量预计算裁剪链内容签名 (父裁剪先于子裁剪入栈，直接复用父签名避免 O(depth) 重复遍历)
     const size_t clip_count = clips.size();
     if (m_clip_signatures.size() < clip_count) {
         m_clip_signatures.resize(clip_count);
     }
     for (size_t c = 0; c < clip_count; ++c) {
-        uint64_t h = 0xcbf29ce484222325ULL;
-        uint32_t cur = static_cast<uint32_t>(c);
-        for (uint32_t depth = 0; depth < 64 && cur != core::INVALID_INDEX_U32 && cur < clip_count; ++depth) {
-            const auto& cl = clips[cur];
-            uint64_t w0 = 0, w1 = 0, w2 = 0;
-            std::memcpy(&w0, &cl.min_x, sizeof(uint64_t));          // min_x, min_y
-            std::memcpy(&w1, &cl.max_x, sizeof(uint64_t));          // max_x, max_y
-            uint32_t rad_bits = 0;
-            std::memcpy(&rad_bits, &cl.corner_radius, sizeof(uint32_t));
-            w2 = (static_cast<uint64_t>(cl.flags) << 32u) | static_cast<uint64_t>(rad_bits);
-            h = fnv1a_64_step(h, w0);
-            h = fnv1a_64_step(h, w1);
-            h = fnv1a_64_step(h, w2);
-            cur = cl.parent_index;
-        }
+        const auto& cl = clips[c];
+        uint64_t h = (cl.parent_index != core::INVALID_INDEX_U32 && cl.parent_index < c)
+            ? m_clip_signatures[cl.parent_index]
+            : 0xcbf29ce484222325ULL;
+        uint64_t w0 = 0, w1 = 0, w2 = 0;
+        std::memcpy(&w0, &cl.min_x, sizeof(uint64_t));          // min_x, min_y
+        std::memcpy(&w1, &cl.max_x, sizeof(uint64_t));          // max_x, max_y
+        uint32_t rad_bits = 0;
+        std::memcpy(&rad_bits, &cl.corner_radius, sizeof(uint32_t));
+        w2 = (static_cast<uint64_t>(cl.flags) << 32u) | static_cast<uint64_t>(rad_bits);
+        h = fnv1a_64_step(h, w0);
+        h = fnv1a_64_step(h, w1);
+        h = fnv1a_64_step(h, w2);
         m_clip_signatures[c] = h;
     }
 

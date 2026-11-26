@@ -190,6 +190,9 @@ public:
     void on_close(Fn<bool()> handler) { m_close_callbacks.push_back(std::move(handler)); }
     void on_dpi_changed(Fn<void(float)> handler) { m_dpi_callbacks.push_back(std::move(handler)); }
     void on_focus_changed(Fn<void(bool)> handler) { m_focus_callbacks.push_back(std::move(handler)); }
+    void on_files_dropped(Fn<void(const std::vector<std::string>&, PointF)> handler) {
+        m_file_drop_callbacks.push_back(std::move(handler));
+    }
 
 private:
     struct TouchLongPressState {
@@ -262,6 +265,7 @@ private:
     std::vector<Fn<bool()>> m_close_callbacks;
     std::vector<Fn<void(float)>> m_dpi_callbacks;
     std::vector<Fn<void(bool)>> m_focus_callbacks;
+    std::vector<Fn<void(const std::vector<std::string>&, PointF)>> m_file_drop_callbacks;
     Fn<TitlebarHitTest(PointF)> m_custom_hit_test;
 };
 

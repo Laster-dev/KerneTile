@@ -116,12 +116,93 @@ public:
             }
         }
 
-        // ==================== 2. Active 捕获 ====================
+        // ==================== 2. Active 捕获与拖拽候选记录 ====================
         if (event.type == PlatformEventType::PointerDown) {
             m_active_target = result.first_target();
             if (m_active_target) {
                 m_active_target->is_active = true;
             }
+            m_drag_candidate = nullptr;
+            if (event.button == PointerButton::Primary) {
+                for (const auto& entry : result.path()) {
+                    if (entry.target && entry.target->is_draggable && entry.target->on_drag_start) {
+                        m_drag_candidate = entry.target;
+                        m_drag_start_pos = event.position;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ==================== 2.5 窗口内控件拖拽会话 ====================
+        if (event.type == PlatformEventType::PointerMove) {
+            if (!m_is_dragging && m_drag_candidate && m_drag_candidate->on_drag_start) {
+                float dx = event.position.x - m_drag_start_pos.x;
+                float dy = event.position.y - m_drag_start_pos.y;
+                if (dx * dx + dy * dy >= 25.0f) { // 5px 拖拽启动阈值
+                    DragPayload payload;
+                    payload.source = m_drag_candidate;
+                    DragEvent start_ev(DragEventType::DragStart, event.position, std::move(payload), event.modifiers);
+                    start_ev.local_position = event.position - m_drag_candidate->global_offset();
+                    m_drag_candidate->on_drag_start(start_ev);
+                    if (start_ev.accepted || !start_ev.payload.empty()) {
+                        m_is_dragging = true;
+                        m_drag_source = m_drag_candidate;
+                        m_drag_payload = std::move(start_ev.payload);
+                        m_drag_payload.source = m_drag_source;
+                        m_drop_target = nullptr;
+                    } else {
+                        m_drag_candidate = nullptr;
+                    }
+                }
+            }
+            if (m_is_dragging) {
+                RenderBox* new_drop = find_drop_target(result);
+                if (new_drop != m_drop_target) {
+                    if (m_drop_target && m_drop_target->on_drag_leave) {
+                        DragEvent leave_ev(DragEventType::DragLeave, event.position, m_drag_payload, event.modifiers);
+                        leave_ev.local_position = event.position - m_drop_target->global_offset();
+                        m_drop_target->on_drag_leave(leave_ev);
+                    }
+                    m_drop_target = new_drop;
+                    if (m_drop_target && m_drop_target->on_drag_enter) {
+                        DragEvent enter_ev(DragEventType::DragEnter, event.position, m_drag_payload, event.modifiers);
+                        enter_ev.local_position = event.position - m_drop_target->global_offset();
+                        m_drop_target->on_drag_enter(enter_ev);
+                    }
+                }
+                if (m_drop_target && m_drop_target->on_drag_over) {
+                    DragEvent over_ev(DragEventType::DragOver, event.position, m_drag_payload, event.modifiers);
+                    over_ev.local_position = event.position - m_drop_target->global_offset();
+                    m_drop_target->on_drag_over(over_ev);
+                }
+                return;
+            }
+        }
+
+        if (event.type == PlatformEventType::PointerUp && m_is_dragging) {
+            RenderBox* drop_node = find_drop_target(result);
+            if (!drop_node) drop_node = m_drop_target;
+            bool dropped = false;
+            if (drop_node && drop_node->on_drop) {
+                DragEvent drop_ev(DragEventType::Drop, event.position, m_drag_payload, event.modifiers);
+                drop_ev.local_position = event.position - drop_node->global_offset();
+                drop_node->on_drop(drop_ev);
+                dropped = drop_ev.accepted;
+            }
+            if (m_drag_source && m_drag_source->on_drag_end) {
+                DragEvent end_ev(DragEventType::DragEnd, event.position, m_drag_payload, event.modifiers);
+                end_ev.local_position = event.position - m_drag_source->global_offset();
+                end_ev.accepted = dropped;
+                m_drag_source->on_drag_end(end_ev);
+            }
+            end_drag_session();
+            if (m_active_target) {
+                m_active_target->is_active = false;
+                m_active_target = nullptr;
+            }
+            m_gesture_captured = false;
+            return;
         }
 
         // ==================== 3. Bubble 阶段冒泡派发 ====================
@@ -174,9 +255,40 @@ public:
                 m_active_target->is_active = false;
                 m_active_target = nullptr;
             }
+            m_drag_candidate = nullptr;
             m_gesture_captured = false;
         }
     }
+
+    // 分发操作系统外部文件拖放事件 (Hit-Test 命中目标并沿渲染树冒泡至支持 on_drop 的节点)
+    bool dispatch_file_drop(RenderBox* root, PointF position,
+                            const std::vector<std::string>& files,
+                            KeyModifiers mods = {}) {
+        if (!root || files.empty()) return false;
+        HitTestResult result;
+        root->hit_test(result, position);
+
+        DragPayload payload;
+        payload.mime_type = "text/uri-list";
+        payload.files = files;
+        payload.source = nullptr;
+
+        DragEvent ev(DragEventType::Drop, position, std::move(payload), mods);
+        m_tree_mutated = false;
+        for (const auto& entry : result.path()) {
+            RenderBox* target = entry.target;
+            if (!target || !target->on_drop) continue;
+            ev.local_position = entry.local_position;
+            target->on_drop(ev);
+            if (ev.accepted || ev.is_propagation_stopped() || m_tree_mutated) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool is_dragging() const noexcept { return m_is_dragging; }
+    [[nodiscard]] const DragPayload& active_drag_payload() const noexcept { return m_drag_payload; }
 
     // 分发键盘事件
     void dispatch_key_event(RenderBox* focused_node, RenderBox* root, KeyEvent& event) {
@@ -207,6 +319,9 @@ public:
             m_active_target = nullptr;
             m_gesture_captured = false;
         }
+        if (m_drag_candidate == node) m_drag_candidate = nullptr;
+        if (m_drag_source == node) m_drag_source = nullptr;
+        if (m_drop_target == node) m_drop_target = nullptr;
     }
 
     // 取消当前正在进行的按压/拖拽交互（例如触控长按触发右键菜单时，取消底层控件的点击态）
@@ -223,20 +338,47 @@ public:
             }
             prev->mark_needs_paint();
         }
+        end_drag_session();
         m_gesture_captured = false;
     }
 
     void clear() {
         m_hovered_nodes.clear();
         m_active_target = nullptr;
+        end_drag_session();
         m_gesture_captured = false;
     }
 
 private:
+    static RenderBox* find_drop_target(const HitTestResult& result) noexcept {
+        for (const auto& entry : result.path()) {
+            if (entry.target && (entry.target->is_drop_target || entry.target->on_drop || entry.target->on_drag_over)) {
+                return entry.target;
+            }
+        }
+        return nullptr;
+    }
+
+    void end_drag_session() noexcept {
+        m_is_dragging = false;
+        m_drag_candidate = nullptr;
+        m_drag_source = nullptr;
+        m_drop_target = nullptr;
+        m_drag_payload = DragPayload{};
+    }
+
     std::unordered_set<RenderBox*> m_hovered_nodes;
     RenderBox* m_active_target{nullptr};
     bool m_gesture_captured{false};
     bool m_tree_mutated{false};
+
+    // 窗口内控件拖拽会话状态
+    bool m_is_dragging{false};
+    PointF m_drag_start_pos{0.0f, 0.0f};
+    RenderBox* m_drag_candidate{nullptr};
+    RenderBox* m_drag_source{nullptr};
+    RenderBox* m_drop_target{nullptr};
+    DragPayload m_drag_payload{};
 };
 
 } // namespace ktui

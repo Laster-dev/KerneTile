@@ -105,8 +105,16 @@ private:
     void update_window_style();
     void update_dwm_chrome();
 
+    void release_gdi_surface();
+
     HWND m_hwnd = nullptr;
     HINSTANCE m_hinstance = nullptr;
+    HDC m_mem_dc = nullptr;
+    HBITMAP m_dib_bitmap = nullptr;
+    HGDIOBJ m_dib_old_obj = nullptr;
+    uint32_t* m_dib_bits = nullptr;
+    uint32_t m_dib_w = 0;
+    uint32_t m_dib_h = 0;
     std::string m_title;
     Vec2 m_size;
     Vec2 m_min_size;
@@ -129,7 +137,6 @@ private:
     Fn<void(Vec2)> m_on_moved;
     Fn<void(float)> m_on_dpi_changed;
     Fn<void(bool)> m_on_focus_changed;
-    std::vector<uint8_t> m_bgra_scratch;
     Rect m_ime_cursor_rect{};
     bool m_ime_enabled = false;
     wchar_t m_pending_high_surrogate = 0;

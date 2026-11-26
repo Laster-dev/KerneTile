@@ -1,13 +1,26 @@
 # KTUI 子工程构建配置
 
+# 按需可选编译的桌面集成模块（默认关闭，确保核心二进制零额外体积开销）
+option(KTUI_ENABLE_SYSTEM_TRAY "Enable optional native OS system tray icon module" OFF)
+option(KTUI_ENABLE_RICH_CLIPBOARD "Enable optional native clipboard image/file format module" OFF)
+
 set(KTUI_PAL_SOURCES
     src/pal/headless_backend.cpp
     src/pal/platform_backend.cpp
+    src/pal/file_dialog.cpp
     src/pal/mica_wallpaper.cpp
     src/app/application.cpp
     src/app/window.cpp
     src/presentation/svg_engine.cpp
+    src/presentation/image_decoder.cpp
 )
+
+if (KTUI_ENABLE_SYSTEM_TRAY)
+    list(APPEND KTUI_PAL_SOURCES src/pal/system_tray.cpp)
+endif()
+if (KTUI_ENABLE_RICH_CLIPBOARD)
+    list(APPEND KTUI_PAL_SOURCES src/pal/rich_clipboard.cpp)
+endif()
 
 if (WIN32)
     list(APPEND KTUI_PAL_SOURCES src/pal/win32_backend.cpp)
@@ -26,7 +39,16 @@ target_include_directories(ktui_pal PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanosvg
     ${CMAKE_SOURCE_DIR}/include
 )
+target_include_directories(ktui_pal PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
+)
 target_link_libraries(ktui_pal PUBLIC kernetile_core kernetile_engine)
+if (KTUI_ENABLE_SYSTEM_TRAY)
+    target_compile_definitions(ktui_pal PUBLIC KTUI_ENABLE_SYSTEM_TRAY=1)
+endif()
+if (KTUI_ENABLE_RICH_CLIPBOARD)
+    target_compile_definitions(ktui_pal PUBLIC KTUI_ENABLE_RICH_CLIPBOARD=1)
+endif()
 if (WIN32)
     target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib ole32.lib windowscodecs.lib)
 elseif (EMSCRIPTEN)

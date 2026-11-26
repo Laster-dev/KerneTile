@@ -167,6 +167,30 @@ public:
         m_primitive_count++;
     }
 
+    [[nodiscard]] bool has_cached_image(uint64_t cache_key) const noexcept {
+        return m_renderer ? m_renderer->has_cached_image(cache_key) : false;
+    }
+
+    void invalidate_cached_image(uint64_t cache_key) {
+        if (m_renderer) {
+            m_renderer->invalidate_cached_image(cache_key);
+        }
+    }
+
+    // 绘制彩色 RGBA8 位图/纹理 (支持圆角裁剪、着色/透明度调制、子区域 UV 裁剪与动图原地帧更新)
+    KTUI_NOINLINE void draw_image(uint64_t cache_key, Rect dst_rect, uint32_t img_w, uint32_t img_h,
+                    const uint8_t* rgba8_pixels, float corner_radius = 0.0f,
+                    Color tint = Color{1.0f, 1.0f, 1.0f, 1.0f},
+                    Rect uv_rect = Rect{0.0f, 0.0f, 1.0f, 1.0f},
+                    uint32_t frame_revision = 0) {
+        Rect abs_rect = to_absolute_rect(dst_rect);
+        if (m_renderer) {
+            m_renderer->draw_image(cache_key, to_pixels(abs_rect), img_w, img_h, rgba8_pixels,
+                                   corner_radius * m_render_scale, tint, uv_rect, frame_revision);
+        }
+        m_primitive_count++;
+    }
+
     // 绘制线段 (支持水平/垂直轴对齐极速路径与斜向高品质圆角端点胶囊步进插值)
     KTUI_NOINLINE void draw_line(PointF p1, PointF p2, Color color, float stroke_width = 1.0f) {
         if (color.a <= 0.001f || stroke_width <= 0.0f) return;

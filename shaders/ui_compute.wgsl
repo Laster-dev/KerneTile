@@ -39,6 +39,7 @@ struct Frame {
 @group(0) @binding(5) var atlas_sampler: sampler;
 @group(0) @binding(6) var output: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(7) var<uniform> frame: Frame;
+@group(0) @binding(8) var color_atlas: texture_2d<f32>;
 var<workgroup> tile_indices: array<u32, 64>;
 var<workgroup> tile_count_shared: u32;
 
@@ -154,7 +155,23 @@ fn compose(@builtin(workgroup_id) group: vec3u,
                 let alpha = prim.color.a * amount.x * amount.y;
                 color = vec4f(0.0, 0.0, 0.0, alpha) + color * (1.0 - alpha);
             }
-            let source = prim.color * coverage(p, prim);
+            var source: vec4f;
+            if ((prim.flags_clip & 32u) != 0u) {
+                let extent = prim.bounds.zw - prim.bounds.xy;
+                let cov = clamp(0.5 - box_distance(p, prim.bounds, prim.radii), 0.0, 1.0);
+                if (cov > 0.0 && all(extent > vec2f(0.0))) {
+                    let uv0 = vec2f(f32(prim.uv_min & 65535u), f32(prim.uv_min >> 16u));
+                    let uv1 = vec2f(f32(prim.uv_max & 65535u), f32(prim.uv_max >> 16u));
+                    let uv = mix(uv0, uv1, (p - prim.bounds.xy) / extent) / 65535.0;
+                    let tex = textureSampleLevel(color_atlas, atlas_sampler, uv, 0.0);
+                    let tex_pm = vec4f(tex.rgb * tex.a, tex.a);
+                    source = tex_pm * prim.color * cov;
+                } else {
+                    source = vec4f(0.0);
+                }
+            } else {
+                source = prim.color * coverage(p, prim);
+            }
             color = source + color * (1.0 - source.a);
         }
         workgroupBarrier();

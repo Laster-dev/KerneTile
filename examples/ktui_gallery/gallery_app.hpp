@@ -122,6 +122,32 @@ struct GalleryApp {
     ktui::Property<bool> layout_vis_collapse{true};
     ktui::Property<bool> layout_vis_hidden{true};
 
+    // Image / FileDialog / Drag & Drop 演示状态
+    std::shared_ptr<ktui::ImageBuffer> demo_img_gradient;
+    std::shared_ptr<ktui::ImageBuffer> demo_img_alpha;
+    std::shared_ptr<ktui::ImageBuffer> demo_img_pattern;
+    std::shared_ptr<ktui::ImageBuffer> demo_img_animated;
+    std::shared_ptr<ktui::ImageBuffer> demo_img_custom;
+    ktui::Property<std::shared_ptr<ktui::ImageBuffer>> image_active_src{};
+    ktui::Property<bool> image_auto_play{true};
+    ktui::Property<int> image_preset_idx{0};
+    ktui::Property<int> image_stretch_idx{0};
+    ktui::Property<ktui::ImageStretch> image_stretch{ktui::ImageStretch::Uniform};
+    ktui::Property<float> image_corner_radius{10.0f};
+    ktui::Property<float> image_opacity{1.0f};
+    ktui::Property<int> image_tint_idx{0};
+    ktui::Property<ktui::Color> image_tint{ktui::Color{1.0f, 1.0f, 1.0f, 1.0f}};
+    ktui::Property<std::string> image_radius_label{"圆角半径: 10 px"};
+    ktui::Property<std::string> image_opacity_label{"不透明度: 100%"};
+    ktui::Property<std::string> image_status{"当前图像: 霓虹流体渐变 (256x160 RGBA8) | 模式: Uniform"};
+
+    ktui::Property<std::string> file_dialog_status{"点击上方按钮调用操作系统原生文件 / 文件夹对话框"};
+    ktui::Property<std::string> file_dialog_result{"尚未选择任何文件或目录"};
+
+    ktui::Property<std::string> os_drop_status{"从系统资源管理器拖入任意文件到此窗口（支持多文件，拖入 .bmp 可直接在 Image 页预览）"};
+    ktui::Property<std::string> os_drop_files{"尚未收到操作系统文件拖放"};
+    ktui::Property<std::string> drag_event_log{"拖拽事件日志: 按住上方任务卡片移动超过 5px 开始拖拽，拖放到右侧看板区域松手"};
+
     ktui::Property<ktui::Color> window_bg{ktui::Color::transparent()};
     ktui::Property<ktui::Color> card_bg{ktui::Color{1.0f, 1.0f, 1.0f, 0.045f}};
     ktui::Property<ktui::Color> card_border{ktui::Color{1.0f, 1.0f, 1.0f, 0.07f}};

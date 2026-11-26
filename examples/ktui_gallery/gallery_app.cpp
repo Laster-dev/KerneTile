@@ -241,6 +241,49 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     window->titlebar().add_action("+", "新建工具窗口", [this]() { spawn_child_window(); });
 #endif
 
+    // 监听操作系统级文件拖放事件 (WM_DROPFILES / HTML5 Drop)
+    window->on_files_dropped([this](const std::vector<std::string>& files, PointF pos) {
+        if (files.empty()) return;
+        std::string list;
+        bool loaded_img = false;
+        for (size_t i = 0; i < files.size(); ++i) {
+            if (i > 0) list += "\n";
+            list += std::to_string(i + 1) + ". " + files[i];
+            if (!loaded_img) {
+                size_t dot = files[i].find_last_of('.');
+                if (dot != std::string::npos) {
+                    std::string ext = files[i].substr(dot);
+                    for (char& c : ext) {
+                        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                    }
+                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".bmp") {
+                        if (auto img = ImageBuffer::load_file(files[i]); img && img->valid()) {
+                            demo_img_custom = img;
+                            image_active_src.set(img);
+                            std::string anim = img->is_animated()
+                                ? (" 动图 " + std::to_string(img->frame_count()) + " 帧")
+                                : "";
+                            image_status.set("已通过拖放加载图像 (" + std::to_string(img->width) + "x" +
+                                             std::to_string(img->height) + anim + "): " + files[i]);
+                            loaded_img = true;
+                        }
+                    }
+                }
+            }
+        }
+        os_drop_files.set(list);
+        os_drop_status.set("窗口级 on_files_dropped 收到 " + std::to_string(files.size()) +
+                           " 个文件 @(" + std::to_string(static_cast<int>(pos.x)) + ", " +
+                           std::to_string(static_cast<int>(pos.y)) + ")" +
+                           (loaded_img ? " — 已自动解码首个图片到 Image 预览与壁纸演示" : ""));
+        Toast::show(ToastDesc{
+            .title = "收到操作系统文件拖放",
+            .message = "共 " + std::to_string(files.size()) + " 个文件" +
+                       (loaded_img ? "（已自动加载图片预览）" : ""),
+            .severity = ToastSeverity::Informational
+        });
+    });
+
     struct NavEntry { const char* id; const char* label; const char* badge; };
     auto make_cat = [](const char* id, const char* label, NavigationIcon icon, bool expanded, std::initializer_list<NavEntry> list) {
         NavigationViewItem cat;
@@ -259,23 +302,13 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     window->set_content(NavigationView {
         .menu_items = {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
-            NavigationViewItem::separator(),
-            make_cat("cat_layout", "布局系统", NavigationIcon::Layout, false, {
-                {"layout_flex",       "Flex (HStack/VStack)", nullptr},
-                {"layout_wrap",       "Wrap 流式换行",        nullptr},
-                {"layout_grid",       "Grid 二维网格",        nullptr},
-                {"layout_zstack",     "ZStack & Positioned",  nullptr},
-                {"layout_align",      "Align & AspectRatio",  nullptr},
-                {"layout_split_view", "SplitView 可拖拽分隔", nullptr},
-                {"layout_dock_panel", "DockPanel 拖拽停靠",   "New"},
-                {"layout_visibility", "Visibility 显隐控制",  nullptr}
-            }),
-            make_cat("cat_basic_input", "基础输入", NavigationIcon::Controls, true, {
+            NavigationViewItem::header("控件"),
+            make_cat("cat_basic_input", "基本输入", NavigationIcon::BasicInput, true, {
                 {"button",               "Button",                nullptr},
                 {"toggle_button",        "ToggleButton",          nullptr},
                 {"pro_hold_confirm",     "HoldConfirmButton",     "New"},
-                {"segmented_control",    "SegmentedControl",      nullptr},
                 {"dropdown_button",      "DropDownButton",        nullptr},
+                {"segmented_control",    "SegmentedControl",      nullptr},
                 {"checkbox",             "CheckBox",              nullptr},
                 {"toggle_switch",        "ToggleSwitch",          nullptr},
                 {"radio_button",         "RadioButton",           nullptr},
@@ -283,12 +316,68 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"combobox",             "ComboBox",              nullptr},
                 {"slider",               "Slider",                nullptr},
                 {"pro_minimap_time",     "MinimapTimelineSlider", "New"},
-                {"calendar_date_picker", "CalendarDatePicker",    nullptr},
-                {"time_picker",          "TimePicker",            nullptr},
                 {"color_picker",         "ColorPicker",           nullptr},
                 {"rating_control",       "RatingControl",         nullptr}
             }),
-            make_cat("cat_text", "文本与数值", NavigationIcon::Inputs, false, {
+            make_cat("cat_collections", "集合", NavigationIcon::Collections, false, {
+                {"tree_view",           "TreeView",      nullptr},
+                {"virtual_list",        "VirtualList",   nullptr},
+                {"data_grid",           "DataGrid",      nullptr},
+                {"flip_view",           "FlipView",      nullptr},
+                {"geek_inspector_grid", "InspectorGrid", "New"},
+                {"geek_hex_viewer",     "HexViewer",     "New"}
+            }),
+            make_cat("cat_datetime", "日期和时间", NavigationIcon::DateTime, false, {
+                {"calendar_date_picker", "CalendarDatePicker", nullptr},
+                {"time_picker",          "TimePicker",         nullptr}
+            }),
+            make_cat("cat_dialogs", "对话框和浮出控件", NavigationIcon::Dialogs, false, {
+                {"content_dialog",     "ContentDialog",     nullptr},
+                {"file_dialog",        "FileDialog 文件框", "New"},
+                {"teaching_tip",       "TeachingTip",       nullptr},
+                {"pro_spotlight_tour", "SpotlightTour",     "New"}
+            }),
+            make_cat("cat_layout", "布局", NavigationIcon::LayoutPanel, false, {
+                {"layout_flex",       "Flex (HStack/VStack)", nullptr},
+                {"layout_wrap",       "Wrap 流式换行",        nullptr},
+                {"layout_grid",       "Grid 二维网格",        nullptr},
+                {"layout_zstack",     "ZStack & Positioned",  nullptr},
+                {"layout_align",      "Align & AspectRatio",  nullptr},
+                {"layout_split_view", "SplitView 可拖拽分隔", nullptr},
+                {"layout_dock_panel", "DockPanel 拖拽停靠",   "New"},
+                {"layout_visibility", "Visibility 显隐控制",  nullptr},
+                {"expander",          "Expander",             nullptr},
+                {"settings_card",     "SettingsCard",         "New"}
+            }),
+            make_cat("cat_media", "媒体", NavigationIcon::Media, false, {
+                {"image",          "Image 位图与动图", "New"},
+                {"svg",            "NanoSVG 矢量",     nullptr},
+                {"person_picture", "PersonPicture",    nullptr}
+            }),
+            make_cat("cat_menus", "菜单和工具栏", NavigationIcon::MenusToolbars, false, {
+                {"command_bar",     "CommandBar", nullptr},
+                {"menu_flyout",     "MenuFlyout", nullptr},
+                {"geek_status_bar", "StatusBar",  "New"}
+            }),
+            make_cat("cat_nav", "导航", NavigationIcon::Navigation, false, {
+                {"navigation_view", "NavigationView", nullptr},
+                {"tab_view",        "TabView",        nullptr},
+                {"breadcrumb_bar",  "BreadcrumbBar",  nullptr},
+                {"pips_pager",      "PipsPager",      nullptr}
+            }),
+            make_cat("cat_status", "状态和信息", NavigationIcon::Info, false, {
+                {"info_bar",      "InfoBar",      nullptr},
+                {"info_badge",    "InfoBadge",    nullptr},
+                {"progress_bar",  "ProgressBar",  nullptr},
+                {"progress_ring", "ProgressRing", nullptr},
+                {"toast",         "Toast",        nullptr},
+                {"tooltip",       "Tooltip",      nullptr}
+            }),
+            make_cat("cat_system", "系统", NavigationIcon::System, false, {
+                {"drag_drop",     "Drag & Drop 拖放", "New"},
+                {"geek_terminal", "Terminal",         "New"}
+            }),
+            make_cat("cat_text", "文本", NavigationIcon::Text, false, {
                 {"label",              "Label",              nullptr},
                 {"rich_text_block",    "RichTextBlock",      "New"},
                 {"textbox",            "TextBox",            nullptr},
@@ -301,41 +390,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"password_box",       "PasswordBox",        nullptr},
                 {"number_box",         "NumberBox",          nullptr},
                 {"pro_scrub_number",   "ScrubNumberBox",     "New"}
-            }),
-            make_cat("cat_nav", "导航与容器", NavigationIcon::Layout, false, {
-                {"navigation_view",     "NavigationView", nullptr},
-                {"tab_view",            "TabView",        nullptr},
-                {"breadcrumb_bar",      "BreadcrumbBar",  nullptr},
-                {"expander",            "Expander",       nullptr},
-                {"settings_card",       "SettingsCard",   "New"},
-                {"tree_view",           "TreeView",       nullptr},
-                {"virtual_list",        "VirtualList",    nullptr},
-                {"data_grid",           "DataGrid",       nullptr},
-                {"geek_inspector_grid", "InspectorGrid",  "New"},
-                {"geek_hex_viewer",     "HexViewer",      "New"},
-                {"geek_terminal",       "Terminal",       "New"},
-                {"flip_view",           "FlipView",       nullptr},
-                {"pips_pager",          "PipsPager",      nullptr}
-            }),
-            make_cat("cat_menus", "菜单与工具栏", NavigationIcon::Layout, false, {
-                {"command_bar",     "CommandBar", nullptr},
-                {"menu_flyout",     "MenuFlyout", nullptr},
-                {"geek_status_bar", "StatusBar",  "New"}
-            }),
-            make_cat("cat_status", "弹窗与状态", NavigationIcon::Progress, false, {
-                {"content_dialog",     "ContentDialog", nullptr},
-                {"teaching_tip",       "TeachingTip",   nullptr},
-                {"pro_spotlight_tour", "SpotlightTour", "New"},
-                {"tooltip",            "Tooltip",       nullptr},
-                {"info_bar",           "InfoBar",       nullptr},
-                {"info_badge",         "InfoBadge",     nullptr},
-                {"person_picture",     "PersonPicture", nullptr},
-                {"toast",              "Toast",         nullptr},
-                {"progress_bar",       "ProgressBar",   nullptr},
-                {"progress_ring",      "ProgressRing",  nullptr}
-            }),
-            make_cat("cat_media", "图形与矢量", NavigationIcon::Palette, false, {
-                {"svg", "NanoSVG 矢量", nullptr}
             })
         },
         .footer_items = {
@@ -414,6 +468,9 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"toast",                pages::build_toast_page},
                 {"progress_bar",         pages::build_progress_bar_page},
                 {"progress_ring",        pages::build_progress_ring_page},
+                {"image",                pages::build_image_page},
+                {"file_dialog",          pages::build_file_dialog_page},
+                {"drag_drop",            pages::build_drag_drop_page},
                 {"svg",                  pages::build_svg_page},
                 {"__settings__",         pages::build_settings_page},
                 {"about",                pages::build_about_page}

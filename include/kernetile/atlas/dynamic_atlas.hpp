@@ -36,7 +36,8 @@ public:
         uint32_t content_w, 
         uint32_t content_h, 
         const void* pixel_data, 
-        size_t row_stride_bytes = 0)
+        size_t row_stride_bytes = 0,
+        bool replicate_edge_border = false)
     {
         if (content_w == 0 || content_h == 0) return std::nullopt;
 
@@ -58,23 +59,9 @@ public:
             row_stride_bytes = content_w * m_bytes_per_pixel;
         }
 
-        // 1. 初始化 1 像素防渗色透明边距 (清零边框像素)
-        for (uint32_t x = total_rect.x; x < total_rect.right(); ++x) {
-            set_pixel_zero(x, total_rect.y);                  // 顶边
-            set_pixel_zero(x, total_rect.bottom() - 1);       // 底边
-        }
-        for (uint32_t y = total_rect.y; y < total_rect.bottom(); ++y) {
-            set_pixel_zero(total_rect.x, y);                  // 左边
-            set_pixel_zero(total_rect.right() - 1, y);       // 右边
-        }
-
-        // 2. 逐行拷贝图元真实点阵至内缩 1 像素的中央区域
-        const auto* src_bytes = static_cast<const uint8_t*>(pixel_data);
-        for (uint32_t r = 0; r < content_h; ++r) {
-            size_t dst_offset = (static_cast<size_t>(content_y + r) * m_width + content_x) * m_bytes_per_pixel;
-            const uint8_t* src_row = src_bytes + (r * row_stride_bytes);
-            std::memcpy(m_pixels.data() + dst_offset, src_row, content_w * m_bytes_per_pixel);
-        }
+        // 1 & 2. 写入主体像素与 1px 防渗色边距
+        write_pixels_into_region(total_rect, content_x, content_y, content_w, content_h,
+                                 pixel_data, row_stride_bytes, replicate_edge_border);
 
         // 3. 记录增量脏矩形以供 GPU 纹理上传
         m_dirty_rects.push_back(total_rect);
@@ -98,6 +85,33 @@ public:
         region.v1 = AtlasRegion::to_fixed_uv(norm_v1);
 
         return region;
+    }
+
+    // 原地覆写已分配图集槽位像素 (专为动图 GIF / 视频帧设计：零新槽位分配、零图集膨胀、零 reset 频闪)
+    bool update_region(
+        const AtlasRegion& region,
+        const void* pixel_data,
+        size_t row_stride_bytes = 0,
+        bool replicate_edge_border = true)
+    {
+        if (!pixel_data) return false;
+        const RectU32& total_rect = region.total_rect;
+        const RectU32& c = region.content_rect;
+        if (total_rect.right() > m_width || total_rect.bottom() > m_height ||
+            c.w == 0 || c.h == 0) {
+            return false;
+        }
+        if (row_stride_bytes == 0) {
+            row_stride_bytes = c.w * m_bytes_per_pixel;
+        }
+        write_pixels_into_region(total_rect, c.x, c.y, c.w, c.h,
+                                 pixel_data, row_stride_bytes, replicate_edge_border);
+        if (m_dirty_rects.empty() ||
+            m_dirty_rects.back().x != total_rect.x || m_dirty_rects.back().y != total_rect.y ||
+            m_dirty_rects.back().w != total_rect.w || m_dirty_rects.back().h != total_rect.h) {
+            m_dirty_rects.push_back(total_rect);
+        }
+        return true;
     }
 
     // 双线性插值采样 (CPU 端镜像验证，保证无渗色)
@@ -175,6 +189,55 @@ public:
     [[nodiscard]] double get_utilization() const noexcept { return m_packer.get_utilization(); }
 
 private:
+    void write_pixels_into_region(
+        const RectU32& total_rect,
+        uint32_t content_x,
+        uint32_t content_y,
+        uint32_t content_w,
+        uint32_t content_h,
+        const void* pixel_data,
+        size_t row_stride_bytes,
+        bool replicate_edge_border) noexcept
+    {
+        const auto* src_bytes = static_cast<const uint8_t*>(pixel_data);
+        for (uint32_t r = 0; r < content_h; ++r) {
+            size_t dst_offset = (static_cast<size_t>(content_y + r) * m_width + content_x) * m_bytes_per_pixel;
+            const uint8_t* src_row = src_bytes + (r * row_stride_bytes);
+            std::memcpy(m_pixels.data() + dst_offset, src_row, content_w * m_bytes_per_pixel);
+        }
+
+        if (replicate_edge_border) {
+            auto copy_px = [&](uint32_t dx, uint32_t dy, uint32_t sx, uint32_t sy) {
+                size_t dst_off = (static_cast<size_t>(dy) * m_width + dx) * m_bytes_per_pixel;
+                size_t src_off = (static_cast<size_t>(sy) * m_width + sx) * m_bytes_per_pixel;
+                std::memcpy(m_pixels.data() + dst_off, m_pixels.data() + src_off, m_bytes_per_pixel);
+            };
+            std::memcpy(m_pixels.data() + (static_cast<size_t>(total_rect.y) * m_width + content_x) * m_bytes_per_pixel,
+                        m_pixels.data() + (static_cast<size_t>(content_y) * m_width + content_x) * m_bytes_per_pixel,
+                        content_w * m_bytes_per_pixel);
+            std::memcpy(m_pixels.data() + (static_cast<size_t>(total_rect.bottom() - 1) * m_width + content_x) * m_bytes_per_pixel,
+                        m_pixels.data() + (static_cast<size_t>(content_y + content_h - 1) * m_width + content_x) * m_bytes_per_pixel,
+                        content_w * m_bytes_per_pixel);
+            for (uint32_t r = 0; r < content_h; ++r) {
+                copy_px(total_rect.x, content_y + r, content_x, content_y + r);
+                copy_px(total_rect.right() - 1, content_y + r, content_x + content_w - 1, content_y + r);
+            }
+            copy_px(total_rect.x, total_rect.y, content_x, content_y);
+            copy_px(total_rect.right() - 1, total_rect.y, content_x + content_w - 1, content_y);
+            copy_px(total_rect.x, total_rect.bottom() - 1, content_x, content_y + content_h - 1);
+            copy_px(total_rect.right() - 1, total_rect.bottom() - 1, content_x + content_w - 1, content_y + content_h - 1);
+        } else {
+            for (uint32_t x = total_rect.x; x < total_rect.right(); ++x) {
+                set_pixel_zero(x, total_rect.y);
+                set_pixel_zero(x, total_rect.bottom() - 1);
+            }
+            for (uint32_t y = total_rect.y; y < total_rect.bottom(); ++y) {
+                set_pixel_zero(total_rect.x, y);
+                set_pixel_zero(total_rect.right() - 1, y);
+            }
+        }
+    }
+
     void set_pixel_zero(uint32_t x, uint32_t y) noexcept {
         size_t offset = (static_cast<size_t>(y) * m_width + x) * m_bytes_per_pixel;
         std::memset(m_pixels.data() + offset, 0, m_bytes_per_pixel);

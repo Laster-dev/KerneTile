@@ -9,7 +9,7 @@ std::unique_ptr<GraphicsDevice> create_null_device() {
 } // namespace null
 
 std::unique_ptr<GraphicsDevice> create_default_device(bool prefer_warp) {
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI)
     if (auto dev = create_d3d12_device(prefer_warp)) {
         return dev;
     }

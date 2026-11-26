@@ -37,6 +37,9 @@ public:
         const uint8_t*                     atlas_pixels{nullptr};
         uint32_t                           atlas_width{0};
         uint32_t                           atlas_height{0};
+        const uint8_t*                     color_atlas_pixels{nullptr};
+        uint32_t                           color_atlas_width{0};
+        uint32_t                           color_atlas_height{0};
         uint32_t                           thread_count{0}; // 0 代表自适应计算
         bool                               mica_enabled{false};
         std::array<uint32_t, 16>           mica_grid{};
@@ -63,7 +66,10 @@ public:
         uint32_t atlas_width = 0,
         uint32_t atlas_height = 0,
         bool mica_enabled = false,
-        const std::array<uint32_t, 16>* mica_grid = nullptr);
+        const std::array<uint32_t, 16>* mica_grid = nullptr,
+        const uint8_t* color_atlas_pixels = nullptr,
+        uint32_t color_atlas_width = 0,
+        uint32_t color_atlas_height = 0);
 
     // 数学内核 (与 Slang / DXIL 着色器完全相同的 Abramowitz & Stegun 系数)
     static float erf_approx(float x) noexcept;

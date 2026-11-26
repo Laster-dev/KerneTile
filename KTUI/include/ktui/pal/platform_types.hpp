@@ -4,6 +4,7 @@
 #include <kernetile/math/rect.hpp>
 #include <kernetile/math/color.hpp>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 namespace ktui {
@@ -135,7 +136,11 @@ enum class PlatformEventType {
     WindowCloseRequested,
     WindowFocusGained,
     WindowFocusLost,
-    DpiChanged
+    DpiChanged,
+    FileDragEnter,
+    FileDragOver,
+    FileDragLeave,
+    FileDrop
 };
 
 // 跨平台统一事件结构体
@@ -149,6 +154,7 @@ struct PlatformEvent {
     uint32_t pointer_id = 0;           // 触控指点 ID (支持多点触控区分)
     uint32_t key_code = 0;             // KTUI 虚拟键值，与 Windows VK 值一致
     std::string text;                  // 提交字符或拼音预编辑文本
+    std::vector<std::string> dropped_files; // OS 文件拖放路径列表 (UTF-8)
     KeyModifiers modifiers;
     float dpi_scale = 1.0f;
     uint64_t timestamp_ms = 0;

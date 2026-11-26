@@ -24,6 +24,7 @@ struct RendererConfig {
     uint32_t width{1920};
     uint32_t height{1080};
     uint32_t atlas_size{1024};           // 动态字形/蒙版图集边长 (默认 1024x1024 仅 1MB，溢出自动驱逐；辅助/浮动窗可设为 512)
+    uint32_t color_atlas_size{256};      // 彩色 RGBA8 位图图集初始边长 (按需惰性分配，初始 256x256 仅 256KB，超容自动扩容)
     bool prefer_warp{false};             // 是否优先使用 D3D12 WARP 软件适配器
     bool force_cpu_fallback{false};      // 是否强制使用纯 CPU 瓦片光栅器
     bool enable_occlusion_culling{true}; // 是否启用前端实心矩形遮挡剔除
@@ -102,6 +103,30 @@ public:
         const uint8_t* alpha_pixels,
         math::Color tint) {
         (void)cache_key; (void)dst_rect_px; (void)mask_width; (void)mask_height; (void)alpha_pixels; (void)tint;
+    }
+
+    // 彩色 RGBA8 位图缓存绘制 (支持圆角裁剪、着色调制与子区域 UV 裁剪，覆盖 CPU / D3D12 / Vulkan / WebGPU 全后端)
+    [[nodiscard]] virtual bool has_cached_image(uint64_t cache_key) const noexcept {
+        (void)cache_key;
+        return false;
+    }
+
+    virtual void invalidate_cached_image(uint64_t cache_key) {
+        (void)cache_key;
+    }
+
+    virtual void draw_image(
+        uint64_t cache_key,
+        math::Rect dst_rect_px,
+        uint32_t img_width,
+        uint32_t img_height,
+        const uint8_t* rgba8_pixels,
+        float corner_radius = 0.0f,
+        math::Color tint = {1.0f, 1.0f, 1.0f, 1.0f},
+        math::Rect uv_rect = {0.0f, 0.0f, 1.0f, 1.0f},
+        uint32_t frame_revision = 0) {
+        (void)cache_key; (void)dst_rect_px; (void)img_width; (void)img_height;
+        (void)rgba8_pixels; (void)corner_radius; (void)tint; (void)uv_rect; (void)frame_revision;
     }
 
     // 离屏渲染呈现输出至内存缓冲 (RGBA8 格式)

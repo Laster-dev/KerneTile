@@ -50,6 +50,9 @@ extern "C" {
     void ktui_web_on_wheel(int win_id, float x, float y, float dx, float dy, int mods);
 
     EMSCRIPTEN_KEEPALIVE
+    void ktui_web_on_file_drop(int win_id, float x, float y, const char* files_joined);
+
+    EMSCRIPTEN_KEEPALIVE
     void ktui_web_on_drag_move(int win_id, float x, float y);
 
     EMSCRIPTEN_KEEPALIVE
@@ -470,6 +473,25 @@ EM_JS(void, ktui_js_create_window, (int win_id, const char* title, float x, floa
     }, { passive: false });
 
     canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    canvas.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    canvas.addEventListener('drop', function(e) {
+        e.preventDefault();
+        var files = e.dataTransfer && e.dataTransfer.files;
+        if (!files || files.length === 0) return;
+        var names = [];
+        for (var fi = 0; fi < files.length; ++fi) names.push(files[fi].name);
+        var joined = names.join('\n');
+        var len = lengthBytesUTF8(joined) + 1;
+        var ptr = _malloc(len);
+        stringToUTF8(joined, ptr, len);
+        var pt = getLocal(e);
+        _ktui_web_on_file_drop(win_id, pt[0], pt[1], ptr);
+        _free(ptr);
+    });
 
     // Windows 11 风格任务栏图标项
     var appsHost = document.getElementById('ktui-taskbar-apps') || document.getElementById('ktui-taskbar');
@@ -1511,6 +1533,30 @@ public:
         dispatch_event(pe);
     }
 
+    void handle_file_drop(int win_id, float x, float y, const char* files_joined) {
+        WebWindow* w = find_window(win_id);
+        if (!w || !files_joined || !*files_joined) return;
+        PlatformEvent pe{};
+        pe.type = PlatformEventType::FileDrop;
+        pe.window_handle = w->get_native_handle();
+        pe.position = Vec2{x, y};
+        pe.timestamp_ms = static_cast<uint64_t>(emscripten_get_now());
+        std::string s(files_joined);
+        size_t pos = 0;
+        while (pos < s.size()) {
+            size_t nl = s.find('\n', pos);
+            if (nl == std::string::npos) {
+                pe.dropped_files.push_back(s.substr(pos));
+                break;
+            }
+            pe.dropped_files.push_back(s.substr(pos, nl - pos));
+            pos = nl + 1;
+        }
+        if (!pe.dropped_files.empty()) {
+            dispatch_event(pe);
+        }
+    }
+
 private:
     void unregister_window(WebWindow* w) {
         std::erase(m_windows, w);
@@ -1631,6 +1677,11 @@ extern "C" {
     EMSCRIPTEN_KEEPALIVE
     inline void ktui_web_on_wheel(int win_id, float x, float y, float dx, float dy, int mods) {
         if (WebBackend::instance()) WebBackend::instance()->handle_wheel(win_id, x, y, dx, dy, mods);
+    }
+
+    EMSCRIPTEN_KEEPALIVE
+    inline void ktui_web_on_file_drop(int win_id, float x, float y, const char* files_joined) {
+        if (WebBackend::instance()) WebBackend::instance()->handle_file_drop(win_id, x, y, files_joined);
     }
 
     EMSCRIPTEN_KEEPALIVE

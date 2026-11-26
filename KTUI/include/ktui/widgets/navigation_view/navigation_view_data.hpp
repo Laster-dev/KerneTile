@@ -43,7 +43,21 @@ enum class NavigationIcon : uint8_t {
     Search,
     Folder,
     Code,
-    Sparkles
+    Sparkles,
+    // WinUI 3 Gallery 官方分类线性图标
+    BasicInput,     // 方框内勾选 (Checkbox)
+    Collections,    // 3x3 表格网格 (Grid)
+    DateTime,       // 日历与时钟 (CalendarClock)
+    Dialogs,        // 对话气泡 (Chat)
+    LayoutPanel,    // 卡片布局框 (Layout)
+    Media,          // 圆角播放框 (Play/Video)
+    MenusToolbars,  // 软盘保存 (Save)
+    Motion,         // 闪电 (Flash)
+    Navigation,     // 三条横线 (Navigation)
+    Scrolling,      // 上下双向箭头 (Scroll)
+    System,         // 显示器/笔记本 (Laptop)
+    Text,           // 大小写 Aa 字体 (TextFont)
+    Windowing       // 双重叠窗口 (WindowMultiple)
 };
 
 // 导航项数据描述 (支持层级子项、InfoBadge 徽标、禁用态、自定义图标绘制器)

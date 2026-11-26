@@ -63,6 +63,11 @@ ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
 
 // ==================== 图形与矢量 (Media & Vector) ====================
 ktui::WidgetPtr build_svg_page(GalleryApp& app);
+ktui::WidgetPtr build_image_page(GalleryApp& app);
+
+// ==================== 桌面系统与交互 (Desktop & Drag-Drop) ====================
+ktui::WidgetPtr build_file_dialog_page(GalleryApp& app);
+ktui::WidgetPtr build_drag_drop_page(GalleryApp& app);
 
 // ==================== 布局系统 (Layout - 每种布局控件独立页面) ====================
 ktui::WidgetPtr build_layout_flex_page(GalleryApp& app);

@@ -598,6 +598,18 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
             }
             break;
         }
+        case PlatformEventType::FileDrop: {
+            if (!pe.dropped_files.empty()) {
+                m_event_dispatcher.dispatch_file_drop(m_root_render_box.get(), client_pos,
+                                                      pe.dropped_files, pe.modifiers);
+                for (auto& cb : m_file_drop_callbacks) {
+                    if (cb) cb(pe.dropped_files, client_pos);
+                }
+                request_redraw();
+                if (m_platform_window) m_platform_window->invalidate();
+            }
+            break;
+        }
         case PlatformEventType::WindowCloseRequested: {
             bool allow_close = true;
             for (auto& cb : m_close_callbacks) {

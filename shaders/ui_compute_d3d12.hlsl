@@ -24,6 +24,7 @@ KT_BINDING(7) cbuffer Frame : register(b0) {
     uint tile_count, groups_x, clip_count, mica_enabled, pad0, pad1;
     uint4 mica_grid[4];
 };
+KT_BINDING(8) Texture2D<float4> color_atlas : register(t5);
 groupshared uint tile_indices[64];
 
 float4 unpack_rgba8(uint packed) {
@@ -113,7 +114,22 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
                 float alpha = prim.color.a * amount.x * amount.y;
                 color = float4(0, 0, 0, alpha) + color * (1.0 - alpha);
             }
-            float4 source = prim.color * coverage(p, prim);
+            float4 source;
+            if (prim.flags_clip & 32u) {
+                float2 size = prim.bounds.zw - prim.bounds.xy;
+                float cov = saturate(0.5 - box_distance(p, prim.bounds, prim.radii));
+                if (cov > 0.0 && all(size > 0)) {
+                    float2 uv0 = float2(prim.uv_min & 65535u, prim.uv_min >> 16u);
+                    float2 uv1 = float2(prim.uv_max & 65535u, prim.uv_max >> 16u);
+                    float4 tex = color_atlas.SampleLevel(atlas_sampler, lerp(uv0, uv1, (p - prim.bounds.xy) / size) / 65535.0, 0);
+                    float4 tex_pm = float4(tex.rgb * tex.a, tex.a);
+                    source = tex_pm * prim.color * cov;
+                } else {
+                    source = float4(0, 0, 0, 0);
+                }
+            } else {
+                source = prim.color * coverage(p, prim);
+            }
             color = source + color * (1.0 - source.a);
         }
         GroupMemoryBarrierWithGroupSync();

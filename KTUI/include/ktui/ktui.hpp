@@ -16,6 +16,8 @@
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/pal/platform_backend.hpp>
 #include <ktui/pal/clipboard.hpp>
+#include <ktui/pal/file_dialog.hpp>
+#include <ktui/pal/system_tray.hpp>
 #include <ktui/pal/font_resolver.hpp>
 
 // 响应式数据绑定与状态管理
@@ -90,6 +92,7 @@
 #include <ktui/widgets/scroll_view.hpp>
 #include <ktui/widgets/combobox.hpp>
 #include <ktui/widgets/svg.hpp>
+#include <ktui/widgets/image.hpp>
 #include <ktui/widgets/info_bar.hpp>
 #include <ktui/widgets/toast.hpp>
 #include <ktui/widgets/tooltip.hpp>
