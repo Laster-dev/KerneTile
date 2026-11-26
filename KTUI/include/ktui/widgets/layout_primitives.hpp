@@ -208,8 +208,15 @@ public:
     }
 
     void perform_layout() override {
-        const bool shrink_w = (m_width_factor >= 0.0f) || !m_constraints.has_bounded_width();
-        const bool shrink_h = (m_height_factor >= 0.0f) || !m_constraints.has_bounded_height();
+        // 仅当未指定 factor 且约束在对应轴为紧约束 (min == max) 时才撑满；
+        // 在 VStack/HStack 传入的松散有界约束 (min == 0, max == 视口高/宽) 下，
+        // 必须按子项尺寸收缩，避免单个 Align 撑满整页把后续控件挤出视口。
+        const bool tight_w = m_constraints.has_bounded_width() &&
+                             (std::abs(m_constraints.max_width - m_constraints.min_width) < 0.01f);
+        const bool tight_h = m_constraints.has_bounded_height() &&
+                             (std::abs(m_constraints.max_height - m_constraints.min_height) < 0.01f);
+        const bool shrink_w = (m_width_factor >= 0.0f) || !tight_w;
+        const bool shrink_h = (m_height_factor >= 0.0f) || !tight_h;
 
         if (!m_child) {
             m_size = m_constraints.constrain(Vec2{

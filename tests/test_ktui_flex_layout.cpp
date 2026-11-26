@@ -396,6 +396,20 @@ void test_zstack_alignment_and_aspect_ratio() {
     KT_EXPECT(std::abs(ar->size().x - 320.0f) < 0.5f);
     KT_EXPECT(std::abs(ar->size().y - 180.0f) < 0.5f);
 
+    // 4. RenderAlign 在有界但非紧约束垂直空间 (如 VStack 内 Stretch 宽、松散有界高 min_h=0, max_h=600)
+    // 不应撑满 600px 高度，而应保持宽 400px 以便 right_align、高收缩至子项 40px；
+    // 仅当纵轴同样为紧约束 (min_h == max_h == 200) 时才撑满 200px。
+    auto align_box = std::make_unique<RenderAlign>(Alignment::center_right());
+    align_box->set_child_box(make_render_node<RenderSizedBox>(Vec2{80.0f, 40.0f}));
+    align_box->layout(BoxConstraints(400.0f, 400.0f, 0.0f, 600.0f));
+    KT_EXPECT(std::abs(align_box->size().x - 400.0f) < 0.5f);
+    KT_EXPECT(std::abs(align_box->size().y - 40.0f) < 0.5f);
+    KT_EXPECT(std::abs(align_box->first_child()->as_render_box()->offset().x - 320.0f) < 0.5f);
+
+    align_box->layout(BoxConstraints::tight(Vec2{400.0f, 200.0f}));
+    KT_EXPECT(std::abs(align_box->size().y - 200.0f) < 0.5f);
+    KT_EXPECT(std::abs(align_box->first_child()->as_render_box()->offset().y - 80.0f) < 0.5f);
+
     std::cout << "  -> ZStack 九宫格对齐与 AspectRatio 16:9 约束验证通过！" << std::endl;
 }
 
