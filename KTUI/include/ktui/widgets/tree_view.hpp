@@ -87,6 +87,13 @@ public:
         }
     }
 
+    void set_nodes(std::vector<TreeViewNode> nodes) {
+        m_nodes = std::move(nodes);
+        sync_expand_anim_targets(m_nodes, true);
+        rebuild_flat_rows();
+        mark_needs_layout();
+    }
+
     [[nodiscard]] size_t visible_row_count() const noexcept {
         size_t cnt = 0;
         for (const auto& r : m_rows) {

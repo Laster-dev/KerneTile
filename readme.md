@@ -167,6 +167,7 @@ GitHub Releases 直接提供两套零配置方案（独立 **`kernetile.ixx`** �
 > - `KERNETILE_PURE_GDI=1`：Windows 纯 GDI + 多线程 CPU 瓦片光栅模式（零 D3D12/DXGI，~8.2 MB 内存）
 > - `KTUI_ENABLE_SYSTEM_TRAY=1`：启用原生系统托盘模块（`ktui::SystemTray`）
 > - `KTUI_ENABLE_RICH_CLIPBOARD=1`：启用剪贴板位图与文件列表读写（`Clipboard::set_image / get_files`）
+> - `KTUI_ENABLE_INSPECTOR=1`：**仅 Debug 模式生效**（Release 下自动彻底剥离，零体积开销），启用内置 `F12` DevTools（右侧控件树、Pick 拾取、盒模型约束与 `Shift+F12` 脏瓦片热力淡出图）
 
 ---
 

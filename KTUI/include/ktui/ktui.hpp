@@ -42,6 +42,7 @@
 // 全局应用宿主与窗口调度
 #include <ktui/app/dispatcher.hpp>
 #include <ktui/app/application.hpp>
+#include <ktui/app/ui_inspector.hpp>
 #include <ktui/app/window.hpp>
 
 // 布局与场景树核心

@@ -281,6 +281,10 @@ def generate_implementation_cpp(public_visited: set[Path]) -> str:
     append_unit("KTUI/src/pal/rich_clipboard.cpp")
     lines.append("#endif // KTUI_ENABLE_RICH_CLIPBOARD\n\n")
 
+    lines.append("#if defined(KTUI_ENABLE_INSPECTOR) && KTUI_ENABLE_INSPECTOR && !defined(NDEBUG)\n")
+    append_unit("KTUI/src/app/devtools_window.cpp")
+    lines.append("#endif // KTUI_ENABLE_INSPECTOR (Debug-only)\n\n")
+
     # 3. Platform-specific backends (Windows / Emscripten / Android / Linux)
     lines.append("#if defined(_WIN32)\n")
     append_unit("src/text/dwrite_text_engine.cpp")
@@ -627,6 +631,7 @@ README_MD = """# KerneTile + KTUI Single-File Distribution
 - `-DKERNETILE_PURE_GDI=1`：Windows 纯 GDI + CPU 瓦片光栅模式（不依赖 D3D12/DXGI）
 - `-DKTUI_ENABLE_SYSTEM_TRAY=1`：启用可选原生系统托盘模块
 - `-DKTUI_ENABLE_RICH_CLIPBOARD=1`：启用可选剪贴板图像/文件模块
+- `-DKTUI_ENABLE_INSPECTOR=1`：**仅 Debug 模式生效**（Release/`NDEBUG` 下自动彻底剥离，零体积开销），启用内置 `F12` DevTools 控件树与脏瓦片热力淡出图
 """
 
 

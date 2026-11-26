@@ -2,6 +2,7 @@
 
 #include <ktui/pal/platform_backend.hpp>
 #include <ktui/app/window_titlebar.hpp>
+#include <ktui/app/ui_inspector.hpp>
 #include <ktui/widgets/widget.hpp>
 #include <ktui/tree/overlay.hpp>
 #include <ktui/event/event_dispatcher.hpp>
@@ -174,10 +175,50 @@ public:
     void render_frame(bool force_full_present = false);
     void handle_platform_event(const PlatformEvent& pe);
 
+    // ==================== 内置轻量 F12 UI Inspector (仅 Debug 模式生效，Release 零体积) ====================
+    void set_inspector_enabled(bool enabled) {
+#if KTUI_INSPECTOR_ACTIVE
+        if (m_inspector.enabled != enabled) {
+            m_inspector.enabled = enabled;
+            if (!enabled) m_inspector.tile_heats.clear();
+            request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
+        }
+#else
+        (void)enabled;
+#endif
+    }
+    [[nodiscard]] bool inspector_enabled() const noexcept {
+#if KTUI_INSPECTOR_ACTIVE
+        return m_inspector.enabled;
+#else
+        return false;
+#endif
+    }
+    void set_inspector_dirty_tiles(bool show) {
+#if KTUI_INSPECTOR_ACTIVE
+        if (m_inspector.show_dirty_tiles != show) {
+            m_inspector.show_dirty_tiles = show;
+            if (!show) m_inspector.tile_heats.clear();
+            request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
+        }
+#else
+        (void)show;
+#endif
+    }
+#if KTUI_INSPECTOR_ACTIVE
+    [[nodiscard]] UiInspectorState& inspector_state() noexcept { return m_inspector; }
+    [[nodiscard]] const UiInspectorState& inspector_state() const noexcept { return m_inspector; }
+#endif
+
     // ==================== 重绘调度与生命周期 ====================
     void request_redraw() noexcept { m_needs_redraw = true; }
     [[nodiscard]] bool needs_redraw() const noexcept {
         return m_needs_redraw || m_overlay_manager.needs_redraw() ||
+#if KTUI_INSPECTOR_ACTIVE
+               UiInspector::has_active_animations(m_inspector) ||
+#endif
                (m_renderer && (m_renderer->compute_ready() != m_compute_was_ready ||
                 (m_platform_window && m_platform_window->render_scale() != m_render_scale)));
     }
@@ -257,6 +298,9 @@ private:
     EventDispatcher m_event_dispatcher;
     FocusManager m_focus_manager;
     OverlayManager m_overlay_manager;
+#if KTUI_INSPECTOR_ACTIVE
+    UiInspectorState m_inspector;
+#endif
 
     static Window* s_active_window;
     static std::vector<Window*> s_live_windows;

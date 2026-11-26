@@ -36,6 +36,9 @@ void Window::on_render_box_destroyed(RenderBox* box) noexcept {
         if (w) {
             w->m_event_dispatcher.forget_node(box);
             w->m_focus_manager.forget_node(box);
+#if KTUI_INSPECTOR_ACTIVE
+            UiInspector::forget_node(w->m_inspector, box);
+#endif
         }
     }
 }
@@ -95,6 +98,9 @@ void Window::set_content(WidgetPtr content) {
 void Window::close() {
     if (!m_is_closed) {
         m_is_closed = true;
+#if KTUI_INSPECTOR_ACTIVE
+        UiInspector::close_devtools_window(this);
+#endif
         m_renderer.reset();
         std::vector<uint8_t>().swap(m_framebuffer);
         m_overlay_manager.dismiss_all();
@@ -191,6 +197,12 @@ void Window::paint_scene(PaintContext& ctx, Vec2 sz, Vec2 client_sz, float tb_h,
     if (!is_decorated()) {
         m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
     }
+#if KTUI_INSPECTOR_ACTIVE
+    if (m_inspector.enabled) {
+        if (m_renderer) m_renderer->mark_scene_end();
+        UiInspector::paint_canvas_overlay(ctx, m_inspector, m_root_render_box.get(), tb_h, m_render_scale);
+    }
+#endif
 }
 
 void Window::render_frame(bool force_full_present) {
@@ -249,6 +261,15 @@ void Window::render_frame(bool force_full_present) {
     advance_mica_animation();
 
     // 4. 录制图元 (支持圆形涟漪双 Pass 主题切换或常规单 Pass)
+#if KTUI_INSPECTOR_ACTIVE
+    if (m_inspector.enabled) {
+        UiInspector::capture_frame_snapshot(m_inspector, m_renderer.get());
+        UiInspector::sync_devtools_window(this, false);
+        if (UiInspector::has_active_animations(m_inspector)) {
+            request_redraw();
+        }
+    }
+#endif
     std::array<uint32_t, 16> mica_grid{};
     if (m_theme_ripple.active) {
         auto now = std::chrono::steady_clock::now();
@@ -446,6 +467,31 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
         m_last_pointer_pos = pe.position;
         m_has_last_pointer = true;
     }
+#if KTUI_INSPECTOR_ACTIVE
+    if (pe.type == PlatformEventType::KeyDown && UiInspector::is_f12_key(pe.key_code)) {
+        if (pe.modifiers.shift) {
+            if (!m_inspector.enabled) {
+                UiInspector::toggle_devtools_window(this);
+            }
+            m_inspector.show_dirty_tiles = !m_inspector.show_dirty_tiles;
+            if (!m_inspector.show_dirty_tiles) m_inspector.tile_heats.clear();
+            UiInspector::sync_devtools_window(this, true);
+        } else {
+            UiInspector::toggle_devtools_window(this);
+        }
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+        return;
+    }
+    if (m_inspector.enabled && m_inspector.pick_mode) {
+        if (UiInspector::handle_canvas_event(m_inspector, pe, m_root_render_box.get(), titlebar_height())) {
+            UiInspector::sync_devtools_window(this, true);
+            request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
+            return;
+        }
+    }
+#endif
 
     if (route_overlay_event(pe)) return;
 

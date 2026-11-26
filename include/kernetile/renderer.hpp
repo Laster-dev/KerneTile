@@ -141,6 +141,20 @@ public:
         (void)enabled; (void)grid;
     }
 
+#if !defined(NDEBUG)
+    // 仅 Debug 模式编译：标记业务场景图元录制结束（后续推入的调试浮层不计入场景脏瓦片统计）
+    virtual void mark_scene_end() {}
+
+    // 仅 Debug 模式编译：业务场景（不含调试浮层）帧统计与脏瓦片列表，供 F12 DevTools 零自激观测使用
+    virtual const FrameStats& get_last_scene_stats() const {
+        return get_last_frame_stats();
+    }
+
+    virtual const std::vector<tile::DirtyTileInfo>& get_last_scene_dirty_tiles() const {
+        return get_last_dirty_tiles();
+    }
+#endif
+
     // 性能指标查询
     virtual const FrameStats& get_last_frame_stats() const = 0;
 
@@ -148,6 +162,12 @@ public:
     virtual bool get_last_dirty_bounds(uint32_t& out_x, uint32_t& out_y, uint32_t& out_w, uint32_t& out_h) const {
         (void)out_x; (void)out_y; (void)out_w; (void)out_h;
         return false;
+    }
+
+    // 获取上一帧所有脏瓦片列表
+    virtual const std::vector<tile::DirtyTileInfo>& get_last_dirty_tiles() const {
+        static const std::vector<tile::DirtyTileInfo> kEmpty{};
+        return kEmpty;
     }
 
     // 获取底层设备

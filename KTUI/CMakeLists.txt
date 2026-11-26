@@ -3,6 +3,7 @@
 # 按需可选编译的桌面集成模块（默认关闭，确保核心二进制零额外体积开销）
 option(KTUI_ENABLE_SYSTEM_TRAY "Enable optional native OS system tray icon module" OFF)
 option(KTUI_ENABLE_RICH_CLIPBOARD "Enable optional native clipboard image/file format module" OFF)
+option(KTUI_ENABLE_INSPECTOR "Enable Debug-only F12 DevTools UI Inspector overlay (strictly stripped in Release)" ON)
 
 set(KTUI_PAL_SOURCES
     src/pal/headless_backend.cpp
@@ -11,6 +12,7 @@ set(KTUI_PAL_SOURCES
     src/pal/mica_wallpaper.cpp
     src/app/application.cpp
     src/app/window.cpp
+    src/app/devtools_window.cpp
     src/presentation/svg_engine.cpp
     src/presentation/image_decoder.cpp
 )
@@ -48,6 +50,10 @@ if (KTUI_ENABLE_SYSTEM_TRAY)
 endif()
 if (KTUI_ENABLE_RICH_CLIPBOARD)
     target_compile_definitions(ktui_pal PUBLIC KTUI_ENABLE_RICH_CLIPBOARD=1)
+endif()
+if (KTUI_ENABLE_INSPECTOR)
+    # 严格限制仅 Debug 配置生效，Release 模式 (NDEBUG) 下彻底零代码、零体积编入
+    target_compile_definitions(ktui_pal PUBLIC $<$<CONFIG:Debug>:KTUI_ENABLE_INSPECTOR=1>)
 endif()
 if (WIN32)
     target_link_libraries(ktui_pal PUBLIC user32.lib gdi32.lib imm32.lib ole32.lib windowscodecs.lib)

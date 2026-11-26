@@ -1,0 +1,173 @@
+name: CI Unit Tests & Single-File SDK Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CCACHE_ENABLE: '1'
+  CCACHE_SLOPPINESS: 'pch_defines,time_macros,include_file_mtime,include_file_ctime'
+  CCACHE_COMPRESS: 'true'
+
+jobs:
+  # ============================================================================
+  # Windows 单元测试套件 (Pure-GDI + F12 Inspector 开启，无 GPU 依赖稳定运行)
+  # ============================================================================
+  test-windows:
+    name: Unit Tests (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ci-test-win-x64
+          max-size: 300M
+
+      - name: Setup MSVC Developer Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Locate Clang-CL / LLD / Ninja
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $llvmBin = Join-Path $vsPath "VC\Tools\Llvm\x64\bin"
+          $ninjaBin = Join-Path $vsPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
+          "$llvmBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$ninjaBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "LLVM_BIN=$($llvmBin -replace '\\','/')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure & Build Tests (Windows Pure-GDI Release)
+        shell: pwsh
+        run: |
+          cmake -B build-ci-win -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=ON `
+            -DKERNETILE_WINDOWS_PURE_GDI=ON `
+            -DCMAKE_CXX_COMPILER="${env:LLVM_BIN}/clang-cl.exe" `
+            -DCMAKE_LINKER="${env:LLVM_BIN}/lld-link.exe" `
+            -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe"
+          cmake --build build-ci-win --parallel
+
+      - name: Run CTest Suite (Windows)
+        shell: pwsh
+        run: |
+          ctest --test-dir build-ci-win --output-on-failure --exclude-regex "bench_4k_scenarios"
+
+  # ============================================================================
+  # Linux 单元测试套件 (Ubuntu 22.04 Clang + Inspector 开启)
+  # ============================================================================
+  test-linux:
+    name: Unit Tests (Linux x64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ci-test-linux-x64
+          max-size: 300M
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang lld pkg-config \
+            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev
+
+      - name: Configure & Build Tests (Linux Release)
+        run: |
+          cmake -B build-ci-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-ci-linux --parallel
+
+      - name: Run CTest Suite (Linux)
+        run: |
+          ctest --test-dir build-ci-linux --output-on-failure --exclude-regex "bench_4k_scenarios"
+
+  # ============================================================================
+  # 单文件 SDK 回归冒烟测试 (Windows MSVC: kernetile.ixx + kernetile.hpp/cpp)
+  # ============================================================================
+  smoke-sdk-windows:
+    name: SDK Smoke (Windows kernetile.ixx & hpp/cpp)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup MSVC Developer Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Generate Single-File SDK Amalgamation
+        shell: pwsh
+        run: |
+          python scripts/amalgamate.py --out dist/amalgamation
+
+      - name: Compile C++20 Module SDK (D3D12)
+        shell: pwsh
+        working-directory: dist/amalgamation
+        run: |
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /interface /c kernetile.ixx
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:smoke_mod_d3d12.exe
+          Get-Item smoke_mod_d3d12.exe | Select-Object Name, Length
+
+      - name: Compile C++20 Module SDK (Pure-GDI)
+        shell: pwsh
+        working-directory: dist/amalgamation
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue kernetile.ifc, kernetile.obj
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 /interface /c kernetile.ixx
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_module.cpp kernetile.obj /Fe:smoke_mod_gdi.exe
+          Get-Item smoke_mod_gdi.exe | Select-Object Name, Length
+
+      - name: Compile Two-File SDK (kernetile.hpp + kernetile.cpp)
+        shell: pwsh
+        working-directory: dist/amalgamation
+        run: |
+          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_hello.cpp kernetile.cpp /Fe:smoke_twofile_gdi.exe
+          Get-Item smoke_twofile_gdi.exe | Select-Object Name, Length
+
+  # ============================================================================
+  # 单文件 SDK 回归冒烟测试 (Linux Clang: kernetile.hpp + kernetile.cpp)
+  # ============================================================================
+  smoke-sdk-linux:
+    name: SDK Smoke (Linux hpp/cpp)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3 clang lld pkg-config \
+            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev
+
+      - name: Generate & Compile Two-File SDK (Linux Clang)
+        run: |
+          python3 scripts/amalgamate.py --out dist/amalgamation
+          cd dist/amalgamation
+          clang++ -std=c++20 -O2 -DNDEBUG -fno-exceptions -fno-rtti \
+            example_hello.cpp kernetile.cpp \
+            $(pkg-config --cflags --libs pangocairo pango cairo) \
+            -lX11 -lXi -lpthread -lm -ldl -o smoke_linux
+          ls -lh smoke_linux

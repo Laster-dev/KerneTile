@@ -12,6 +12,9 @@ public:
         : m_config(config),
           m_grid(config.width, config.height),
           m_dirty_tracker(m_grid.get_total_tiles()),
+#if !defined(NDEBUG)
+          m_scene_dirty_tracker(m_grid.get_total_tiles()),
+#endif
           m_atlas(std::clamp(config.atlas_size, 256u, 4096u),
                   std::clamp(config.atlas_size, 256u, 4096u),
                   atlas::AtlasFormat::R8_UNORM)
@@ -28,6 +31,10 @@ public:
         m_grid = tile::TileGrid(new_width, new_height);
         m_dirty_tracker = tile::DirtyTracker(m_grid.get_total_tiles());
         m_dirty_tracker.reset(); // 强制全量重绘 (包含空/Mica 背景瓦片)，彻底杜绝宽变步长错位花屏
+#if !defined(NDEBUG)
+        m_scene_dirty_tracker = tile::DirtyTracker(m_grid.get_total_tiles());
+        m_scene_dirty_tracker.reset();
+#endif
         m_gpu_full_frame = true;
     }
 
@@ -50,8 +57,19 @@ public:
         }
         m_primitives.clear();
         m_clip_stack.clear();
+#if !defined(NDEBUG)
+        m_scene_prim_count = SIZE_MAX;
+        m_has_scene_split = false;
+#endif
         m_frame_index++;
     }
+
+#if !defined(NDEBUG)
+    void mark_scene_end() override {
+        m_scene_prim_count = m_primitives.size();
+        m_has_scene_split = true;
+    }
+#endif
 
     void push_primitive(const core::UiPrimitive& prim) override {
         core::UiPrimitive p = prim;
@@ -204,6 +222,9 @@ public:
     void invalidate_cached_image(uint64_t cache_key) override {
         if (m_image_cache.erase(cache_key) > 0) {
             m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
             m_gpu_full_frame = true;
         }
     }
@@ -338,6 +359,30 @@ public:
         m_last_stats.dirty_tiles = m_last_dirty_result.dirty_count;
         m_last_stats.culling_ratio = m_last_dirty_result.culling_ratio * 100.0;
         m_last_stats.cpu_binning_time_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
+
+#if !defined(NDEBUG)
+        // 仅 Debug 模式：对纯业务场景图元独立计算脏瓦片，彻底消除调试浮层自反馈循环
+        if (m_has_scene_split && m_scene_prim_count <= m_primitives.size()) {
+            std::span<const core::UiPrimitive> scene_prims{m_primitives.data(), m_scene_prim_count};
+            auto scene_bin = m_scene_binner.bin_primitives(
+                m_grid,
+                scene_prims,
+                m_config.enable_occlusion_culling,
+                clips);
+            m_last_scene_dirty_result = m_scene_dirty_tracker.update(
+                m_grid,
+                scene_bin.headers,
+                scene_bin.indices,
+                scene_prims,
+                clips);
+            m_last_scene_stats = m_last_stats;
+            m_last_scene_stats.total_primitives = static_cast<uint32_t>(m_scene_prim_count);
+            m_last_scene_stats.dirty_tiles = m_last_scene_dirty_result.dirty_count;
+            m_last_scene_stats.culling_ratio = m_last_scene_dirty_result.culling_ratio * 100.0;
+        } else {
+            m_last_scene_stats = m_last_stats;
+        }
+#endif
     }
 
     void set_compute_target(void* window, void* display) override {
@@ -355,6 +400,9 @@ public:
             m_mica_enabled = enabled;
             m_mica_grid = grid;
             m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
             m_gpu_full_frame = true;
         }
     }
@@ -496,9 +544,23 @@ public:
         return true;
     }
 
+    const std::vector<tile::DirtyTileInfo>& get_last_dirty_tiles() const override {
+        return m_last_dirty_result.dirty_tiles;
+    }
+
     const FrameStats& get_last_frame_stats() const override {
         return m_last_stats;
     }
+
+#if !defined(NDEBUG)
+    const std::vector<tile::DirtyTileInfo>& get_last_scene_dirty_tiles() const override {
+        return m_has_scene_split ? m_last_scene_dirty_result.dirty_tiles : m_last_dirty_result.dirty_tiles;
+    }
+
+    const FrameStats& get_last_scene_stats() const override {
+        return m_has_scene_split ? m_last_scene_stats : m_last_stats;
+    }
+#endif
 
     hal::GraphicsDevice* get_device() const override {
         if (!m_config.force_cpu_fallback && !m_device) {
@@ -516,6 +578,10 @@ private:
     tile::TileGrid m_grid;
     tile::TileBinner m_binner{};
     tile::DirtyTracker m_dirty_tracker;
+#if !defined(NDEBUG)
+    tile::TileBinner m_scene_binner{};
+    tile::DirtyTracker m_scene_dirty_tracker;
+#endif
     fx::ClipStack m_clip_stack{};
     atlas::DynamicAtlas m_atlas;
     std::unique_ptr<atlas::DynamicAtlas> m_color_atlas{};
@@ -541,10 +607,18 @@ private:
     std::vector<uint32_t> m_dirty_tile_ids{};
     tile::BinningResult m_last_binning{};
     tile::DirtyTrackingResult m_last_dirty_result{};
+#if !defined(NDEBUG)
+    tile::DirtyTrackingResult m_last_scene_dirty_result{};
+    size_t m_scene_prim_count{SIZE_MAX};
+    bool m_has_scene_split{false};
+#endif
 
     uint32_t m_frame_index{0};
 
     FrameStats m_last_stats{};
+#if !defined(NDEBUG)
+    FrameStats m_last_scene_stats{};
+#endif
 };
 
 std::unique_ptr<KerneTileRenderer> KerneTileRenderer::create(const RendererConfig& config) {
