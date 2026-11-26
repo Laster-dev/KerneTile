@@ -7,6 +7,37 @@ description: Guide for building native C++20 desktop, Web, and cross-platform GU
 
 Use this skill to write clean, fast, first-try-compiling C++20 UI code with **KerneTile & KTUI**.
 
+- **Repository**: https://github.com/Laster-dev/KerneTile
+- **Releases**: https://github.com/Laster-dev/KerneTile/releases
+
+## 0. Quick Download (One-Command SDK Setup)
+
+Before writing code in a new project, fetch the latest SDK files directly into the workspace with a single command:
+
+### Option A: Single-File C++20 Module (`kernetile.ixx` — Recommended)
+
+- **Windows (PowerShell)**:
+  ```powershell
+  curl.exe -fsSL -o kernetile.ixx https://github.com/Laster-dev/KerneTile/releases/latest/download/kernetile.ixx
+  ```
+- **Linux / macOS / Git Bash**:
+  ```bash
+  curl -fsSL -o kernetile.ixx https://github.com/Laster-dev/KerneTile/releases/latest/download/kernetile.ixx
+  ```
+
+### Option B: Dual-File (`kernetile.hpp` + `kernetile.cpp`)
+
+- **Windows (PowerShell — download & extract in one line)**:
+  ```powershell
+  curl.exe -fsSL -o kernetile-hpp-cpp.zip https://github.com/Laster-dev/KerneTile/releases/latest/download/kernetile-hpp-cpp.zip && tar -xf kernetile-hpp-cpp.zip && del kernetile-hpp-cpp.zip
+  ```
+- **Linux / macOS / Git Bash**:
+  ```bash
+  curl -fsSL -o kernetile-hpp-cpp.zip https://github.com/Laster-dev/KerneTile/releases/latest/download/kernetile-hpp-cpp.zip && unzip -o kernetile-hpp-cpp.zip && rm kernetile-hpp-cpp.zip
+  ```
+
+> Tip: For the bleeding-edge rolling `main` build, replace `releases/latest/download` with `releases/download/latest` in the URLs above.
+
 ## 1. Hard Rules (Always Follow to Avoid Compile / Runtime Errors)
 
 1. **C++20 Designated Initializer Member Order**:
