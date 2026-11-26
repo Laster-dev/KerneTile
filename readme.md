@@ -17,7 +17,7 @@
 </p>
 
 > 🌐 **在线体验（WebAssembly 单文件）**：[https://laster-dev.github.io/KerneTile/](https://laster-dev.github.io/KerneTile/)  
-> 📦 **零配置开箱 SDK**：前往 [GitHub Releases](https://github.com/Laster-dev/KerneTile/releases) 下载 **`kernetile-single-file.zip`**（含 `kernetile.ixx` 单文件 C++20 模块 & `kernetile.hpp + kernetile.cpp` 双文件版）
+> 📦 **零配置开箱 SDK**：前往 [GitHub Releases](https://github.com/Laster-dev/KerneTile/releases) 直接下载单文件 C++20 模块 **`kernetile.ixx`**，或双文件压缩包 **`kernetile-hpp-cpp.zip`**（含 `kernetile.hpp` + `kernetile.cpp`）
 
 ---
 
@@ -56,7 +56,7 @@
 
 ## 30 秒上手：复制即可编译的最小示例
 
-从 [Releases](https://github.com/Laster-dev/KerneTile/releases) 下载 `kernetile-single-file.zip` 解压后，将下方代码保存为 `main.cpp`，**直接一条命令即可编译出原生 Windows 桌面应用**（无需配置任何第三方库或系统 `.lib`）：
+从 [Releases](https://github.com/Laster-dev/KerneTile/releases) 直接下载 **`kernetile.ixx`**（或解压 **`kernetile-hpp-cpp.zip`**）后，将下方代码保存为 `main.cpp`，**直接一条命令即可编译出原生 Windows 桌面应用**（无需配置任何第三方库或系统 `.lib`）：
 
 ### 写法 A：C++20 模块版（仅需 1 个 `kernetile.ixx`）
 
@@ -109,7 +109,7 @@ int main() {
 
 ## 两种极简引入方式：`kernetile.ixx` vs `kernetile.hpp + kernetile.cpp` 怎么选
 
-`kernetile-single-file.zip` 同时提供两套零配置方案（也可以随时通过 `python scripts/amalgamate.py` 从源码一键重新生成）：
+GitHub Releases 直接提供两套零配置方案（独立 **`kernetile.ixx`** 与 **`kernetile-hpp-cpp.zip`**，也可以随时通过 `python scripts/amalgamate.py` 从源码一键重新生成）：
 
 ### 方案 1：导入 C++20 单文件模块（`kernetile.ixx`）
 
