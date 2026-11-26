@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -284,7 +284,7 @@ private:
 };
 
 } // namespace kernetile_e2e
-#endif // defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#endif // defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
 
 namespace kernetile_e2e {
 

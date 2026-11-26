@@ -82,7 +82,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build clang lld pkg-config \
-            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev
+            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
+            libvulkan-dev glslang-tools fonts-liberation
 
       - name: Configure & Build Tests (Linux Release)
         run: |

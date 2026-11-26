@@ -219,7 +219,7 @@ CaseResult t3_pair_01_ign_mica_gaussian_shadow_parity() {
         KT_E2E_CHECK(st_on.max_lsb_error <= 1.001);
         KT_E2E_CHECK(st_on.max_flat_run < st_off.max_flat_run);
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
         kernetile::core::UiPrimitive card{};
         card.min_x = 64.0f; card.min_y = 64.0f; card.max_x = 192.0f; card.max_y = 152.0f;
         card.radius_top_left = card.radius_top_right = card.radius_bottom_right = card.radius_bottom_left = 8.0f;
@@ -302,7 +302,7 @@ CaseResult t3_pair_02_ign_plus_fractional_dpi_snapping() {
                              "Snapped 1px border over dithered backdrop must preserve physical thickness");
         }
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
         kernetile::core::UiPrimitive snapped_border{};
         snapped_border.min_x = 30.0f; snapped_border.min_y = 30.0f;
         snapped_border.max_x = 150.0f; snapped_border.max_y = 90.0f;
@@ -842,7 +842,7 @@ CaseResult t3_pair_09_ign_plus_pointer_reveal_warp_parity() {
         KT_E2E_CHECK(px_r(96, 96) > px_r(124, 96));
         KT_E2E_CHECK(px_r(124, 96) > px_r(160, 96));
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
         D3D12OffscreenRunner warp;
         KT_E2E_CHECK(warp.is_ready());
         D3D12SceneInput scene{};

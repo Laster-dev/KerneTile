@@ -184,7 +184,7 @@ CaseResult f1_b3_tiny_1x1_and_odd_non64_sizes() {
             auto cpu_rgba = render_cpu_frame(*ren, W, H);
             KT_E2E_CHECK(cpu_rgba.size() == static_cast<size_t>(W) * H * 4u);
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
             D3D12OffscreenRunner warp;
             KT_E2E_CHECK(warp.is_ready());
             D3D12SceneInput scene{};
@@ -1256,7 +1256,7 @@ CaseResult f9_b5_gallery_no_debug_only_leakage() {
 // ============================================================================
 
 CaseResult f10_b1_cpu_vs_d3d12_warp_odd_size_130x66() {
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
     constexpr uint32_t W = 130;
     constexpr uint32_t H = 66;
     const auto mica = make_horizontal_ramp_mica(18, 22, 26, 30);
@@ -1295,7 +1295,7 @@ CaseResult f10_b1_cpu_vs_d3d12_warp_odd_size_130x66() {
 }
 
 CaseResult f10_b2_zero_primitive_empty_frame_parity() {
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
     constexpr uint32_t W = 128;
     constexpr uint32_t H = 64;
     kernetile::RendererConfig cfg{};

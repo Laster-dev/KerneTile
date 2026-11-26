@@ -207,7 +207,7 @@ CaseResult f1_t3_smooth_ramp_dither_quality() {
 
 template <typename Cfg = kernetile::RendererConfig, typename Ren = kernetile::KerneTileRenderer>
 CaseResult f1_t4_cpu_vs_d3d12_warp_ign_parity() {
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
     if constexpr (!HasRendererDitheringConfig<Cfg>) {
         return pending_case("R1 dithering not landed yet");
     } else {
@@ -374,7 +374,7 @@ CaseResult f2_t3_large_radius_gaussian_shadow() {
 
 template <typename Cfg = kernetile::RendererConfig, typename Ren = kernetile::KerneTileRenderer>
 CaseResult f2_t4_cpu_vs_d3d12_warp_dark_ramp_and_shadow() {
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
     if constexpr (!HasRendererDitheringConfig<Cfg>) {
         return pending_case("R1 dithering not landed yet");
     } else {
@@ -635,7 +635,7 @@ CaseResult f3_t5_paint_context_draw_line_hv_and_warp_parity() {
                              "Snapped vertical draw_line must not bleed");
         }
 
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
         kernetile::core::UiPrimitive bg_prim{};
         bg_prim.min_x = 0.0f; bg_prim.min_y = 0.0f; bg_prim.max_x = 128.0f; bg_prim.max_y = 128.0f;
         bg_prim.color_r = 20.0f / 255.0f; bg_prim.color_g = 20.0f / 255.0f;
@@ -801,7 +801,7 @@ CaseResult f4_t4_dirty_tracker_localized_culling() {
 
 template <typename FlagsT = kernetile::core::PrimitiveFlags>
 CaseResult f4_t5_cpu_vs_d3d12_warp_reveal_parity() {
-#if defined(_WIN32) && !defined(KERNETILE_WINDOWS_PURE_GDI)
+#if defined(_WIN32) && !defined(KERNETILE_PURE_GDI) && !defined(KERNETILE_WINDOWS_PURE_GDI)
     if constexpr (!HasPointerRevealFlag<FlagsT>) {
         return pending_case("R3 PrimitiveFlags::IsPointerReveal not landed yet");
     } else {
@@ -1577,11 +1577,13 @@ CaseResult f10_t4_default_disabled_text_proportional() {
     auto engine = kernetile::text::create_text_engine();
     KT_E2E_CHECK(engine != nullptr);
     std::string_view prop_fam = "Segoe UI";
-    for (std::string_view cand : {"Candara", "Constantia", "Corbel", "Bahnschrift", "Segoe UI Variable Text", "Segoe UI"}) {
+    bool found_prop = false;
+    for (std::string_view cand : {"Georgia", "Candara", "Constantia", "Corbel", "Bahnschrift", "Times New Roman", "Liberation Sans", "DejaVu Sans", "Segoe UI"}) {
         float w1_c = ktui::TextMeasure::measure_width("11111", 16.0f, ktui::FontWeight::Regular, false, cand, false);
         float w8_c = ktui::TextMeasure::measure_width("88888", 16.0f, ktui::FontWeight::Regular, false, cand, false);
         if (w8_c > w1_c + 1.0f) {
             prop_fam = cand;
+            found_prop = true;
             break;
         }
     }
@@ -1590,7 +1592,12 @@ CaseResult f10_t4_default_disabled_text_proportional() {
     float w8_def = ktui::TextMeasure::measure_width("88888", 16.0f, ktui::FontWeight::Regular, false, prop_fam);
     KT_E2E_CHECK(w1_def > 5.0f && w8_def > 5.0f);
     KT_E2E_CHECK(std::abs(w1_def - w1_off) < 1e-4f);
-    KT_E2E_CHECK_MSG(w8_def > w1_def + 1.0f, "Default proportional digits must remain unchanged");
+#if defined(_WIN32)
+    KT_E2E_CHECK(found_prop);
+#endif
+    if (found_prop) {
+        KT_E2E_CHECK_MSG(w8_def > w1_def + 1.0f, "Default proportional digits must remain unchanged");
+    }
     return passed_case();
 }
 
