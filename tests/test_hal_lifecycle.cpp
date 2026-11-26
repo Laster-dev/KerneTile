@@ -11,11 +11,9 @@ int main() {
     using namespace kernetile::hal;
 
     // 1. 初始化 D3D12 设备
-    std::unique_ptr<GraphicsDevice> device;
-    try {
-        device = create_d3d12_device(false); // 优先硬件 GPU
-    } catch (const std::exception& e) {
-        std::cerr << "Hardware device failed (" << e.what() << "), trying WARP..." << std::endl;
+    std::unique_ptr<GraphicsDevice> device = create_d3d12_device(false); // 优先硬件 GPU
+    if (!device) {
+        std::cerr << "Hardware device failed, trying WARP..." << std::endl;
         device = create_d3d12_device(true); // 回退至 WARP
     }
 

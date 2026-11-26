@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(KerneTile VERSION 1.0.0 LANGUAGES CXX)
+project(KerneTile VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -298,6 +298,7 @@ if (KERNETILE_GPU_COMPUTE AND WIN32)
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedDxbc.cmake"
             DEPENDS shaders/ui_compute_d3d12.hlsl cmake/EmbedDxbc.cmake
             VERBATIM)
+        add_custom_target(kernetile_dxbc_gen DEPENDS "${KT_DXBC_HEADER}")
         list(APPEND ENGINE_SOURCES "${KT_DXBC_HEADER}")
         set(KT_PRECOMPILED_DXBC ON)
     else()
@@ -368,6 +369,7 @@ target_include_directories(kernetile_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}
 if (KERNETILE_GPU_COMPUTE AND WIN32)
     if (KT_PRECOMPILED_DXBC)
         target_compile_definitions(kernetile_engine PRIVATE KT_PRECOMPILED_DXBC=1)
+        add_dependencies(kernetile_engine kernetile_dxbc_gen)
     else()
         target_link_libraries(kernetile_engine PUBLIC d3dcompiler.lib)
     endif()
@@ -405,6 +407,8 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/pages/progress_page.cpp
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
     examples/ktui_gallery/pages/media_desktop_pages.cpp
+    examples/ktui_gallery/pages/squircle_page.cpp
+    examples/ktui_gallery/pages/polish_showcase_page.cpp
     examples/ktui_gallery/pages/settings_about_pages.cpp
 )
 if (ANDROID)
@@ -538,6 +542,17 @@ if (BUILD_TESTING)
     endif()
     add_kernetile_test(test_cpu_rasterizer tests/test_cpu_rasterizer.cpp)
     add_kernetile_test(test_backend_conformance tests/test_backend_conformance.cpp)
+    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI AND KERNETILE_GPU_COMPUTE)
+        target_include_directories(test_backend_conformance PRIVATE
+            "${CMAKE_CURRENT_BINARY_DIR}/generated"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        )
+        target_compile_definitions(test_backend_conformance PRIVATE KT_CONFORMANCE_ENABLE_D3D12=1)
+        if (KT_PRECOMPILED_DXBC)
+            target_compile_definitions(test_backend_conformance PRIVATE KT_PRECOMPILED_DXBC=1)
+            add_dependencies(test_backend_conformance kernetile_dxbc_gen)
+        endif()
+    endif()
 
     # 阶段 10 测试与基准套件
     add_kernetile_test(test_renderer_lifecycle tests/test_renderer_lifecycle.cpp)
@@ -580,6 +595,32 @@ if (BUILD_TESTING)
     )
     target_link_libraries(test_ktui_optional_desktop PRIVATE ktui_pal kernetile_engine)
     add_test(NAME test_ktui_optional_desktop COMMAND test_ktui_optional_desktop WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+    # E2E 4 层黑盒测试套件 (覆盖 R1-R5、跨后端一致性、边界条件、组合与真实用户场景)
+    foreach(e2e_target
+        test_e2e_tier1_coverage
+        test_e2e_tier2_boundaries
+        test_e2e_tier3_combinations
+        test_e2e_tier4_scenarios)
+        add_ktui_test(${e2e_target} tests/${e2e_target}.cpp ktui_pal kernetile_engine)
+        target_compile_definitions(${e2e_target} PRIVATE KT_E2E_REQUIRE_ALL=1)
+        if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI AND KERNETILE_GPU_COMPUTE)
+            target_include_directories(${e2e_target} PRIVATE
+                "${CMAKE_CURRENT_BINARY_DIR}/generated"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/hal/d3d12"
+            )
+            if (KT_PRECOMPILED_DXBC)
+                add_dependencies(${e2e_target} kernetile_dxbc_gen)
+            endif()
+        endif()
+    endforeach()
+    if (NOT ANDROID AND NOT EMSCRIPTEN)
+        target_compile_definitions(test_e2e_tier4_scenarios PRIVATE
+            KT_GALLERY_EXE="$<TARGET_FILE:ktui_gallery>"
+        )
+        add_dependencies(test_e2e_tier4_scenarios ktui_gallery)
+    endif()
 endif()
 
 

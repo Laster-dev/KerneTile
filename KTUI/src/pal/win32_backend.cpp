@@ -520,6 +520,10 @@ void Win32Window::invalidate() {
     // Win32 桌面主循环由 Application::run() 按显示器原生刷新率通过 needs_redraw() 统一节拍驱动并走局部脏区呈现；
     // 若此处调用 InvalidateRect() 会额外触发 WM_PAINT -> render_frame(true)，导致每次鼠标移动/滚轮都双重渲染并强制全屏刷屏！
     // 系统级窗口曝光/还原仍会由 OS 原生派发 WM_PAINT 正常触发曝光恢复。
+    // 仅投递轻量级空唤醒消息以打断空闲阻塞的 GetMessageW/MsgWaitForMultipleObjects（如后台线程投递 UI 任务时）。
+    if (m_hwnd) {
+        PostMessageW(m_hwnd, WM_APP + 1, 0, 0);
+    }
 }
 
 void Win32Window::set_ime_enabled(bool enabled) {
@@ -1138,6 +1142,9 @@ void Win32Backend::shutdown() {
 }
 
 LRESULT CALLBACK Win32Backend::static_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    if (msg == WM_APP + 1) {
+        return 0;
+    }
     if (msg == WM_NCCREATE) {
         auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
         if (cs && cs->lpCreateParams) {

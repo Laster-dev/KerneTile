@@ -278,6 +278,7 @@ private:
         parameters[3] = groups_x;
         parameters[4] = static_cast<uint32_t>(frame.clips.size());
         parameters[5] = frame.mica_enabled ? 1u : 0u;
+        parameters[6] = frame.render_flags;
         for (size_t i = 0; i < 16; ++i) parameters[8 + i] = frame.mica_grid[i];
         commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
         commands.dispatch(groups_x, (count + groups_x - 1) / groups_x, 1);

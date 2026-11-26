@@ -134,6 +134,7 @@ public:
                 is_hovered = false;
                 is_active = false;
                 m_ripple_active = false;
+                m_reveal_active = false;
                 m_ripple_radius_tween.stop();
                 m_ripple_opacity_tween.stop();
             }
@@ -146,6 +147,20 @@ public:
         if (m_state.is_loading != loading) {
             m_state.is_loading = loading;
             cursor_shape = (m_state.is_disabled || m_state.is_loading) ? CursorShape::Forbidden : CursorShape::PointingHand;
+            if (m_state.is_loading) {
+                m_reveal_active = false;
+            }
+            mark_needs_paint();
+        }
+    }
+
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_data.enable_pointer_reveal; }
+    void set_pointer_reveal_enabled(bool enabled) {
+        if (m_data.enable_pointer_reveal != enabled) {
+            m_data.enable_pointer_reveal = enabled;
+            if (!enabled) {
+                m_reveal_active = false;
+            }
             mark_needs_paint();
         }
     }
@@ -316,6 +331,22 @@ public:
             }
         }
 
+        // 4.5 Opt-in Fluent Pointer Reveal
+        if (m_data.enable_pointer_reveal && m_reveal_active && !m_state.is_disabled && !m_state.is_loading) {
+            const bool is_dark = ThemeContext::current().is_dark;
+            const bool use_light_sheen = is_dark ||
+                m_data.variant == ButtonVariant::Accent ||
+                m_data.variant == ButtonVariant::Danger;
+            const Color surface = use_light_sheen
+                ? Color{1.0f, 1.0f, 1.0f, 0.11f}
+                : Color{0.0f, 0.0f, 0.0f, 0.06f};
+            const Color edge = use_light_sheen
+                ? Color{1.0f, 1.0f, 1.0f, 0.34f}
+                : Color{0.0f, 0.0f, 0.0f, 0.24f};
+            const float reveal_bw = (style.border_width > 0.0f) ? style.border_width : 1.0f;
+            context.draw_pointer_reveal(bounds(), m_reveal_pos, 64.0f, surface, edge, clip_r, reveal_bw);
+        }
+
         // 5. 居中绘制 SVG/文本图标与文字 (在内容区 padding 内居中，支持外部预留右侧箭头区)
         if (!m_data.text.empty() || !m_data.icon.empty() || !m_svg_path.empty()) {
             context.push_clip(bounds(), clip_r);
@@ -400,12 +431,33 @@ private:
             }
         };
 
+        on_pointer_move = [this](PointerEvent& ev) {
+            if (ev.type == PlatformEventType::PointerMove &&
+                ev.device_kind != PointerDeviceKind::Touch &&
+                m_data.enable_pointer_reveal && !m_state.is_disabled && !m_state.is_loading) {
+                if (!m_reveal_active ||
+                    std::abs(m_reveal_pos.x - ev.local_position.x) > 0.01f ||
+                    std::abs(m_reveal_pos.y - ev.local_position.y) > 0.01f) {
+                    m_reveal_active = true;
+                    m_reveal_pos = ev.local_position;
+                    mark_needs_paint();
+                }
+            }
+        };
+
         on_pointer_exit = [this](PointerEvent&) {
+            bool need_paint = m_reveal_active;
+            m_reveal_active = false;
             if (!m_state.is_disabled && !m_state.is_loading) {
+                if (m_state.is_hovered || m_state.is_pressed || is_hovered || is_active) {
+                    need_paint = true;
+                }
                 m_state.is_hovered = false;
                 m_state.is_pressed = false;
                 is_hovered = false;
                 is_active = false;
+            }
+            if (need_paint) {
                 mark_needs_paint();
             }
         };
@@ -483,6 +535,8 @@ private:
     float m_ripple_radius{0.0f};
     float m_ripple_opacity{0.0f};
     bool m_ripple_active{false};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     std::chrono::steady_clock::time_point m_last_tick_time;
 };
 
@@ -513,6 +567,10 @@ struct Button : BindableMixin<Button, RenderButton> {
     bool loading{false};
     bool focusable{true};
     bool enable_ripple{true};
+    bool enable_pointer_reveal{false};
+
+    Button& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
+    Button&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }
 
     operator WidgetPtr() const&;
 
@@ -551,6 +609,7 @@ private:
         node->set_disabled(m_desc.disabled);
         node->set_focusable(m_desc.focusable);
         node->set_enable_ripple(m_desc.enable_ripple);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
 
         std::optional<Color> bg = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
         std::optional<Color> hover = (m_desc.hover_color.r >= 0.0f) ? std::optional<Color>(m_desc.hover_color) : std::nullopt;

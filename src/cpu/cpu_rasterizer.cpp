@@ -153,6 +153,58 @@ inline int32_t fast_floor_i32(float x) noexcept {
     return i - (x < static_cast<float>(i) ? 1 : 0);
 }
 
+// Apple G2 连续曲率超椭圆圆角 SDF (与 HLSL/WGSL box_distance 严格逐像素一致)
+inline float eval_squircle_box_distance(float abs_dx, float abs_dy,
+                                        float half_w, float half_h,
+                                        float raw_r) noexcept {
+    const float min_half = std::min(half_w, half_h);
+    const float r = std::clamp(raw_r, 0.0f, min_half);
+    if (r <= 0.001f) {
+        const float qx = abs_dx - half_w;
+        const float qy = abs_dy - half_h;
+        const float out_len = (qx > 0.0f && qy > 0.0f)
+            ? std::sqrt(qx * qx + qy * qy)
+            : std::max(0.0f, std::max(qx, qy));
+        return std::min(std::max(qx, qy), 0.0f) + out_len;
+    }
+
+    const float ratio = r / std::max(min_half, 1e-4f);
+    const float squircle_t = std::clamp((0.90f - ratio) * 4.0f, 0.0f, 1.0f);
+
+    const float qx2 = abs_dx - half_w + r;
+    const float qy2 = abs_dy - half_h + r;
+    const float out2 = (qx2 > 0.0f && qy2 > 0.0f)
+        ? std::sqrt(qx2 * qx2 + qy2 * qy2)
+        : std::max(0.0f, std::max(qx2, qy2));
+    const float d_circle = std::min(std::max(qx2, qy2), 0.0f) + out2 - r;
+
+    if (squircle_t <= 0.001f) {
+        return d_circle;
+    }
+
+    const float r_eff = std::min(min_half, r * 1.35f);
+    const float qx4 = abs_dx - half_w + r_eff;
+    const float qy4 = abs_dy - half_h + r_eff;
+    float d_squircle;
+    if (qx4 > 0.0f && qy4 > 0.0f) {
+        const float inv_r = 1.0f / r_eff;
+        const float u = qx4 * inv_r;
+        const float v = qy4 * inv_r;
+        const float u2 = u * u, v2 = v * v;
+        const float u4 = u2 * u2, v4 = v2 * v2;
+        const float s4 = u4 + v4;
+        const float s2 = std::sqrt(s4);
+        const float d4 = std::sqrt(s2);
+        const float denom = s2 * d4;
+        const float grad = (denom > 1e-6f) ? (std::sqrt(u4 * u2 + v4 * v2) / denom) : 1.0f;
+        d_squircle = (d4 - 1.0f) * r_eff / std::max(grad, 0.5f);
+    } else {
+        d_squircle = std::max(qx4, qy4) - r_eff;
+    }
+
+    return d_circle + (d_squircle - d_circle) * squircle_t;
+}
+
 // 单点级联裁剪测试
 inline bool is_point_clipped(float p_x, float p_y, uint16_t first_clip,
                              std::span<const core::ClipRect> clip_rects) noexcept {
@@ -169,14 +221,7 @@ inline bool is_point_clipped(float p_x, float p_y, uint16_t first_clip,
             float ccy = (clip.min_y + clip.max_y) * 0.5f;
             float chx = (clip.max_x - clip.min_x) * 0.5f;
             float chy = (clip.max_y - clip.min_y) * 0.5f;
-            float cr = clip.corner_radius;
-            float cqx = std::abs(p_x - ccx) - chx + cr;
-            float cqy = std::abs(p_y - ccy) - chy + cr;
-            float out_len = (cqx > 0.0f && cqy > 0.0f)
-                ? std::sqrt(cqx * cqx + cqy * cqy)
-                : std::max(0.0f, std::max(cqx, cqy));
-            float in_d = std::min(std::max(cqx, cqy), 0.0f);
-            if (in_d + out_len - cr > 0.0f) {
+            if (eval_squircle_box_distance(std::abs(p_x - ccx), std::abs(p_y - ccy), chx, chy, clip.corner_radius) > 0.0f) {
                 return true;
             }
         }
@@ -214,6 +259,13 @@ inline void sample_mica_corner(float p_x, float p_y, float inv_w, float inv_h,
     g = g0 + (g1 - g0) * fy;
     b = b0 + (b1 - b0) * fy;
     a = a0 + (a1 - a0) * fy;
+}
+
+inline float eval_ign(uint32_t px, uint32_t py) noexcept {
+    const float d = static_cast<float>(px) * 0.06711056f + static_cast<float>(py) * 0.00583715f;
+    const float f1 = d - std::floor(d);
+    const float t = 52.9829189f * f1;
+    return t - std::floor(t);
 }
 
 } // namespace
@@ -261,7 +313,8 @@ void CpuTileRasterizer::render_tile(
     const std::array<uint32_t, 16>* mica_grid,
     const uint8_t* color_atlas_pixels,
     uint32_t color_atlas_width,
-    uint32_t color_atlas_height)
+    uint32_t color_atlas_height,
+    bool enable_dithering)
 {
     if (tile_id >= tile_headers.size()) return;
 
@@ -302,13 +355,27 @@ void CpuTileRasterizer::render_tile(
             float al = a00 + (a01 - a00) * ty, ar = a10 + (a11 - a10) * ty;
             float dr = (rr - rl) * inv_tw, dg = (gr - gl) * inv_tw, db = (br - bl) * inv_tw, da = (ar - al) * inv_tw;
             uint8_t* row_dst = dst_framebuffer + (static_cast<size_t>(start_y + ly) * width + start_x) * 4;
-            for (uint32_t lx = 0; lx < tile_w; ++lx) {
-                row_dst[0] = static_cast<uint8_t>(std::clamp(rl * 255.0f + 0.5f, 0.0f, 255.0f));
-                row_dst[1] = static_cast<uint8_t>(std::clamp(gl * 255.0f + 0.5f, 0.0f, 255.0f));
-                row_dst[2] = static_cast<uint8_t>(std::clamp(bl * 255.0f + 0.5f, 0.0f, 255.0f));
-                row_dst[3] = static_cast<uint8_t>(std::clamp(al * 255.0f + 0.5f, 0.0f, 255.0f));
-                rl += dr; gl += dg; bl += db; al += da;
-                row_dst += 4;
+            if (enable_dithering) {
+                const uint32_t py = start_y + ly;
+                constexpr float kInv255 = 1.0f / 255.0f;
+                for (uint32_t lx = 0; lx < tile_w; ++lx) {
+                    const float dither = (al > 0.0f) ? ((eval_ign(start_x + lx, py) - 0.5f) * kInv255) : 0.0f;
+                    row_dst[0] = static_cast<uint8_t>(std::clamp(rl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    row_dst[1] = static_cast<uint8_t>(std::clamp(gl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    row_dst[2] = static_cast<uint8_t>(std::clamp(bl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    row_dst[3] = static_cast<uint8_t>(std::clamp(al, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    rl += dr; gl += dg; bl += db; al += da;
+                    row_dst += 4;
+                }
+            } else {
+                for (uint32_t lx = 0; lx < tile_w; ++lx) {
+                    row_dst[0] = static_cast<uint8_t>(std::clamp(rl * 255.0f + 0.5f, 0.0f, 255.0f));
+                    row_dst[1] = static_cast<uint8_t>(std::clamp(gl * 255.0f + 0.5f, 0.0f, 255.0f));
+                    row_dst[2] = static_cast<uint8_t>(std::clamp(bl * 255.0f + 0.5f, 0.0f, 255.0f));
+                    row_dst[3] = static_cast<uint8_t>(std::clamp(al * 255.0f + 0.5f, 0.0f, 255.0f));
+                    rl += dr; gl += dg; bl += db; al += da;
+                    row_dst += 4;
+                }
             }
         }
     };
@@ -338,6 +405,8 @@ void CpuTileRasterizer::render_tile(
         float inv_sigma{0.0f};
         bool is_glyph{false};
         bool is_icon{false};
+        bool is_gradient{false};
+        bool is_reveal{false};
         bool full_tile_cover{false}; // 内接无圆角矩形完全覆盖本 16x16 瓦片 (cov == 1.0)
         float inv_pw{0.0f}, inv_ph{0.0f};
         float ax0{0.0f}, ay0{0.0f}, dax{0.0f}, day{0.0f};
@@ -396,7 +465,17 @@ void CpuTileRasterizer::render_tile(
         p.r_bl = std::clamp(prim.radius_bottom_left, 0.0f, cap_r);
         p.max_r = std::max({p.r_tl, p.r_tr, p.r_br, p.r_bl});
 
-        if (prim.shadow_blur > 0.0f) {
+        const bool is_glyph = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph)) != 0;
+        const bool is_icon = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsIcon)) != 0;
+        const bool is_reveal = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal)) != 0;
+        const bool is_gradient = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0) &&
+                                 !is_glyph && !is_icon && !is_reveal;
+        p.is_glyph = is_glyph;
+        p.is_icon = is_icon;
+        p.is_reveal = is_reveal;
+        p.is_gradient = is_gradient;
+
+        if (!is_gradient && !is_reveal && prim.shadow_blur > 0.0f) {
             p.has_shadow = true;
             p.s_min_x = prim.min_x - prim.shadow_spread + prim.shadow_offset_x;
             p.s_min_y = prim.min_y - prim.shadow_spread + prim.shadow_offset_y;
@@ -404,11 +483,6 @@ void CpuTileRasterizer::render_tile(
             p.s_max_y = prim.max_y + prim.shadow_spread + prim.shadow_offset_y;
             p.inv_sigma = 1.0f / (prim.shadow_blur * 1.41421356f);
         }
-
-        const bool is_glyph = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph)) != 0;
-        const bool is_icon = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsIcon)) != 0;
-        p.is_glyph = is_glyph;
-        p.is_icon = is_icon;
 
         if (is_glyph || is_icon) {
             float pw = prim.max_x - prim.min_x;
@@ -426,7 +500,7 @@ void CpuTileRasterizer::render_tile(
                 p.dax = ax1 - p.ax0;
                 p.day = ay1 - p.ay0;
             }
-        } else if (clip_mode == 0 && !p.has_shadow && prim.border_width <= 0.0f) {
+        } else if (!is_gradient && !is_reveal && clip_mode == 0 && !p.has_shadow && prim.border_width <= 0.0f) {
             // 判定是否完全覆盖本 16x16 瓦片 (内缩 max_r + 0.5px 保证所有像素 SDF <= -0.5 -> cov == 1.0)
             const float margin = p.max_r + 0.5f;
             if (prim.min_x + margin <= tile_f_start_x + 0.5f &&
@@ -454,8 +528,8 @@ void CpuTileRasterizer::render_tile(
         return;
     }
 
-    // 1.5 若最后一个有效图元就是完全覆盖本瓦片的实心不透明矩形，直接 memset 级填充早出 (彻底跳过底层全部被遮挡图元与 Mica)
-    if (last_opaque_cover == static_cast<int32_t>(active_prim_count - 1)) {
+    // 1.5 若最后一个有效图元就是完全覆盖本瓦片的实心不透明矩形，直接 memset 级填充早出 (开启抖动时跳过，改走逐像素抖动写回)
+    if (!enable_dithering && last_opaque_cover == static_cast<int32_t>(active_prim_count - 1)) {
         const auto& prim = *prepared_prims[last_opaque_cover].prim;
         uint32_t r = static_cast<uint32_t>(std::clamp(prim.color_r * 255.0f + 0.5f, 0.0f, 255.0f));
         uint32_t g = static_cast<uint32_t>(std::clamp(prim.color_g * 255.0f + 0.5f, 0.0f, 255.0f));
@@ -679,10 +753,9 @@ void CpuTileRasterizer::render_tile(
                         float r = (p_x > prep.center_x)
                             ? ((p_y > prep.center_y) ? prep.r_br : prep.r_tr)
                             : ((p_y > prep.center_y) ? prep.r_bl : prep.r_tl);
-                        float qx = std::abs(p_x - prep.center_x) - prep.half_w + r;
-                        float qy = std::abs(p_y - prep.center_y) - prep.half_h + r;
-                        float out_len = (qx > 0.0f && qy > 0.0f) ? std::sqrt(qx * qx + qy * qy) : std::max(0.0f, std::max(qx, qy));
-                        float dist = std::min(std::max(qx, qy), 0.0f) + out_len - r;
+                        float dist = eval_squircle_box_distance(
+                            std::abs(p_x - prep.center_x), std::abs(p_y - prep.center_y),
+                            prep.half_w, prep.half_h, r);
                         geom_cov = evaluate_coverage(dist);
                         if (geom_cov <= 0.0001f) continue;
                     }
@@ -719,7 +792,7 @@ void CpuTileRasterizer::render_tile(
         }
 
         // 通道 D: 无圆角无描边无阴影轴对齐矩形极速通道 (零 sqrt、零四象限分支)
-        if (prep.max_r <= 0.0f && prim.border_width <= 0.0f && !prep.has_shadow) {
+        if (!prep.is_gradient && !prep.is_reveal && prep.max_r <= 0.0f && prim.border_width <= 0.0f && !prep.has_shadow) {
             const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
             for (uint32_t ly = ly0; ly < ly1; ++ly) {
                 const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
@@ -745,10 +818,99 @@ void CpuTileRasterizer::render_tile(
             continue;
         }
 
-        // 通道 E: 通用圆角 SDF / 描边 / 解析高斯阴影通道 (仅遍历包围盒内有效像素)
+        // 通道 R3: 指针跟随径向高光 / 边缘揭示通道
+        if (prep.is_reveal) {
+            const float reveal_radius = prim.shadow_blur;
+            if (reveal_radius <= 0.001f) continue;
+            const float cursor_x = prim.shadow_offset_x;
+            const float cursor_y = prim.shadow_offset_y;
+            const float inv_radius = 1.0f / reveal_radius;
+            const float intensity = (prim.shadow_spread > 0.0f) ? prim.shadow_spread : 1.0f;
+            const bool is_edge = (prim.border_width > 0.0f) ||
+                                 ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasBorder)) != 0);
+            const float bw = (prim.border_width > 0.0f) ? prim.border_width : 1.0f;
+            const float half_b = bw * 0.5f;
+
+            bool use_clip_bounds = false;
+            float clip_cx = 0.0f, clip_cy = 0.0f, clip_hx = 0.0f, clip_hy = 0.0f, clip_r = 0.0f;
+            if (prim.clip_index != core::INVALID_INDEX_U16 && prim.clip_index < clip_rects.size()) {
+                const auto& cl = clip_rects[prim.clip_index];
+                if ((cl.flags & core::kClipFlagRevealBounds) != 0u) {
+                    use_clip_bounds = true;
+                    clip_cx = (cl.min_x + cl.max_x) * 0.5f;
+                    clip_cy = (cl.min_y + cl.max_y) * 0.5f;
+                    clip_hx = (cl.max_x - cl.min_x) * 0.5f;
+                    clip_hy = (cl.max_y - cl.min_y) * 0.5f;
+                    clip_r = cl.corner_radius;
+                }
+            }
+
+            const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
+            for (uint32_t ly = ly0; ly < ly1; ++ly) {
+                const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
+                if (p_y < prim.min_y || p_y > prim.max_y) continue;
+                const uint32_t row_off = ly * 16u;
+                const float dy_r = p_y - cursor_y;
+                const bool y_gt = (p_y > prep.center_y);
+                const float r_left = y_gt ? prep.r_bl : prep.r_tl;
+                const float r_right = y_gt ? prep.r_br : prep.r_tr;
+                const float eval_cy = use_clip_bounds ? clip_cy : prep.center_y;
+                const float eval_cx = use_clip_bounds ? clip_cx : prep.center_x;
+                const float eval_hx = use_clip_bounds ? clip_hx : prep.half_w;
+                const float eval_hy = use_clip_bounds ? clip_hy : prep.half_h;
+                const float abs_dy = std::abs(p_y - eval_cy);
+
+                for (uint32_t lx = lx0; lx < lx1; ++lx) {
+                    const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
+                    if (p_x < prim.min_x || p_x > prim.max_x) continue;
+                    if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                    const float dx_r = p_x - cursor_x;
+                    const float dist_r = std::sqrt(dx_r * dx_r + dy_r * dy_r);
+                    if (dist_r >= reveal_radius) continue;
+                    const float u = std::clamp(1.0f - dist_r * inv_radius, 0.0f, 1.0f);
+                    const float radial = u * u;
+                    const float eval_r = use_clip_bounds ? clip_r : ((p_x > prep.center_x) ? r_right : r_left);
+                    float dist = eval_squircle_box_distance(std::abs(p_x - eval_cx), abs_dy, eval_hx, eval_hy, eval_r);
+                    if (is_edge) {
+                        dist = std::abs(dist + half_b) - half_b;
+                    }
+                    const float geom_cov = evaluate_coverage(dist);
+                    const float cov = std::clamp(geom_cov * radial * intensity, 0.0f, 1.0f);
+                    if (cov > 0.0001f) {
+                        const float sa = ca * cov;
+                        const float one_minus_sa = 1.0f - sa;
+                        const uint32_t idx = row_off + lx;
+                        tile_r[idx] = cr * cov + tile_r[idx] * one_minus_sa;
+                        tile_g[idx] = cg * cov + tile_g[idx] * one_minus_sa;
+                        tile_b[idx] = cb * cov + tile_b[idx] * one_minus_sa;
+                        tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                    }
+                }
+            }
+            continue;
+        }
+
+        // 通道 E: 通用圆角 SDF / 描边 / 解析高斯阴影 / 线性渐变通道 (仅遍历包围盒内有效像素)
         const bool has_border = (prim.border_width > 0.0f);
         const float half_border = prim.border_width * 0.5f;
         const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
+
+        float gx0 = prim.shadow_offset_x, gy0 = prim.shadow_offset_y;
+        float dx_g = prim.shadow_blur - gx0;
+        float dy_g = prim.shadow_spread - gy0;
+        float len2_g = dx_g * dx_g + dy_g * dy_g;
+        if (prep.is_gradient && len2_g <= 1e-6f) {
+            gx0 = prim.min_x;
+            gy0 = prim.min_y;
+            dx_g = 0.0f;
+            dy_g = prim.max_y - prim.min_y;
+            len2_g = dy_g * dy_g;
+        }
+        const float inv_len2_g = (len2_g > 1e-6f) ? (1.0f / len2_g) : 0.0f;
+        const float c1r = static_cast<float>(prim.atlas_u0) * (1.0f / 65535.0f);
+        const float c1g = static_cast<float>(prim.atlas_v0) * (1.0f / 65535.0f);
+        const float c1b = static_cast<float>(prim.atlas_u1) * (1.0f / 65535.0f);
+        const float c1a = static_cast<float>(prim.atlas_v1) * (1.0f / 65535.0f);
 
         // 预计算列级阴影 fx (每列仅算 1 次，免除 16 行重复计算 erf)
         float col_shadow_fx[16];
@@ -772,9 +934,10 @@ void CpuTileRasterizer::render_tile(
             const float r_right = y_gt ? prep.r_br : prep.r_tr;
             const float abs_dy = std::abs(p_y - prep.center_y);
 
-            // 圆角矩形中部直边带极速路径：当无阴影、无描边且该行远离上下圆角区时，直接退化为 1D 水平覆盖率 (免去 80% 行的 2D SDF 与 sqrt)
-            if (!prep.has_shadow && !has_border &&
-                p_y >= prim.min_y + prep.max_r + 0.5f && p_y <= prim.max_y - prep.max_r - 0.5f)
+            // 圆角矩形中部直边带极速路径：留足 1.36x 超椭圆延伸过渡带，远离上下圆角区时直接退化为 1D 水平覆盖率
+            const float corner_reach = std::min(std::min(prep.half_w, prep.half_h), prep.max_r * 1.36f);
+            if (!prep.is_gradient && !prep.has_shadow && !has_border &&
+                p_y >= prim.min_y + corner_reach + 0.5f && p_y <= prim.max_y - corner_reach - 0.5f)
             {
                 for (uint32_t lx = lx0; lx < lx1; ++lx) {
                     const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
@@ -810,39 +973,69 @@ void CpuTileRasterizer::render_tile(
                 }
 
                 float r = (p_x > prep.center_x) ? r_right : r_left;
-                float qx = std::abs(p_x - prep.center_x) - prep.half_w + r;
-                float qy = abs_dy - prep.half_h + r;
-                float out_len = (qx > 0.0f && qy > 0.0f)
-                    ? std::sqrt(qx * qx + qy * qy)
-                    : std::max(0.0f, std::max(qx, qy));
-                float dist = std::min(std::max(qx, qy), 0.0f) + out_len - r;
+                float dist = eval_squircle_box_distance(
+                    std::abs(p_x - prep.center_x), abs_dy, prep.half_w, prep.half_h, r);
                 if (has_border) {
                     dist = std::abs(dist + half_border) - half_border;
                 }
                 float geom_cov = evaluate_coverage(dist);
                 if (geom_cov > 0.0001f) {
-                    float sa = ca * geom_cov;
-                    float one_minus_sa = 1.0f - sa;
-                    tile_r[idx] = cr * geom_cov + tile_r[idx] * one_minus_sa;
-                    tile_g[idx] = cg * geom_cov + tile_g[idx] * one_minus_sa;
-                    tile_b[idx] = cb * geom_cov + tile_b[idx] * one_minus_sa;
-                    tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                    if (prep.is_gradient) {
+                        const float t = (inv_len2_g > 0.0f)
+                            ? std::clamp(((p_x - gx0) * dx_g + (p_y - gy0) * dy_g) * inv_len2_g, 0.0f, 1.0f)
+                            : 0.0f;
+                        const float gr = cr + (c1r - cr) * t;
+                        const float gg = cg + (c1g - cg) * t;
+                        const float gb = cb + (c1b - cb) * t;
+                        const float ga = ca + (c1a - ca) * t;
+                        const float sa = ga * geom_cov;
+                        const float one_minus_sa = 1.0f - sa;
+                        tile_r[idx] = gr * geom_cov + tile_r[idx] * one_minus_sa;
+                        tile_g[idx] = gg * geom_cov + tile_g[idx] * one_minus_sa;
+                        tile_b[idx] = gb * geom_cov + tile_b[idx] * one_minus_sa;
+                        tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                    } else {
+                        float sa = ca * geom_cov;
+                        float one_minus_sa = 1.0f - sa;
+                        tile_r[idx] = cr * geom_cov + tile_r[idx] * one_minus_sa;
+                        tile_g[idx] = cg * geom_cov + tile_g[idx] * one_minus_sa;
+                        tile_b[idx] = cb * geom_cov + tile_b[idx] * one_minus_sa;
+                        tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                    }
                 }
             }
         }
     }
 
     // 4. 紧凑单遍 32-bit 打包写回目标 RGBA8 帧缓冲 (相比 4 次逐字节写入减少 4x 访存指令)
-    for (uint32_t ly = 0; ly < tile_h; ++ly) {
-        const uint32_t row_off = ly * 16u;
-        uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(start_y + ly) * width + start_x) * 4);
-        for (uint32_t lx = 0; lx < tile_w; ++lx) {
-            const uint32_t idx = row_off + lx;
-            uint32_t r = static_cast<uint32_t>(std::clamp(tile_r[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
-            uint32_t g = static_cast<uint32_t>(std::clamp(tile_g[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
-            uint32_t b = static_cast<uint32_t>(std::clamp(tile_b[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
-            uint32_t a = static_cast<uint32_t>(std::clamp(tile_a[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
-            row_dst[lx] = r | (g << 8) | (b << 16) | (a << 24);
+    if (enable_dithering) {
+        constexpr float kInv255 = 1.0f / 255.0f;
+        for (uint32_t ly = 0; ly < tile_h; ++ly) {
+            const uint32_t row_off = ly * 16u;
+            const uint32_t py = start_y + ly;
+            uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
+            for (uint32_t lx = 0; lx < tile_w; ++lx) {
+                const uint32_t idx = row_off + lx;
+                const float dither = (tile_a[idx] > 0.0f) ? ((eval_ign(start_x + lx, py) - 0.5f) * kInv255) : 0.0f;
+                uint32_t r = static_cast<uint32_t>(std::clamp(tile_r[idx] + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t g = static_cast<uint32_t>(std::clamp(tile_g[idx] + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t b = static_cast<uint32_t>(std::clamp(tile_b[idx] + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t a = static_cast<uint32_t>(std::clamp(tile_a[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
+                row_dst[lx] = r | (g << 8) | (b << 16) | (a << 24);
+            }
+        }
+    } else {
+        for (uint32_t ly = 0; ly < tile_h; ++ly) {
+            const uint32_t row_off = ly * 16u;
+            uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(start_y + ly) * width + start_x) * 4);
+            for (uint32_t lx = 0; lx < tile_w; ++lx) {
+                const uint32_t idx = row_off + lx;
+                uint32_t r = static_cast<uint32_t>(std::clamp(tile_r[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t g = static_cast<uint32_t>(std::clamp(tile_g[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t b = static_cast<uint32_t>(std::clamp(tile_b[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint32_t a = static_cast<uint32_t>(std::clamp(tile_a[idx], 0.0f, 1.0f) * 255.0f + 0.5f);
+                row_dst[lx] = r | (g << 8) | (b << 16) | (a << 24);
+            }
         }
     }
 }
@@ -868,7 +1061,8 @@ void CpuTileRasterizer::render(
                     dst_framebuffer,
                     params.atlas_pixels, params.atlas_width, params.atlas_height,
                     params.mica_enabled, &params.mica_grid,
-                    params.color_atlas_pixels, params.color_atlas_width, params.color_atlas_height);
+                    params.color_atlas_pixels, params.color_atlas_width, params.color_atlas_height,
+                    params.enable_dithering);
     };
 
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)

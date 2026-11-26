@@ -29,6 +29,18 @@ public:
     [[nodiscard]] float max_scroll() const noexcept { return m_physics.max_scroll(); }
     [[nodiscard]] float content_height() const noexcept { return m_content_height; }
 
+    void set_rubber_band_enabled(bool enabled) noexcept {
+        if (m_physics.is_rubber_band_enabled() != enabled) {
+            m_physics.set_rubber_band_enabled(enabled);
+            if (m_child_box) {
+                m_child_box->set_offset(Vec2{0.0f, -m_physics.offset()});
+            }
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool is_rubber_band_enabled() const noexcept { return m_physics.is_rubber_band_enabled(); }
+    [[nodiscard]] bool rubber_band_enabled() const noexcept { return m_physics.rubber_band_enabled(); }
+
     void set_child_box(std::shared_ptr<RenderBox> child) {
         if (m_child_box == child) return;
         if (m_child_box) {
@@ -163,7 +175,7 @@ private:
                 }
                 // 防御性清理可能残留的滚动条拖拽态
                 m_scrollbar.handle_pointer_up();
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_touch_tracking = true;
                     m_touch_dragging = false;
                     m_touch_start_pos = e.position;
@@ -206,7 +218,7 @@ private:
             }
             Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
             if (e.type == PlatformEventType::PointerScroll) {
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_physics.add_wheel_delta(e.delta.y);
                     m_scrollbar.notify_activity();
                     mark_needs_paint();
@@ -270,6 +282,16 @@ struct ScrollView {
     float height{0.0f};
     float max_height{0.0f};
     WidgetPtr child{nullptr};
+    bool rubber_band_overscroll{false};
+
+    ScrollView& rubber_band(bool enabled) & noexcept {
+        rubber_band_overscroll = enabled;
+        return *this;
+    }
+    ScrollView&& rubber_band(bool enabled) && noexcept {
+        rubber_band_overscroll = enabled;
+        return std::move(*this);
+    }
 
     operator WidgetPtr() const&;
 
@@ -285,6 +307,7 @@ public:
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = make_render_node<RenderScrollView>();
         node->set_dimensions(m_desc.width, m_desc.height, m_desc.max_height);
+        node->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
         if (m_desc.child) {
             node->set_child_box(m_desc.child->create_render_node());
         }
@@ -294,6 +317,7 @@ public:
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto sv = std::static_pointer_cast<RenderScrollView>(node)) {
             sv->set_dimensions(m_desc.width, m_desc.height, m_desc.max_height);
+            sv->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
             if (m_desc.child) {
                 if (sv->child_box()) {
                     m_desc.child->update_render_node(sv->child_box());

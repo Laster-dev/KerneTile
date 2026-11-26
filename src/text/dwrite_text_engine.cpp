@@ -77,14 +77,14 @@ public:
         return {size, size * 0.8f, -size * 0.2f, size};
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) override {
         TextLayoutResult result;
         result.metrics = get_metrics(size, family, font_weight, italic);
         result.total_height = result.metrics.line_height;
         if (text.empty()) { result.carets.push_back({0, 0}); return result; }
         const auto wide = utf16(text);
         const auto offsets = byte_offsets(wide);
-        auto layout = make_layout(wide, size, family, font_weight, italic);
+        auto layout = make_layout(wide, size, family, font_weight, italic, tabular_nums);
         if (!layout) return result;
         DWRITE_TEXT_METRICS metrics{};
         if (SUCCEEDED(layout->GetMetrics(&metrics))) {
@@ -99,6 +99,9 @@ public:
             const auto position = static_cast<UINT32>(std::lower_bound(offsets.begin(), offsets.end(), byte) - offsets.begin());
             layout->HitTestTextPosition(position, FALSE, &x, &y, &hit);
             result.carets.push_back({byte, x});
+        }
+        if (tabular_nums) {
+            enforce_tabular_digits(result, text, size, family, font_weight, italic);
         }
         return result;
     }
@@ -231,7 +234,8 @@ private:
         return utf16(family);
     }
 
-    ComPtr<IDWriteTextLayout> make_layout(std::wstring_view text, float size, std::string_view family, uint16_t font_weight, bool italic) {
+    ComPtr<IDWriteTextLayout> make_layout(std::wstring_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) {
+        if (!m_factory) return {};
         const auto name = resolve_family(family);
         wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
         GetUserDefaultLocaleName(locale, static_cast<int>(std::size(locale)));
@@ -245,8 +249,173 @@ private:
             DWRITE_FONT_STRETCH_NORMAL, size, locale, &format))) return {};
         format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         ComPtr<IDWriteTextLayout> layout;
-        m_factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), format.Get(), 65536, 65536, &layout);
+        if (FAILED(m_factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), format.Get(), 65536, 65536, &layout)) || !layout)
+            return {};
+        if (tabular_nums && !text.empty()) {
+            const auto is_ascii_digit = [](wchar_t ch) { return ch >= L'0' && ch <= L'9'; };
+            const auto is_tabular_span_char = [&](size_t idx) {
+                const wchar_t ch = text[idx];
+                if (is_ascii_digit(ch)) return true;
+                if (ch == L',' || ch == L'.') {
+                    const bool prev_d = (idx > 0 && is_ascii_digit(text[idx - 1]));
+                    const bool next_d = (idx + 1 < text.size() && is_ascii_digit(text[idx + 1]));
+                    return prev_d || next_d;
+                }
+                return false;
+            };
+            bool has_digit = false;
+            bool has_non_digit = false;
+            for (size_t i = 0; i < text.size(); ++i) {
+                if (is_ascii_digit(text[i])) has_digit = true;
+                if (!is_tabular_span_char(i)) has_non_digit = true;
+                if (has_digit && has_non_digit) break;
+            }
+            if (has_digit) {
+                static constexpr DWRITE_FONT_FEATURE kDefaultFeatures[] = {
+                    {DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1},
+                    {DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_LIGATURES, 1},
+                    {DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES, 1},
+                    {DWRITE_FONT_FEATURE_TAG_LOCALIZED_FORMS, 1},
+                    {DWRITE_FONT_FEATURE_TAG_GLYPH_COMPOSITION_DECOMPOSITION, 1},
+                    {DWRITE_FONT_FEATURE_TAG_REQUIRED_LIGATURES, 1},
+                    {DWRITE_FONT_FEATURE_TAG_MARK_POSITIONING, 1},
+                    {DWRITE_FONT_FEATURE_TAG_MARK_TO_MARK_POSITIONING, 1},
+                };
+                auto make_typography = [&](bool with_tnum) -> ComPtr<IDWriteTypography> {
+                    ComPtr<IDWriteTypography> t;
+                    if (FAILED(m_factory->CreateTypography(&t)) || !t) return {};
+                    if (with_tnum) {
+                        if (FAILED(t->AddFontFeature(DWRITE_FONT_FEATURE{DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1})) ||
+                            FAILED(t->AddFontFeature(DWRITE_FONT_FEATURE{DWRITE_FONT_FEATURE_TAG_PROPORTIONAL_FIGURES, 0})) ||
+                            FAILED(t->AddFontFeature(DWRITE_FONT_FEATURE{DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES, 0})) ||
+                            FAILED(t->AddFontFeature(DWRITE_FONT_FEATURE{DWRITE_FONT_FEATURE_TAG_KERNING, 0}))) {
+                            return {};
+                        }
+                    } else {
+                        if (FAILED(t->AddFontFeature(DWRITE_FONT_FEATURE{DWRITE_FONT_FEATURE_TAG_KERNING, 1}))) {
+                            return {};
+                        }
+                    }
+                    for (const auto& feature : kDefaultFeatures) {
+                        if (with_tnum && feature.nameTag == DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES) {
+                            continue;
+                        }
+                        if (FAILED(t->AddFontFeature(feature))) return {};
+                    }
+                    return t;
+                };
+
+                if (const auto tab_typography = make_typography(true)) {
+                    const UINT32 total_len = static_cast<UINT32>(text.size());
+                    bool ready = true;
+                    if (has_non_digit) {
+                        if (const auto def_typography = make_typography(false)) {
+                            (void)layout->SetTypography(def_typography.Get(), DWRITE_TEXT_RANGE{0, total_len});
+                        } else {
+                            ready = false;
+                        }
+                    }
+                    if (ready) {
+                        size_t i = 0;
+                        while (i < text.size()) {
+                            while (i < text.size() && !is_tabular_span_char(i)) ++i;
+                            if (i >= text.size()) break;
+                            const size_t start = i;
+                            while (i < text.size() && is_tabular_span_char(i)) ++i;
+                            const DWRITE_TEXT_RANGE range{
+                                static_cast<UINT32>(start),
+                                static_cast<UINT32>(i - start)
+                            };
+                            (void)layout->SetTypography(tab_typography.Get(), range);
+                        }
+                    }
+                }
+            }
+        }
         return layout;
+    }
+
+    struct TabularDigitCacheEntry {
+        std::string family;
+        float size = 0.0f;
+        uint16_t weight = 0;
+        bool italic = false;
+        float advance = 0.0f;
+    };
+
+    float get_tabular_digit_advance(float size, std::string_view family, uint16_t font_weight, bool italic) {
+        for (const auto& entry : m_tabular_advances) {
+            if (entry.size == size && entry.weight == font_weight &&
+                entry.italic == italic && entry.family == family) {
+                return entry.advance;
+            }
+        }
+        float max_adv = 0.0f;
+        if (auto ref = make_layout(L"0123456789", size, family, font_weight, italic, true)) {
+            DWRITE_CLUSTER_METRICS cm[10]{};
+            UINT32 count = 0;
+            if (SUCCEEDED(ref->GetClusterMetrics(cm, 10, &count))) {
+                for (UINT32 i = 0; i < count; ++i) {
+                    max_adv = std::max(max_adv, cm[i].width);
+                }
+            }
+        }
+        if (m_tabular_advances.size() >= 64) {
+            m_tabular_advances.erase(m_tabular_advances.begin());
+        }
+        m_tabular_advances.push_back(TabularDigitCacheEntry{
+            std::string(family), size, font_weight, italic, max_adv
+        });
+        return max_adv;
+    }
+
+    void enforce_tabular_digits(TextLayoutResult& result, std::string_view text,
+                                float size, std::string_view family,
+                                uint16_t font_weight, bool italic) {
+        if (result.glyphs.empty() || text.empty()) return;
+        bool any_ascii_digit = false;
+        for (char ch : text) {
+            if (ch >= '0' && ch <= '9') {
+                any_ascii_digit = true;
+                break;
+            }
+        }
+        if (!any_ascii_digit) return;
+
+        const float tab_adv = get_tabular_digit_advance(size, family, font_weight, italic);
+        if (tab_adv <= 0.0f) return;
+
+        float dx = 0.0f;
+        std::vector<std::pair<size_t, float>> cluster_deltas;
+        for (size_t i = 0; i < result.glyphs.size(); ++i) {
+            auto& g = result.glyphs[i];
+            g.x += dx;
+            if (g.cluster >= text.size()) continue;
+            const char ch = text[g.cluster];
+            if (ch < '0' || ch > '9') continue;
+            const bool prev_same = (i > 0 && result.glyphs[i - 1].cluster == g.cluster);
+            const bool next_same = (i + 1 < result.glyphs.size() && result.glyphs[i + 1].cluster == g.cluster);
+            if (prev_same || next_same) continue;
+
+            const float delta = tab_adv - g.advance_x;
+            if (std::abs(delta) > 1e-4f) {
+                g.x += delta * 0.5f;
+                g.advance_x = tab_adv;
+                dx += delta;
+                cluster_deltas.emplace_back(g.cluster, delta);
+            }
+        }
+
+        if (std::abs(dx) > 1e-4f) {
+            result.total_width += dx;
+            for (auto& caret : result.carets) {
+                float c_shift = 0.0f;
+                for (const auto& [cluster, delta] : cluster_deltas) {
+                    if (caret.byte > cluster) c_shift += delta;
+                }
+                caret.x += c_shift;
+            }
+        }
     }
 
     LOGFONTW m_font;
@@ -254,6 +423,7 @@ private:
     ComPtr<IDWriteFactory> m_factory;
     ComPtr<IDWriteGdiInterop> m_gdi;
     std::vector<Glyph> m_glyphs;
+    std::vector<TabularDigitCacheEntry> m_tabular_advances;
 };
 } // namespace
 

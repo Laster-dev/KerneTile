@@ -28,6 +28,8 @@ struct RendererConfig {
     bool prefer_warp{false};             // 是否优先使用 D3D12 WARP 软件适配器
     bool force_cpu_fallback{false};      // 是否强制使用纯 CPU 瓦片光栅器
     bool enable_occlusion_culling{true}; // 是否启用前端实心矩形遮挡剔除
+    bool enable_dithering{false};        // R1: 是否启用 8-bit IGN 抖动降噪 (默认关闭)
+    bool enable_pixel_snapping{false};   // R2: 是否启用分数 DPI 物理像素网格对齐 (默认关闭)
 };
 
 struct FrameStats {
@@ -84,9 +86,40 @@ public:
 
     virtual void draw_text_scaled(std::string_view text, float x, float y, float font_size,
                                   math::Color color, float scale, uint16_t font_weight = 400,
-                                  bool italic = false, std::string_view font_family = "") {
-        (void)font_weight; (void)italic; (void)font_family;
+                                  bool italic = false, std::string_view font_family = "",
+                                  bool tabular_nums = false) {
+        (void)font_weight; (void)italic; (void)font_family; (void)tabular_nums;
         draw_text(text, x * scale, y * scale, font_size * scale, color);
+    }
+
+    virtual void set_dithering_enabled(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_dithering_enabled() const noexcept { return false; }
+
+    virtual void set_pixel_snapping_enabled(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_pixel_snapping_enabled() const noexcept { return false; }
+
+    virtual void draw_linear_gradient(
+        math::Rect rect,
+        math::Color start_color,
+        math::Color end_color,
+        math::Vec2 start_pt,
+        math::Vec2 end_pt,
+        float corner_radius = 0.0f,
+        float border_width = 0.0f) {
+        (void)rect; (void)start_color; (void)end_color; (void)start_pt; (void)end_pt;
+        (void)corner_radius; (void)border_width;
+    }
+
+    virtual void draw_pointer_reveal(
+        math::Rect widget_bounds,
+        math::Vec2 cursor_pos,
+        float radius,
+        math::Color color,
+        float corner_radius = 0.0f,
+        float border_width = 0.0f,
+        float edge_intensity = 1.0f) {
+        (void)widget_bounds; (void)cursor_pos; (void)radius; (void)color;
+        (void)corner_radius; (void)border_width; (void)edge_intensity;
     }
 
     // R8 Alpha 蒙版缓存绘制 (供 NanoSVG 矢量图标等光栅化至 DynamicAtlas 后单图元极速着色渲染)

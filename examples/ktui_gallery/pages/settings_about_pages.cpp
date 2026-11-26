@@ -22,6 +22,8 @@ static constexpr const char* kIconSparkle =
 
 WidgetPtr build_settings_page(GalleryApp& app) {
     auto always_on_top = std::make_shared<Property<bool>>(app.window ? app.window->is_always_on_top() : false);
+    auto dither_enabled = std::make_shared<Property<bool>>(app.window ? app.window->dithering_enabled() : false);
+    auto snap_enabled = std::make_shared<Property<bool>>(app.window ? app.window->pixel_snapping_enabled() : false);
     int cur_backdrop_idx = 1;
     if (app.window) {
         if (app.window->backdrop() == WindowBackdrop::None) cur_backdrop_idx = 0;
@@ -66,6 +68,32 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                         else app.window->set_backdrop(WindowBackdrop::MicaAlt);
                     }
                 }
+            },
+            SettingsCard {
+                .header = "8-bit IGN 抖动去色带",
+                .description = "为云母背景与柔和渐变叠加 ±0.5 LSB 无纹理噪声抖动，消除暗色阶梯色带",
+                .header_icon_svg = kIconSparkle,
+                .content = ToggleSwitch {
+                    .checked = dither_enabled->get(),
+                    .on_change = [&app, dither_enabled](bool on) {
+                        dither_enabled->set(on);
+                        if (app.window) app.window->set_dithering_enabled(on);
+                    }
+                },
+                .enable_pointer_reveal = true
+            },
+            SettingsCard {
+                .header = "分数 DPI 物理像素吸附",
+                .description = "在 125% / 150% 缩放屏下对 1px 轴对齐边框与分割线对齐物理像素网格",
+                .header_icon_svg = kIconWindow,
+                .content = ToggleSwitch {
+                    .checked = snap_enabled->get(),
+                    .on_change = [&app, snap_enabled](bool on) {
+                        snap_enabled->set(on);
+                        if (app.window) app.window->set_pixel_snapping_enabled(on);
+                    }
+                },
+                .enable_pointer_reveal = true
             },
 
             Box { .height = 14.0f },
@@ -124,7 +152,7 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                 .description = "2D 瓦片计算着色器渲染引擎 + C++20 声明式桌面 UI 框架",
                 .header_icon_svg = kIconInfo,
                 .expanded = false,
-                .header_content = Text { .text = "v1.0.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                .header_content = Text { .text = "v1.1.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
                 .items = {
                     SettingsCard {
                         .header = "渲染管线",
@@ -253,7 +281,7 @@ WidgetPtr build_about_page(GalleryApp& app) {
                 .header = "KerneTile 引擎与 KTUI 框架",
                 .description = "2D 瓦片计算渲染引擎 + C++20 声明式桌面 UI 框架，零异常零 RTTI 极致体积",
                 .header_icon_svg = kIconInfo,
-                .content = Text { .text = "v1.0.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+                .content = Text { .text = "v1.1.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
             },
             SettingsCard {
                 .header = "开源仓库",

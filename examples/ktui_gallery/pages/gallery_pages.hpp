@@ -62,6 +62,8 @@ ktui::WidgetPtr build_progress_bar_page(GalleryApp& app);
 ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
 
 // ==================== 图形与矢量 (Media & Vector) ====================
+ktui::WidgetPtr build_polish_showcase_page(GalleryApp& app);
+ktui::WidgetPtr build_squircle_page(GalleryApp& app);
 ktui::WidgetPtr build_svg_page(GalleryApp& app);
 ktui::WidgetPtr build_image_page(GalleryApp& app);
 

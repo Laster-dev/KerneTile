@@ -25,9 +25,12 @@ public:
     RenderText(std::string text = "", float font_size = 13.0f,
                Color color = Color{0.0f, 0.0f, 0.0f, -1.0f},
                FontWeight weight = FontWeight::Regular,
-               TextOverflow overflow = TextOverflow::Ellipsis) noexcept
+               TextOverflow overflow = TextOverflow::Ellipsis,
+               bool tabular_nums = false,
+               std::string font_family = "") noexcept
         : m_text(std::move(text)), m_font_size(font_size), m_color(color),
-          m_font_weight(weight), m_overflow(overflow) {}
+          m_font_weight(weight), m_overflow(overflow),
+          m_tabular_nums(tabular_nums), m_font_family(std::move(font_family)) {}
 
     ~RenderText() override = default;
 
@@ -41,6 +44,8 @@ public:
     [[nodiscard]] const std::string& text() const noexcept { return m_text; }
     [[nodiscard]] float font_size() const noexcept { return m_font_size; }
     [[nodiscard]] Color color() const noexcept { return m_color; }
+    [[nodiscard]] bool tabular_nums() const noexcept { return m_tabular_nums; }
+    [[nodiscard]] const std::string& font_family() const noexcept { return m_font_family; }
 
     void set_font_size(float size) {
         if (m_font_size != size) {
@@ -70,11 +75,27 @@ public:
         }
     }
 
+    void set_tabular_nums(bool enabled) {
+        if (m_tabular_nums != enabled) {
+            m_tabular_nums = enabled;
+            mark_needs_layout();
+            mark_needs_paint();
+        }
+    }
+
+    void set_font_family(std::string family) {
+        if (m_font_family != family) {
+            m_font_family = std::move(family);
+            mark_needs_layout();
+            mark_needs_paint();
+        }
+    }
+
     void perform_layout() override {
         m_wrapped_lines.clear();
         m_elided_text.clear();
 
-        Vec2 measured = TextMeasure::measure(m_text, m_font_size, m_font_weight);
+        Vec2 measured = TextMeasure::measure(m_text, m_font_size, m_font_weight, false, m_font_family, m_tabular_nums);
         float max_w = m_constraints.max_width;
         const auto stops = kernetile::text::grapheme_boundaries(m_text);
         const auto next_stop = [&stops](size_t pos) { return *std::upper_bound(stops.begin(), stops.end(), pos); };
@@ -91,7 +112,7 @@ public:
                     pos = next;
                     continue;
                 }
-                float w = TextMeasure::measure_width(std::string_view(m_text).substr(line_start, next - line_start), m_font_size, m_font_weight);
+                float w = TextMeasure::measure_width(std::string_view(m_text).substr(line_start, next - line_start), m_font_size, m_font_weight, false, m_font_family, m_tabular_nums);
                 if (w > max_w && pos > line_start) {
                     m_wrapped_lines.emplace_back(m_text.substr(line_start, pos - line_start));
                     line_start = pos;
@@ -102,18 +123,18 @@ public:
             if (line_start < m_text.size()) {
                 m_wrapped_lines.emplace_back(m_text.substr(line_start));
             }
-            float line_h = TextMeasure::measure({}, m_font_size, m_font_weight).y;
+            float line_h = TextMeasure::measure({}, m_font_size, m_font_weight, false, m_font_family, m_tabular_nums).y;
             m_size = m_constraints.constrain(Vec2{max_w, line_h * static_cast<float>(std::max<size_t>(1, m_wrapped_lines.size()))});
         } else {
             m_size = m_constraints.constrain(measured);
             if (m_overflow == TextOverflow::Ellipsis && measured.x > m_size.x + 0.5f && !m_text.empty()) {
-                float ellipsis_w = TextMeasure::measure_width("...", m_font_size, m_font_weight);
+                float ellipsis_w = TextMeasure::measure_width("...", m_font_size, m_font_weight, false, m_font_family, m_tabular_nums);
                 float avail_w = std::max(0.0f, m_size.x - ellipsis_w);
                 size_t pos = 0;
                 size_t best_end = 0;
                 while (pos < m_text.size()) {
                     size_t next = next_stop(pos);
-                    float w = TextMeasure::measure_width(std::string_view(m_text).substr(0, next), m_font_size, m_font_weight);
+                    float w = TextMeasure::measure_width(std::string_view(m_text).substr(0, next), m_font_size, m_font_weight, false, m_font_family, m_tabular_nums);
                     if (w > avail_w) break;
                     best_end = next;
                     pos = next;
@@ -131,17 +152,17 @@ public:
         // 强制硬件视口裁剪，绝不允许文本溢出自身包围盒
         context.push_clip(bounds(), 0.0f);
         if (m_overflow == TextOverflow::Wrap && !m_wrapped_lines.empty()) {
-            float line_h = TextMeasure::measure("A", m_font_size, m_font_weight).y;
+            float line_h = TextMeasure::measure("A", m_font_size, m_font_weight, false, m_font_family, m_tabular_nums).y;
             float y = 0.0f;
             for (const auto& line : m_wrapped_lines) {
                 if (!line.empty()) {
-                    context.draw_text(line, PointF{0.0f, y}, m_font_size, draw_col, m_font_weight);
+                    context.draw_text(line, PointF{0.0f, y}, m_font_size, draw_col, m_font_weight, false, m_font_family, m_tabular_nums);
                 }
                 y += line_h;
             }
         } else {
             const std::string& to_draw = m_elided_text.empty() ? m_text : m_elided_text;
-            context.draw_text(to_draw, PointF{0.0f, 0.0f}, m_font_size, draw_col, m_font_weight);
+            context.draw_text(to_draw, PointF{0.0f, 0.0f}, m_font_size, draw_col, m_font_weight, false, m_font_family, m_tabular_nums);
         }
         context.pop_clip();
     }
@@ -154,6 +175,8 @@ private:
     Color m_color{0.0f, 0.0f, 0.0f, -1.0f};
     FontWeight m_font_weight{FontWeight::Regular};
     TextOverflow m_overflow{TextOverflow::Ellipsis};
+    bool m_tabular_nums{false};
+    std::string m_font_family{""};
 };
 
 class TextWidget;
@@ -166,6 +189,8 @@ struct Text : BindableMixin<Text, RenderText> {
     Color color{Color{0.0f, 0.0f, 0.0f, -1.0f}};
     FontWeight font_weight{FontWeight::Regular};
     TextOverflow overflow{TextOverflow::Ellipsis};
+    bool tabular_nums{false};
+    std::string font_family{""};
 
     operator WidgetPtr() const&;
 
@@ -182,7 +207,8 @@ public:
     std::shared_ptr<RenderBox> create_render_node() override {
         return make_render_node<RenderText>(
             m_desc.text, m_desc.font_size, m_desc.color,
-            m_desc.font_weight, m_desc.overflow);
+            m_desc.font_weight, m_desc.overflow,
+            m_desc.tabular_nums, m_desc.font_family);
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
@@ -192,6 +218,8 @@ public:
             text_box->set_color(m_desc.color);
             text_box->set_font_weight(m_desc.font_weight);
             text_box->set_overflow(m_desc.overflow);
+            text_box->set_tabular_nums(m_desc.tabular_nums);
+            text_box->set_font_family(m_desc.font_family);
         }
     }
 

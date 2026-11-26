@@ -44,6 +44,7 @@ struct ButtonData {
     bool enable_ripple{true};           // 是否启用 Fluent 水波纹点击微动效
 
     Fn<void()> on_click{nullptr};
+    bool enable_pointer_reveal{false};  // Opt-in Fluent 指针跟随边缘/表面微光 (R3)
 };
 
 } // namespace ktui

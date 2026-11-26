@@ -57,7 +57,12 @@ const BinningResult& TileBinner::bin_primitives(
         PrimBinMeta meta{};
 
         // 零透明不可见图元直接剔除 (不进入任何瓦片、不参与脏块哈希与光栅化)
-        if (prim.color_a <= 0.0005f) {
+        const bool is_gradient = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0;
+        const bool is_reveal = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal)) != 0;
+        const float max_alpha = is_gradient
+            ? std::max(prim.color_a, static_cast<float>(prim.atlas_v1) * (1.0f / 65535.0f))
+            : prim.color_a;
+        if (max_alpha <= 0.0005f) {
             m_prim_meta[prim_id] = meta;
             continue;
         }
@@ -67,8 +72,8 @@ const BinningResult& TileBinner::bin_primitives(
         float effective_max_x = prim.max_x;
         float effective_max_y = prim.max_y;
 
-        // 若包含软阴影，外扩 3 倍 sigma + spread
-        if (prim.shadow_blur > 0.0f || prim.shadow_spread > 0.0f) {
+        // 若包含软阴影，外扩 3 倍 sigma + spread (跳过渐变与指针揭示图元，避免复用字段触发误扩)
+        if (!is_gradient && !is_reveal && (prim.shadow_blur > 0.0f || prim.shadow_spread > 0.0f)) {
             float pad = prim.shadow_blur * 3.0f + prim.shadow_spread;
             effective_min_x = std::min(effective_min_x, prim.min_x + prim.shadow_offset_x - pad);
             effective_min_y = std::min(effective_min_y, prim.min_y + prim.shadow_offset_y - pad);
@@ -105,7 +110,9 @@ const BinningResult& TileBinner::bin_primitives(
         const bool can_occlude =
             enable_early_occlusion_culling &&
             !(prim.flags & (static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph) |
-                            static_cast<uint16_t>(core::PrimitiveFlags::IsIcon))) &&
+                            static_cast<uint16_t>(core::PrimitiveFlags::IsIcon) |
+                            static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient) |
+                            static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal))) &&
             !clip_has_radius &&
             prim.color_a >= 0.999f &&
             prim.border_width <= 0.0f &&

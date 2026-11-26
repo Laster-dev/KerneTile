@@ -46,13 +46,14 @@ public:
         float render_scale = 1.0f,
         uint16_t font_weight = 400,
         bool italic = false,
-        std::string_view font_family = "")
+        std::string_view font_family = "",
+        bool tabular_nums = false)
     {
         TextStreamStats stats;
         const float raster_size = font_size * render_scale;
         const auto layout = &m_engine == &shared_text_engine()
-            ? layout_text(utf8_text, font_size, font_weight, italic, font_family)
-            : std::make_shared<const TextLayoutResult>(m_engine.shape_text(utf8_text, font_size, font_family, font_weight, italic));
+            ? layout_text(utf8_text, font_size, font_weight, italic, font_family, tabular_nums)
+            : std::make_shared<const TextLayoutResult>(m_engine.shape_text(utf8_text, font_size, font_family, font_weight, italic, tabular_nums));
 
         for (const auto& gp : layout->glyphs) {
             stats.total_glyphs++;

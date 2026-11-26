@@ -2,9 +2,18 @@
 #include "kernetile/tile/tile_binner.hpp"
 #include "kernetile/tile/dirty_tracker.hpp"
 #include "test_common.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <iomanip>
 #include <cassert>
+
+#define KT_CHECK(cond)                                                                         \
+    do {                                                                                       \
+        if (!(cond)) {                                                                         \
+            std::cerr << "FAIL at " << __FILE__ << ":" << __LINE__ << ": " #cond << std::endl; \
+            std::exit(1);                                                                      \
+        }                                                                                      \
+    } while (false)
 
 int main() {
     configure_test_environment();
@@ -93,6 +102,59 @@ int main() {
     if (dirty_shifted.dirty_count != 1) {
         std::cerr << "FAIL: expected 1 dirty tile on front insert, got " << dirty_shifted.dirty_count << std::endl;
         return 1;
+    }
+
+    // Scenario E (R3 PointerReveal Cursor Sweep): Moving cursor across a wide card must only dirty
+    // 16x16 tiles overlapping (cursor_old +- radius) U (cursor_new +- radius)
+    {
+        ClipRect card_clip{};
+        card_clip.min_x = 100.0f; card_clip.min_y = 100.0f;
+        card_clip.max_x = 900.0f; card_clip.max_y = 220.0f;
+        card_clip.corner_radius = 8.0f;
+        card_clip.parent_index = INVALID_INDEX_U32;
+        card_clip.flags = kClipFlagRevealBounds;
+        std::vector<ClipRect> clips = {card_clip};
+
+        UiPrimitive card{};
+        card.min_x = 100.0f; card.min_y = 100.0f;
+        card.max_x = 900.0f; card.max_y = 220.0f;
+        card.radius_top_left = card.radius_top_right = card.radius_bottom_right = card.radius_bottom_left = 8.0f;
+        card.color_r = 0.2f; card.color_g = 0.2f; card.color_b = 0.2f; card.color_a = 1.0f;
+
+        auto make_rev = [](float cx, float cy, float r) {
+            UiPrimitive rev{};
+            rev.min_x = std::max(100.0f, cx - r);
+            rev.min_y = std::max(100.0f, cy - r);
+            rev.max_x = std::min(900.0f, cx + r);
+            rev.max_y = std::min(220.0f, cy + r);
+            rev.color_r = 1.0f; rev.color_g = 1.0f; rev.color_b = 1.0f; rev.color_a = 0.5f;
+            rev.shadow_offset_x = cx;
+            rev.shadow_offset_y = cy;
+            rev.shadow_blur = r;
+            rev.shadow_spread = 1.0f;
+            rev.flags = static_cast<uint16_t>(PrimitiveFlags::IsPointerReveal);
+            rev.clip_index = 0;
+            return rev;
+        };
+
+        std::vector<UiPrimitive> frame_a = {card, make_rev(200.0f, 160.0f, 48.0f)};
+        auto bin_a = binner.bin_primitives(grid_4k, frame_a, true, clips);
+        (void)tracker.update(grid_4k, bin_a.headers, bin_a.indices, frame_a, clips);
+
+        std::vector<UiPrimitive> frame_b = {card, make_rev(220.0f, 160.0f, 48.0f)};
+        auto bin_b = binner.bin_primitives(grid_4k, frame_b, true, clips);
+        auto dirty_b = tracker.update(grid_4k, bin_b.headers, bin_b.indices, frame_b, clips);
+
+        std::cout << "  -> Scenario E (PointerReveal Cursor Sweep): dirty_tiles=" << dirty_b.dirty_count
+                  << ", culling_ratio=" << std::setprecision(5) << (dirty_b.culling_ratio * 100.0) << "%" << std::endl;
+
+        KT_CHECK(dirty_b.dirty_count > 0);
+        KT_CHECK(dirty_b.culling_ratio >= 0.998);
+        // Combined highlight union X=[152..268] -> tiles [9..16], Y=[112..208] -> tiles [7..13]
+        for (const auto& dt : dirty_b.dirty_tiles) {
+            KT_CHECK(dt.tx >= 9 && dt.tx <= 16);
+            KT_CHECK(dt.ty >= 7 && dt.ty <= 13);
+        }
     }
 
     std::cout << "[TEST] test_dirty_tracking PASSED successfully!" << std::endl;

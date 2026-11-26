@@ -47,8 +47,8 @@ public:
         return metrics(layout.get(), size);
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
-        auto layout = make_layout(text, size, family, font_weight, italic);
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) override {
+        auto layout = make_layout(text, size, family, font_weight, italic, tabular_nums);
         TextLayoutResult result;
         result.metrics = metrics(layout.get(), size);
         PangoRectangle logical{};
@@ -87,7 +87,7 @@ public:
         if (id < glyph_base) {
             char text[6]{};
             int length = g_unichar_to_utf8(id, text);
-            auto shaped = shape_text({text, static_cast<size_t>(length)}, size, {}, 400, false);
+            auto shaped = shape_text({text, static_cast<size_t>(length)}, size, {}, 400, false, false);
             if (shaped.glyphs.empty()) return {};
             id = shaped.glyphs.front().glyph_id;
         }
@@ -140,7 +140,7 @@ private:
         return glyph_base + static_cast<uint32_t>(m_glyphs.size() - 1);
     }
 
-    GObjectPtr<PangoLayout> make_layout(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) {
+    GObjectPtr<PangoLayout> make_layout(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) {
         GObjectPtr<PangoLayout> layout(pango_layout_new(m_context.get()), unref<PangoLayout>);
         auto* desc = pango_font_description_copy(pango_context_get_font_description(m_context.get()));
         if (!family.empty()) pango_font_description_set_family(desc, std::string(family).c_str());
@@ -150,6 +150,13 @@ private:
         pango_layout_set_font_description(layout.get(), desc);
         pango_font_description_free(desc);
         pango_layout_set_text(layout.get(), text.empty() ? "" : text.data(), static_cast<int>(text.size()));
+        if (tabular_nums && !text.empty()) {
+            if (auto* attrs = pango_attr_list_new()) {
+                pango_attr_list_insert(attrs, pango_attr_font_features_new("tnum=1"));
+                pango_layout_set_attributes(layout.get(), attrs);
+                pango_attr_list_unref(attrs);
+            }
+        }
         return layout;
     }
 

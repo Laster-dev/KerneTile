@@ -23,7 +23,7 @@ EM_JS(size_t, segment, (const char* source, size_t length, size_t* boundaries), 
     return chunks.length + 1;
 });
 
-EM_JS(void, measure, (const char* source, float size, int weight, int italic, int mono, float* values), {
+EM_JS(void, measure, (const char* source, float size, int weight, int italic, int mono, int tabular_nums, float* values), {
     var canvas = Module['ktTextCanvas'];
     if (!canvas && typeof document !== 'undefined')
         canvas = Module['ktTextCanvas'] = document.createElement('canvas');
@@ -33,6 +33,8 @@ EM_JS(void, measure, (const char* source, float size, int weight, int italic, in
         var fam = mono
             ? '"Cascadia Mono", "Cascadia Code", Consolas, "Courier New", ui-monospace, monospace'
             : '"Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
+        if ('fontVariantNumeric' in ctx)
+            ctx.fontVariantNumeric = tabular_nums ? 'tabular-nums' : 'normal';
         ctx.font = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px ' + fam;
         var metrics = ctx.measureText(text);
         HEAPF32[values >> 2] = metrics.width;
@@ -45,7 +47,7 @@ EM_JS(void, measure, (const char* source, float size, int weight, int italic, in
     }
 });
 
-EM_JS(int, raster, (const char* source, float size, int weight, int italic, int mono, int* box, uint8_t* dest, size_t capacity), {
+EM_JS(int, raster, (const char* source, float size, int weight, int italic, int mono, int tabular_nums, int* box, uint8_t* dest, size_t capacity), {
     var canvas = Module['ktTextCanvas'];
     if (!canvas && typeof document !== 'undefined')
         canvas = Module['ktTextCanvas'] = document.createElement('canvas');
@@ -57,6 +59,8 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int 
         ? '"Cascadia Mono", "Cascadia Code", Consolas, "Courier New", ui-monospace, monospace'
         : '"Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif';
     var fontSpec = (italic ? 'italic ' : '') + (weight > 0 ? weight : 400) + ' ' + size + 'px ' + fam;
+    if ('fontVariantNumeric' in ctx)
+        ctx.fontVariantNumeric = tabular_nums ? 'tabular-nums' : 'normal';
     ctx.font = fontSpec;
     var m = ctx.measureText(text);
     var left = Math.floor(-m.actualBoundingBoxLeft);
@@ -80,6 +84,8 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int 
     canvas.width = sw;
     canvas.height = sh;
     ctx.setTransform(ss, 0, 0, ss, 0, 0);
+    if ('fontVariantNumeric' in ctx)
+        ctx.fontVariantNumeric = tabular_nums ? 'tabular-nums' : 'normal';
     ctx.font = fontSpec;
     // 使用纯黑 #000 而非 #fff：Chromium/Skia 在绘制白字时会套用白底反转 Gamma 增粗表导致 Alpha 偏厚偏黑，
     // 而 #000 走正常线性覆盖率表，与 Windows DirectWrite CreateAlphaTexture 输出的字重几乎一致
@@ -117,34 +123,55 @@ public:
     FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {
         const int mono = (family == "monospace") ? 1 : 0;
         float values[3]{};
-        measure("M", size, static_cast<int>(font_weight > 0 ? font_weight : 400), italic ? 1 : 0, mono, values);
+        measure("M", size, static_cast<int>(font_weight > 0 ? font_weight : 400), italic ? 1 : 0, mono, 0, values);
         return {size, values[1], -values[2], values[1] + values[2]};
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) override {
         const uint16_t w = font_weight > 0 ? font_weight : 400;
         const bool mono = (family == "monospace");
         TextLayoutResult result;
         result.metrics = get_metrics(size, family, w, italic);
         result.total_height = result.metrics.line_height;
         const auto stops = grapheme_boundaries(text);
+        float tabular_digit_advance = 0.0f;
+        bool has_tabular_digit_advance = false;
+        auto get_tabular_digit_advance = [&]() {
+            if (!has_tabular_digit_advance) {
+                for (char d = '0'; d <= '9'; ++d) {
+                    char buf[2]{d, '\0'};
+                    float dv[3]{};
+                    measure(buf, size, static_cast<int>(w), italic ? 1 : 0, mono ? 1 : 0, 1, dv);
+                    tabular_digit_advance = std::max(tabular_digit_advance, dv[0]);
+                }
+                has_tabular_digit_advance = true;
+            }
+            return tabular_digit_advance;
+        };
         for (size_t i = 1; i < stops.size(); ++i) {
             const auto offset = stops[i - 1];
             const std::string cluster(text.substr(offset, stops[i] - offset));
-            std::string key = std::to_string(w) + (italic ? 'I' : 'N') + (mono ? 'M' : 'P') + '\x1F' + cluster;
+            std::string key = std::to_string(w) + (italic ? 'I' : 'N') + (mono ? 'M' : 'P') + (tabular_nums ? 'T' : 'L') + '\x1F' + cluster;
             auto [it, inserted] = m_ids.try_emplace(key, glyph_base + static_cast<uint32_t>(m_clusters.size()));
-            if (inserted) m_clusters.push_back(ClusterKey{cluster, w, italic, mono});
+            if (inserted) m_clusters.push_back(ClusterKey{cluster, w, italic, mono, tabular_nums});
             float values[3]{};
-            measure(cluster.c_str(), size, static_cast<int>(w), italic ? 1 : 0, mono ? 1 : 0, values);
+            measure(cluster.c_str(), size, static_cast<int>(w), italic ? 1 : 0, mono ? 1 : 0, tabular_nums ? 1 : 0, values);
             result.carets.push_back({offset, result.total_width});
             GlyphPlacement glyph{};
             glyph.glyph_id = it->second;
-            glyph.x = result.total_width;
             glyph.y = result.metrics.ascender;
-            glyph.advance_x = values[0];
             glyph.cluster = offset;
+            if (tabular_nums && cluster.size() == 1 && cluster[0] >= '0' && cluster[0] <= '9') {
+                const float tab_w = get_tabular_digit_advance();
+                const float advance = std::max(tab_w, values[0]);
+                glyph.x = result.total_width + (advance - values[0]) * 0.5f;
+                glyph.advance_x = advance;
+            } else {
+                glyph.x = result.total_width;
+                glyph.advance_x = values[0];
+            }
             result.glyphs.push_back(glyph);
-            result.total_width += values[0];
+            result.total_width += glyph.advance_x;
         }
         result.carets.push_back({text.size(), result.total_width});
         return result;
@@ -155,26 +182,28 @@ public:
         uint16_t weight = 400;
         bool italic = false;
         bool mono = false;
+        bool tabular_nums = false;
         if (id >= glyph_base && id - glyph_base < m_clusters.size()) {
             text = m_clusters[id - glyph_base].text;
             weight = m_clusters[id - glyph_base].weight;
             italic = m_clusters[id - glyph_base].italic;
             mono = m_clusters[id - glyph_base].mono;
+            tabular_nums = m_clusters[id - glyph_base].tabular_nums;
         } else if (id > 0 && id < 128) {
             text.push_back(static_cast<char>(id));
         }
         if (text.empty()) return {};
         int box[4]{};
-        const int count = raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, box, nullptr, 0);
+        const int count = raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, tabular_nums ? 1 : 0, box, nullptr, 0);
         if (!count) return {};
         FontRasterResult result{static_cast<uint32_t>(box[0]), static_cast<uint32_t>(box[1]),
                                 box[2], box[3], std::vector<uint8_t>(count)};
-        raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, box, result.r8_bitmap.data(), result.r8_bitmap.size());
+        raster(text.c_str(), size, static_cast<int>(weight), italic ? 1 : 0, mono ? 1 : 0, tabular_nums ? 1 : 0, box, result.r8_bitmap.data(), result.r8_bitmap.size());
         return result;
     }
 
 private:
-    struct ClusterKey { std::string text; uint16_t weight; bool italic; bool mono; };
+    struct ClusterKey { std::string text; uint16_t weight; bool italic; bool mono; bool tabular_nums; };
     static constexpr uint32_t glyph_base = 1u << 31;
     std::unordered_map<std::string, uint32_t> m_ids;
     std::vector<ClusterKey> m_clusters;

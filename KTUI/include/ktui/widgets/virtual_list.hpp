@@ -52,9 +52,31 @@ public:
     [[nodiscard]] size_t first_visible_index() const noexcept { return m_first_visible; }
     [[nodiscard]] size_t last_visible_index() const noexcept { return m_last_visible; }
     [[nodiscard]] float scroll_offset() const noexcept { return m_physics.offset(); }
+    [[nodiscard]] float max_scroll() const noexcept { return m_physics.max_scroll(); }
+
+    void set_rubber_band_enabled(bool enabled) noexcept {
+        if (m_physics.is_rubber_band_enabled() != enabled) {
+            float prev_offset = m_physics.offset();
+            m_physics.set_rubber_band_enabled(enabled);
+            if (std::abs(m_physics.offset() - prev_offset) > 1e-5f ||
+                std::abs(m_physics.offset() - m_last_synced_offset) > 1e-5f) {
+                sync_visible_window();
+            }
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool is_rubber_band_enabled() const noexcept { return m_physics.is_rubber_band_enabled(); }
+    [[nodiscard]] bool rubber_band_enabled() const noexcept { return m_physics.rubber_band_enabled(); }
 
     void scroll_to(float offset) {
         m_physics.scroll_to(offset);
+        m_scrollbar.notify_activity();
+        sync_visible_window();
+        mark_needs_paint();
+    }
+
+    void scroll_by(float delta_px) {
+        m_physics.scroll_by(delta_px);
         m_scrollbar.notify_activity();
         sync_visible_window();
         mark_needs_paint();
@@ -70,6 +92,7 @@ public:
         set_size(m_constraints.constrain(Vec2{w, h}));
 
         float total_h = static_cast<float>(m_item_count) * m_item_height;
+        m_physics.set_viewport_extent(size().y);
         m_physics.set_max_scroll(std::max(0.0f, total_h - size().y));
         sync_visible_window();
     }
@@ -92,9 +115,14 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
+        float prev_offset = m_physics.offset();
         bool anim_scroll = m_physics.update();
         bool anim_bar = m_scrollbar.update_animations(m_viewport_hovered);
-        if (anim_scroll) sync_visible_window();
+        if (anim_scroll ||
+            std::abs(m_physics.offset() - prev_offset) > 1e-5f ||
+            std::abs(m_physics.offset() - m_last_synced_offset) > 1e-5f) {
+            sync_visible_window();
+        }
         if (anim_scroll || anim_bar) mark_needs_paint();
 
         const Theme& theme = ThemeContext::current();
@@ -135,6 +163,7 @@ private:
     }
 
     void sync_visible_window() {
+        m_last_synced_offset = m_physics.offset();
         if (m_item_count == 0 || !m_item_builder || size().y <= 0.0f) {
             clear_pool();
             return;
@@ -190,7 +219,7 @@ private:
                 auto m = m_scrollbar.compute_metrics(vp, total_h, m_physics.offset());
                 if (m_scrollbar.hit_test(e.local_position, m) != WinUIScrollBar::HitPart::None) return;
                 m_scrollbar.handle_pointer_up();
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_touch_tracking = true;
                     m_touch_dragging = false;
                     m_touch_start_y = e.position.y;
@@ -235,7 +264,7 @@ private:
                 return;
             }
             if (e.type == PlatformEventType::PointerScroll) {
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_physics.add_wheel_delta(e.delta.y);
                     m_scrollbar.notify_activity();
                     sync_visible_window();
@@ -305,6 +334,7 @@ private:
     bool m_touch_dragging{false};
     float m_touch_start_y{0.0f};
     float m_touch_last_y{0.0f};
+    float m_last_synced_offset{0.0f};
 };
 
 // C++20 指定初始化器声明式虚拟化列表 VirtualList
@@ -315,6 +345,16 @@ struct VirtualList {
     float height{300.0f};
     size_t overscan{3};
     Fn<WidgetPtr(size_t)> item_builder{nullptr};
+    bool rubber_band_overscroll{false};
+
+    VirtualList& rubber_band(bool enabled) & noexcept {
+        rubber_band_overscroll = enabled;
+        return *this;
+    }
+    VirtualList&& rubber_band(bool enabled) && noexcept {
+        rubber_band_overscroll = enabled;
+        return std::move(*this);
+    }
 
     operator WidgetPtr() const&;
 
@@ -330,12 +370,14 @@ public:
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = make_render_node<RenderVirtualList>();
         node->set_properties(m_desc.item_count, m_desc.item_height, m_desc.width, m_desc.height, m_desc.overscan, m_desc.item_builder);
+        node->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto n = std::static_pointer_cast<RenderVirtualList>(node)) {
             n->set_properties(m_desc.item_count, m_desc.item_height, m_desc.width, m_desc.height, m_desc.overscan, m_desc.item_builder);
+            n->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
         }
     }
 

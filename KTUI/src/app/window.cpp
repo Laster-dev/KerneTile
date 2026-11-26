@@ -115,6 +115,28 @@ void Window::close() {
     }
 }
 
+void Window::set_dithering_enabled(bool enabled) {
+    if (m_dithering_enabled != enabled) {
+        m_dithering_enabled = enabled;
+        if (m_renderer) {
+            m_renderer->set_dithering_enabled(enabled);
+        }
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+}
+
+void Window::set_pixel_snapping_enabled(bool enabled) {
+    if (m_pixel_snapping_enabled != enabled) {
+        m_pixel_snapping_enabled = enabled;
+        if (m_renderer) {
+            m_renderer->set_pixel_snapping_enabled(enabled);
+        }
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+}
+
 void Window::ensure_renderer() {
     if (m_renderer || !m_platform_window) return;
     Vec2 sz = m_platform_window->size();
@@ -126,6 +148,8 @@ void Window::ensure_renderer() {
     cfg.height = h;
     // 浮动/辅助窗口采用 512x512 紧凑图集 (仅 256KB)，主窗口采用 1024x1024 (1MB)，避免每窗 16MB 内存暴涨
     cfg.atlas_size = (!has_custom_titlebar() || s_live_windows.size() > 1) ? 512u : 1024u;
+    cfg.enable_dithering = m_dithering_enabled;
+    cfg.enable_pixel_snapping = m_pixel_snapping_enabled;
     m_renderer = kernetile::KerneTileRenderer::create(cfg);
     m_last_native_handle = m_platform_window->get_native_handle();
     m_renderer->set_compute_target(m_last_native_handle,
@@ -283,7 +307,7 @@ void Window::render_frame(bool force_full_present) {
         m_renderer->set_mica_backdrop(old_mica, mica_grid);
 
         m_renderer->begin_frame();
-        PaintContext ctx(m_renderer.get(), scale);
+        PaintContext ctx(m_renderer.get(), scale, m_pixel_snapping_enabled);
         {
             ThemeScopeGuard old_scope(m_theme_ripple.old_theme);
             paint_scene(ctx, sz, client_sz, tb_h, old_mica);
@@ -334,7 +358,7 @@ void Window::render_frame(bool force_full_present) {
         m_renderer->set_mica_backdrop(mica_active, mica_grid);
 
         m_renderer->begin_frame();
-        PaintContext ctx(m_renderer.get(), scale);
+        PaintContext ctx(m_renderer.get(), scale, m_pixel_snapping_enabled);
         paint_scene(ctx, sz, client_sz, tb_h, mica_active);
         m_renderer->end_frame();
     }

@@ -230,6 +230,16 @@ public:
     [[nodiscard]] bool can_go_back() const noexcept { return m_data.is_back_enabled || m_history.size() > 1; }
     [[nodiscard]] const std::shared_ptr<RenderBox>& content_box() const noexcept { return m_content_box; }
     [[nodiscard]] bool is_submenu_open() const noexcept { return m_submenu_overlay_id != 0; }
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_data.enable_pointer_reveal; }
+    void set_pointer_reveal_enabled(bool enabled) {
+        if (m_data.enable_pointer_reveal != enabled) {
+            m_data.enable_pointer_reveal = enabled;
+            if (!enabled) {
+                m_has_reveal_cursor = false;
+            }
+            mark_needs_paint();
+        }
+    }
 
     void set_menu_items(std::vector<NavigationViewItem> items) {
         m_data.menu_items = std::move(items);
@@ -296,6 +306,7 @@ public:
     void set_pane_display_mode(NavigationPaneDisplayMode mode) {
         if (m_data.pane_display_mode != mode) {
             close_submenu_flyout();
+            m_has_reveal_cursor = false;
             m_data.pane_display_mode = mode;
             m_last_auto_mode = NavigationPaneDisplayMode::Auto;
             if (mode == NavigationPaneDisplayMode::LeftCompact || mode == NavigationPaneDisplayMode::LeftMinimal) {
@@ -314,6 +325,7 @@ public:
     void set_pane_open(bool open, bool notify = false) {
         if (m_data.is_pane_open != open) {
             close_submenu_flyout();
+            m_has_reveal_cursor = false;
             if (!open) {
                 m_saved_expanded_scroll_y = m_menu_scroll.offset();
                 m_restore_expanded_scroll = false;
@@ -823,6 +835,23 @@ private:
         }
     }
 
+    void paint_item_pointer_reveal(PaintContext& ctx, Rect r, float corner_radius, bool enabled, float alpha_mul = 1.0f) const {
+        if (!m_data.enable_pointer_reveal || !m_has_reveal_cursor || !enabled || r.is_empty() || alpha_mul <= 0.01f) {
+            return;
+        }
+        constexpr float kRevealRadius = 72.0f;
+        if (r.max_x < m_reveal_cursor.x - kRevealRadius || r.min_x > m_reveal_cursor.x + kRevealRadius ||
+            r.max_y < m_reveal_cursor.y - kRevealRadius || r.min_y > m_reveal_cursor.y + kRevealRadius) {
+            return;
+        }
+        const bool is_dark = ThemeContext::current().is_dark;
+        const Color surface = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.085f * alpha_mul}
+                                      : Color{0.0f, 0.0f, 0.0f, 0.055f * alpha_mul};
+        const Color edge = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f * alpha_mul}
+                                   : Color{0.0f, 0.0f, 0.0f, 0.18f * alpha_mul};
+        ctx.draw_pointer_reveal(r, m_reveal_cursor, kRevealRadius, surface, edge, corner_radius, 1.0f);
+    }
+
     void paint_chrome_button(PaintContext& ctx, Rect r, ChromeButton btn,
                              const ResolvedNavigationViewStyle& style, bool enabled) const {
         bool hov = (m_hovered_chrome == btn && enabled);
@@ -832,6 +861,7 @@ private:
         } else if (hov) {
             ctx.draw_rect(r, style.item_hover_bg, style.item_radius, 0.0f);
         }
+        paint_item_pointer_reveal(ctx, r, style.item_radius, enabled);
         Color col = enabled ? style.icon_color : style.item_disabled_text;
         float cx = std::round(r.min_x + r.width() * 0.5f);
         float cy = std::round(r.min_y + r.height() * 0.5f);
@@ -1134,6 +1164,7 @@ private:
             else if (is_hov) ctx.draw_rect(r, style.item_hover_bg, style.item_radius, 0.0f);
             else if (is_selected) ctx.draw_rect(r, style.item_selected_bg, style.item_radius, 0.0f);
         }
+        paint_item_pointer_reveal(ctx, r, style.item_radius, !item.disabled, (row.depth > 0) ? label_alpha : 1.0f);
 
         const float indent = static_cast<float>(row.depth) * 24.0f;
         const float icon_cx = std::round(r.min_x + 20.0f + indent);
@@ -1264,6 +1295,7 @@ private:
 
             if (is_prs) ctx.draw_rect(tl.rect, style.item_pressed_bg, style.item_radius, 0.0f);
             else if (is_hov) ctx.draw_rect(tl.rect, style.item_hover_bg, style.item_radius, 0.0f);
+            paint_item_pointer_reveal(ctx, tl.rect, style.item_radius, !item.disabled);
 
             if (is_sel) {
                 target_pill_w = std::max(16.0f, tl.rect.width() - 24.0f);
@@ -1548,6 +1580,12 @@ private:
         };
 
         on_pointer_move = [this](PointerEvent& e) {
+            if (e.device_kind == PointerDeviceKind::Touch) {
+                if (m_has_reveal_cursor) {
+                    m_has_reveal_cursor = false;
+                    mark_needs_paint();
+                }
+            }
             if (e.device_kind == PointerDeviceKind::Touch && m_touch_mode != TouchGestureMode::None) {
                 if (m_touch_mode == TouchGestureMode::MenuScroll) {
                     float dy = e.local_position.y - m_touch_last_local.y;
@@ -1587,23 +1625,47 @@ private:
                         }
                     }
                 }
-                if (cb != m_hovered_chrome || top_idx != m_hovered_top || hov_settings != m_settings_hovered) {
+                bool need_paint = (cb != m_hovered_chrome || top_idx != m_hovered_top || hov_settings != m_settings_hovered);
+                if (need_paint) {
                     m_hovered_chrome = cb;
                     m_hovered_top = top_idx;
                     m_settings_hovered = hov_settings;
                     m_last_anim_time = std::chrono::steady_clock::now();
+                }
+                if (m_data.enable_pointer_reveal && e.device_kind != PointerDeviceKind::Touch &&
+                    e.type == PlatformEventType::PointerMove) {
+                    const bool over_nav = (e.local_position.y <= 44.0f || cb != ChromeButton::None || top_idx >= 0);
+                    if (over_nav) {
+                        if (!m_has_reveal_cursor ||
+                            std::abs(m_reveal_cursor.x - e.local_position.x) > 0.01f ||
+                            std::abs(m_reveal_cursor.y - e.local_position.y) > 0.01f) {
+                            m_has_reveal_cursor = true;
+                            m_reveal_cursor = e.local_position;
+                            need_paint = true;
+                        }
+                    } else if (m_has_reveal_cursor) {
+                        m_has_reveal_cursor = false;
+                        need_paint = true;
+                    }
+                }
+                if (need_paint) {
                     mark_needs_paint();
                 }
                 return;
             }
 
-            Rect menu_vp = compute_left_menu_viewport(size().y, current_pane_width(eff));
+            const float pane_w = current_pane_width(eff);
+            Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
             bool sb_consumed = false;
             if (m_menu_scrollbar.handle_pointer_move(e.local_position, menu_vp, compute_left_menu_total_height(),
                                                      m_menu_scroll, sb_consumed)) {
                 mark_needs_paint();
             }
             if (sb_consumed) {
+                if (m_has_reveal_cursor) {
+                    m_has_reveal_cursor = false;
+                    mark_needs_paint();
+                }
                 e.stop_propagation();
                 return;
             }
@@ -1616,25 +1678,49 @@ private:
             }
             bool hov_settings = (r_footer && r_idx >= 0 && r_idx < static_cast<int>(m_footer_rows.size()) &&
                                  m_footer_rows[static_cast<size_t>(r_idx)].is_settings);
-            if (cb != m_hovered_chrome || r_idx != m_hovered_row ||
-                r_footer != m_hovered_in_footer || hov_settings != m_settings_hovered) {
+            bool need_paint = (cb != m_hovered_chrome || r_idx != m_hovered_row ||
+                               r_footer != m_hovered_in_footer || hov_settings != m_settings_hovered);
+            if (need_paint) {
                 m_hovered_chrome = cb;
                 m_hovered_row = r_idx;
                 m_hovered_in_footer = r_footer;
                 m_settings_hovered = hov_settings;
                 m_last_anim_time = std::chrono::steady_clock::now();
+            }
+            if (m_data.enable_pointer_reveal && e.device_kind != PointerDeviceKind::Touch &&
+                e.type == PlatformEventType::PointerMove) {
+                const bool over_nav = (e.local_position.x <= pane_w || cb != ChromeButton::None || r_idx >= 0);
+                if (over_nav) {
+                    if (!m_has_reveal_cursor ||
+                        std::abs(m_reveal_cursor.x - e.local_position.x) > 0.01f ||
+                        std::abs(m_reveal_cursor.y - e.local_position.y) > 0.01f) {
+                        m_has_reveal_cursor = true;
+                        m_reveal_cursor = e.local_position;
+                        need_paint = true;
+                    }
+                } else if (m_has_reveal_cursor) {
+                    m_has_reveal_cursor = false;
+                    need_paint = true;
+                }
+            }
+            if (need_paint) {
                 mark_needs_paint();
             }
         };
 
         on_pointer_exit = [this](PointerEvent&) {
             m_menu_scrollbar.handle_pointer_exit();
-            if (m_hovered_chrome != ChromeButton::None || m_hovered_row != -1 || m_hovered_top != -1 || m_settings_hovered) {
+            const bool was_reveal = m_has_reveal_cursor;
+            m_has_reveal_cursor = false;
+            const bool was_hover = (m_hovered_chrome != ChromeButton::None || m_hovered_row != -1 || m_hovered_top != -1 || m_settings_hovered);
+            if (was_hover) {
                 m_hovered_chrome = ChromeButton::None;
                 m_hovered_row = -1;
                 m_hovered_top = -1;
                 m_settings_hovered = false;
                 m_last_anim_time = std::chrono::steady_clock::now();
+            }
+            if (was_hover || was_reveal) {
                 mark_needs_paint();
             }
         };
@@ -1911,6 +1997,8 @@ private:
     int m_hovered_top{-1};
     int m_pressed_top{-1};
     bool m_settings_hovered{false};
+    bool m_has_reveal_cursor{false};
+    PointF m_reveal_cursor{0.0f, 0.0f};
 
     uint64_t m_submenu_overlay_id{0};
     std::string m_submenu_parent_id;
@@ -1974,6 +2062,10 @@ struct NavigationView : BindableMixin<NavigationView, RenderNavigationView> {
     Fn<void(const std::string&)> on_selection_changed{nullptr};
     Fn<void()> on_back_requested{nullptr};
     Fn<void(bool)> on_pane_toggled{nullptr};
+    bool enable_pointer_reveal{false};
+
+    NavigationView& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
+    NavigationView&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }
 
     operator WidgetPtr() const&;
 
@@ -2057,6 +2149,7 @@ private:
         node->set_menu_items(m_desc.menu_items);
         node->set_footer_items(m_desc.footer_items);
         node->set_search_options(m_desc.is_search_box_visible, m_desc.search_placeholder);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
 
         node->set_callbacks(m_desc.on_selection_changed, m_desc.on_back_requested, m_desc.on_pane_toggled);
 

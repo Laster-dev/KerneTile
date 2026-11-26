@@ -124,6 +124,13 @@ public:
     [[nodiscard]] float dpi_scale() const { return m_platform_window ? m_platform_window->dpi_scale() : 1.0f; }
     [[nodiscard]] uint32_t refresh_rate() const { return m_platform_window ? m_platform_window->refresh_rate() : 60; }
 
+    // ==================== 渲染与画质选项 (Opt-in) ====================
+    void set_dithering_enabled(bool enabled);
+    [[nodiscard]] bool dithering_enabled() const noexcept { return m_dithering_enabled; }
+
+    void set_pixel_snapping_enabled(bool enabled);
+    [[nodiscard]] bool pixel_snapping_enabled() const noexcept { return m_pixel_snapping_enabled; }
+
     // ==================== 视图内容与管理器访问 ====================
     void set_content(WidgetPtr content);
     [[nodiscard]] RenderBox* root_render_box() const noexcept { return m_root_render_box.get(); }
@@ -277,6 +284,8 @@ private:
     bool m_compute_was_ready{false};
     bool m_show_titlebar{true};
     bool m_window_focused{true};
+    bool m_dithering_enabled{false};
+    bool m_pixel_snapping_enabled{false};
     WindowBackdrop m_backdrop{WindowBackdrop::Mica};
 
     MicaAnimationState m_mica_anim;

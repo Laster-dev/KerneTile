@@ -249,17 +249,17 @@ void test_overflow_clipping_selection_and_clipboard() {
     assert(node != nullptr);
     assert(node->cursor_shape == CursorShape::IBeam);
 
-    // 约束在 140px 宽的容器内
+    // 约束在 140px 宽的容器内 (RenderTextBox 默认紧凑宽度为 120px)
     node->layout(BoxConstraints(0.0f, 140.0f, 0.0f, 26.0f));
-    assert(node->size().x == 140.0f);
+    assert(node->size().x == 120.0f && node->size().x <= 140.0f);
 
     // 聚焦并输入超长中英文文本，验证输入框尺寸绝不被撑爆且 IME 光标严格在框内
     node->set_input_focused(true);
     node->on_ime_commit("这是一段非常长的中英文混合测试文本_KerneTile_KTUI_Overflow_Protection_1234567890");
     node->layout(BoxConstraints(0.0f, 140.0f, 0.0f, 26.0f));
-    assert(node->size().x == 140.0f);
+    assert(node->size().x == 120.0f && node->size().x <= 140.0f);
     Rect ime_rc = node->get_ime_cursor_rect();
-    assert(ime_rc.min_x >= 0.0f && ime_rc.min_x <= 140.0f);
+    assert(ime_rc.min_x >= 0.0f && ime_rc.min_x <= node->size().x);
 
     // Ctrl+A 全选 + Ctrl+C 复制 + Ctrl+X 剪切 + Ctrl+V 粘贴
     KeyModifiers ctrl_mod{};
@@ -451,7 +451,7 @@ void test_cursor_blink_and_on_demand_rendering() {
 }
 
 void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
-    std::cout << "[Test 10] 移动端触控惯性滑行、抗末帧抖动与顶底橡皮筋越界回弹..." << std::endl;
+    std::cout << "[Test 10] 移动端触控惯性滑行、R4 Opt-in 橡皮筋越界与 SpringSolver 回弹..." << std::endl;
     auto require = [](bool cond, const char* msg) {
         if (!cond) {
             std::cerr << "FAILED: " << msg << std::endl;
@@ -459,9 +459,65 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
         }
     };
 
+    struct VirtualClockGuard {
+        VirtualClockGuard() { FrameClock::global().enable_virtual_time(100.0); }
+        ~VirtualClockGuard() { FrameClock::global().disable_virtual_time(); }
+    } vclock_guard;
+
     SmoothScrollPhysics p;
     p.set_viewport_extent(500.0f);
     p.set_max_scroll(1200.0f);
+
+    // 0. 默认禁用 (rubber_band_overscroll == false): 严格钳制在 [0, max_scroll]
+    require(!p.is_rubber_band_enabled() && !p.rubber_band_enabled(), "rubber_band default false");
+    p.jump_to(0.0f);
+    p.begin_touch_drag();
+    p.apply_touch_drag_with_dt(150.0f, 0.016);
+    require(p.offset() == 0.0f && p.overscroll_amount() == 0.0f && !p.is_bouncing(),
+            "disabled top drag clamped to 0");
+    p.end_touch_drag_for_test(0.0);
+    require(!p.is_bouncing() && p.offset() == 0.0f, "disabled top release no bounce");
+
+    p.jump_to(1200.0f);
+    p.begin_touch_drag();
+    p.apply_touch_drag_with_dt(-150.0f, 0.016);
+    require(p.offset() == 1200.0f && p.overscroll_amount() == 0.0f && !p.is_bouncing(),
+            "disabled bottom drag clamped to max_scroll");
+    p.end_touch_drag_for_test(0.0);
+    require(!p.is_bouncing() && p.offset() == 1200.0f, "disabled bottom release no bounce");
+
+    p.jump_to(0.0f);
+    p.add_wheel_delta(-360.0f);
+    for (int i = 0; i < 40; ++i) {
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+        p.update();
+        require(p.offset() >= 0.0f && p.offset() <= 1200.0f && p.overscroll_amount() == 0.0f,
+                "disabled wheel top clamped");
+    }
+    p.jump_to(1200.0f);
+    p.add_wheel_delta(360.0f);
+    for (int i = 0; i < 40; ++i) {
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+        p.update();
+        require(p.offset() >= 0.0f && p.offset() <= 1200.0f && p.overscroll_amount() == 0.0f,
+                "disabled wheel bottom clamped");
+    }
+
+    p.jump_to(1050.0f);
+    p.begin_touch_drag();
+    for (int i = 0; i < 4; ++i) {
+        p.apply_touch_drag_with_dt(-30.0f, 0.016);
+    }
+    p.end_touch_drag_for_test(0.0);
+    for (int i = 0; i < 200 && p.step_touch_for_test(0.016); ++i) {
+        require(p.offset() <= 1200.0f && p.overscroll_amount() == 0.0f && !p.is_bouncing(),
+                "disabled boundary fling clamped at max_scroll");
+    }
+
+    // 显式开启 R4 Opt-in 橡皮筋越界回弹
+    p.set_rubber_band_enabled(true);
+    require(p.is_rubber_band_enabled() && p.rubber_band_enabled(), "rubber_band enabled");
+    p.jump_to(0.0f);
 
     // 1. 快速上滑 + 抬手前补发 0 位移事件，仍应触发强劲惯性滑行
     p.begin_touch_drag();
@@ -478,32 +534,36 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
     require(p.offset() > pos_at_lift + 300.0f, "fling glided > 300px");
     require(!p.is_animating(), "fling settled");
 
-    // 2. 顶部下拉越界橡皮筋阻力 + 放手弹性回弹至 0
+    // 2. 顶部下拉越界橡皮筋公式 f(x)=(x*d*c)/(d+c*x) + 放手 SpringSolver 回弹至 0
+    constexpr float d = 500.0f;
+    constexpr float c = 0.55f;
+    constexpr float expected_150 = (150.0f * d * c) / (d + c * 150.0f);
+
     p.jump_to(0.0f);
     p.begin_touch_drag();
     for (int i = 0; i < 5; ++i) {
         p.apply_touch_drag_with_dt(30.0f, 0.016); // 总下拉 150px
     }
-    require(p.offset() < -20.0f && p.offset() > -140.0f, "top rubber band stretch");
+    require(std::abs((-p.offset()) - expected_150) < 1e-4f, "top rubber band matches hyperbolic formula within 1e-4");
     require(p.overscroll_amount() < -20.0f, "top overscroll_amount < -20");
     p.end_touch_drag_for_test(0.0);
     require(p.is_bouncing() && p.is_animating(), "top bounce started");
     for (int i = 0; i < 120 && p.step_touch_for_test(0.016); ++i) {}
     require(std::abs(p.offset()) < 0.5f && !p.is_bouncing(), "top bounce settled at 0");
 
-    // 3. 底部上拉越界橡皮筋阻力 + 放手弹性回弹至 max_scroll
+    // 3. 底部上拉越界橡皮筋公式 + 放手 SpringSolver 回弹至 max_scroll
     p.jump_to(1200.0f);
     p.begin_touch_drag();
     for (int i = 0; i < 5; ++i) {
         p.apply_touch_drag_with_dt(-30.0f, 0.016);
     }
-    require(p.offset() > 1220.0f && p.offset() < 1350.0f, "bottom rubber band stretch");
+    require(std::abs((p.offset() - 1200.0f) - expected_150) < 1e-4f, "bottom rubber band matches hyperbolic formula within 1e-4");
     p.end_touch_drag_for_test(0.0);
     require(p.is_bouncing(), "bottom bounce started");
     for (int i = 0; i < 120 && p.step_touch_for_test(0.016); ++i) {}
     require(std::abs(p.offset() - 1200.0f) < 0.5f && !p.is_bouncing(), "bottom bounce settled at max");
 
-    // 4. 高速惯性撞击底边 -> 过冲并弹回 max_scroll
+    // 4. 高速惯性撞击底边 -> 过冲并经 SpringSolver 弹回 max_scroll
     p.jump_to(1050.0f);
     p.begin_touch_drag();
     for (int i = 0; i < 4; ++i) {
@@ -525,7 +585,324 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
     p.end_touch_drag_for_test(0.12);
     require(!p.is_flinging(), "pause before lift suppresses fling");
 
-    std::cout << "  -> 移动端触控惯性、顶底橡皮筋越界与撞边弹性回弹全部验证通过！" << std::endl;
+    // 6. 滚轮输入越界橡皮筋 + 自动过渡 SpringSolver 回弹
+    p.jump_to(0.0f);
+    p.add_wheel_delta(-36.0f); // -100px
+    const float expected_wheel_100 = (100.0f * d * c) / (d + c * 100.0f);
+    require(std::abs((-p.target()) - expected_wheel_100) < 1e-4f, "wheel top overscroll target matches f(x)");
+    bool saw_wheel_overscroll = false;
+    bool saw_wheel_bounce = false;
+    for (int i = 0; i < 120; ++i) {
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+        bool active = p.update();
+        if (p.offset() < -10.0f) saw_wheel_overscroll = true;
+        if (p.is_bouncing()) saw_wheel_bounce = true;
+        if (!active && !p.is_bouncing()) break;
+    }
+    require(saw_wheel_overscroll && saw_wheel_bounce, "wheel overscroll transitioned to SpringSolver bounce");
+    require(std::abs(p.offset()) < 0.5f && !p.is_bouncing(), "wheel overscroll settled at 0");
+
+    // 7. 运行时关闭 rubber_band_overscroll 立即复位
+    p.jump_to(0.0f);
+    p.begin_touch_drag();
+    p.apply_touch_drag_with_dt(80.0f, 0.016);
+    p.end_touch_drag_for_test(0.0);
+    require(p.is_bouncing() && p.offset() < -10.0f, "bouncing before disable");
+    p.set_rubber_band_enabled(false);
+    require(!p.is_bouncing() && p.offset() == 0.0f && p.overscroll_amount() == 0.0f, "disable mid-bounce clamps immediately");
+
+    // 8. ScrollView, VirtualList, DataGrid 默认禁用 vs Opt-in 行为验证
+    auto run_touch_drag_past_top = [](RenderBox& node) {
+        PointerEvent down(PlatformEventType::PointerDown, PointF{100.0f, 100.0f}, PointerButton::Primary);
+        down.position = PointF{100.0f, 100.0f};
+        down.device_kind = PointerDeviceKind::Touch;
+        if (node.on_pointer_preview) node.on_pointer_preview(down);
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+
+        PointerEvent move1(PlatformEventType::PointerMove, PointF{100.0f, 160.0f}, PointerButton::Primary);
+        move1.position = PointF{100.0f, 160.0f};
+        move1.device_kind = PointerDeviceKind::Touch;
+        if (node.on_pointer_preview) node.on_pointer_preview(move1);
+        FrameClock::global().advance_virtual(1.0f / 60.0f);
+
+        PointerEvent move2(PlatformEventType::PointerMove, PointF{100.0f, 200.0f}, PointerButton::Primary);
+        move2.position = PointF{100.0f, 200.0f};
+        move2.device_kind = PointerDeviceKind::Touch;
+        if (node.on_pointer_move) node.on_pointer_move(move2);
+    };
+    auto release_touch = [](RenderBox& node) {
+        PointerEvent up(PlatformEventType::PointerUp, PointF{100.0f, 200.0f}, PointerButton::Primary);
+        up.position = PointF{100.0f, 200.0f};
+        up.device_kind = PointerDeviceKind::Touch;
+        if (node.on_pointer_up) node.on_pointer_up(up);
+    };
+
+    PaintContext headless_ctx(nullptr);
+    const float expected_container_100 = (100.0f * 300.0f * 0.55f) / (300.0f + 0.55f * 100.0f);
+
+    // 8a. ScrollView
+    {
+        WidgetPtr sv_default_w = ScrollView{ .width = 300.0f, .height = 300.0f, .child = Box{ .height = 900.0f } };
+        auto sv_def = std::static_pointer_cast<RenderScrollView>(sv_default_w->create_render_node());
+        require(!sv_def->is_rubber_band_enabled(), "ScrollView default rubber_band false");
+        sv_def->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+        run_touch_drag_past_top(*sv_def);
+        require(sv_def->scroll_offset() == 0.0f, "ScrollView disabled clamps to 0");
+        release_touch(*sv_def);
+
+        WidgetPtr sv_rb_w = ScrollView{ .width = 300.0f, .height = 300.0f, .child = Box{ .height = 900.0f } }.rubber_band(true);
+        auto sv_rb = std::static_pointer_cast<RenderScrollView>(sv_rb_w->create_render_node());
+        require(sv_rb->is_rubber_band_enabled(), "ScrollView builder rubber_band(true) wired");
+        sv_rb->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+        run_touch_drag_past_top(*sv_rb);
+        require(std::abs((-sv_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                "ScrollView top overscroll matches f(x) with viewport extent 300");
+        release_touch(*sv_rb);
+        for (int i = 0; i < 90; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            sv_rb->paint(headless_ctx);
+        }
+        require(std::abs(sv_rb->scroll_offset()) < 0.5f, "ScrollView rebounded to 0");
+    }
+
+    // 8b. VirtualList
+    {
+        auto item_fn = [](size_t idx) -> WidgetPtr {
+            return Text{ .text = "Item " + std::to_string(idx) };
+        };
+        WidgetPtr vl_default_w = VirtualList{ .item_count = 40, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn };
+        auto vl_def = std::static_pointer_cast<RenderVirtualList>(vl_default_w->create_render_node());
+        require(!vl_def->is_rubber_band_enabled(), "VirtualList default rubber_band false");
+        vl_def->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+        run_touch_drag_past_top(*vl_def);
+        require(vl_def->scroll_offset() == 0.0f, "VirtualList disabled clamps to 0");
+        release_touch(*vl_def);
+
+        WidgetPtr vl_rb_w = VirtualList{ .item_count = 40, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn, .rubber_band_overscroll = true };
+        auto vl_rb = std::static_pointer_cast<RenderVirtualList>(vl_rb_w->create_render_node());
+        require(vl_rb->is_rubber_band_enabled(), "VirtualList designated init rubber_band_overscroll wired");
+        vl_rb->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+        run_touch_drag_past_top(*vl_rb);
+        require(std::abs((-vl_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                "VirtualList top overscroll matches f(x) with viewport extent 300");
+        release_touch(*vl_rb);
+        for (int i = 0; i < 90; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            vl_rb->paint(headless_ctx);
+        }
+        require(std::abs(vl_rb->scroll_offset()) < 0.5f, "VirtualList rebounded to 0");
+    }
+
+    // 8c. DataGrid (header height = 36.0f -> height 336.0f gives body_h = 300.0f)
+    {
+        std::vector<DataGridColumn> cols = { {"Name", 150.0f}, {"Value", 150.0f} };
+        std::vector<std::vector<std::string>> rows;
+        for (int i = 0; i < 40; ++i) rows.push_back({ "Row " + std::to_string(i), std::to_string(i * 10) });
+
+        WidgetPtr dg_default_w = DataGrid{ .columns = cols, .rows = rows, .row_height = 34.0f, .width = 300.0f, .height = 336.0f };
+        auto dg_def = std::static_pointer_cast<RenderDataGrid>(dg_default_w->create_render_node());
+        require(!dg_def->is_rubber_band_enabled(), "DataGrid default rubber_band false");
+        dg_def->layout(BoxConstraints::tight(Vec2{300.0f, 336.0f}));
+        run_touch_drag_past_top(*dg_def);
+        require(dg_def->scroll_offset() == 0.0f, "DataGrid disabled clamps to 0");
+        release_touch(*dg_def);
+
+        WidgetPtr dg_rb_w = DataGrid{ .columns = cols, .rows = rows, .row_height = 34.0f, .width = 300.0f, .height = 336.0f, .rubber_band_overscroll = true };
+        auto dg_rb = std::static_pointer_cast<RenderDataGrid>(dg_rb_w->create_render_node());
+        require(dg_rb->is_rubber_band_enabled(), "DataGrid designated init rubber_band_overscroll wired");
+        dg_rb->layout(BoxConstraints::tight(Vec2{300.0f, 336.0f}));
+        run_touch_drag_past_top(*dg_rb);
+        require(std::abs((-dg_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                "DataGrid top overscroll matches f(x) with body viewport extent 300");
+        release_touch(*dg_rb);
+        for (int i = 0; i < 90; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            dg_rb->paint(headless_ctx);
+        }
+        require(std::abs(dg_rb->scroll_offset()) < 0.5f, "DataGrid rebounded to 0");
+    }
+
+    // 9. Regression: RenderVirtualList::set_rubber_band_enabled(false) mid-overscroll + paint() syncs child offsets without layout()
+    {
+        auto item_fn = [](size_t idx) -> WidgetPtr {
+            return Text{ .text = "Row " + std::to_string(idx) };
+        };
+        auto min_child_y = [](RenderVirtualList& vl) {
+            float min_y = 1e9f;
+            for (RenderNode* c = vl.first_child(); c != nullptr; c = c->next_sibling()) {
+                if (auto* b = c->as_render_box()) {
+                    min_y = std::min(min_y, b->offset().y);
+                }
+            }
+            return min_y;
+        };
+
+        WidgetPtr vl_w = VirtualList{ .item_count = 40, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn, .rubber_band_overscroll = true };
+        auto vl = std::static_pointer_cast<RenderVirtualList>(vl_w->create_render_node());
+        vl->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+        run_touch_drag_past_top(*vl);
+        require(std::abs((-vl->scroll_offset()) - expected_container_100) < 1e-4f,
+                "VirtualList overscrolled before disable");
+        require(std::abs(min_child_y(*vl) - expected_container_100) < 1e-3f,
+                "VirtualList child 0 shifted during overscroll");
+
+        // Disable via set_rubber_band_enabled(false) and paint() WITHOUT calling layout()
+        vl->set_rubber_band_enabled(false);
+        vl->paint(headless_ctx);
+        require(vl->scroll_offset() == 0.0f, "VirtualList scroll_offset clamped on disable");
+        require(std::abs(min_child_y(*vl)) < 1e-4f,
+                "VirtualList child offsets must resync on disable + paint without layout");
+        release_touch(*vl);
+
+        // Also verify update_render_node(false) + paint() without layout()
+        VirtualListWidget desc_on(VirtualList{ .item_count = 40, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn, .rubber_band_overscroll = true });
+        desc_on.update_render_node(vl);
+        run_touch_drag_past_top(*vl);
+        require(min_child_y(*vl) > 20.0f, "VirtualList re-overscrolled after update_render_node(true)");
+        VirtualListWidget desc_off(VirtualList{ .item_count = 40, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn, .rubber_band_overscroll = false });
+        desc_off.update_render_node(vl);
+        vl->paint(headless_ctx);
+        require(vl->scroll_offset() == 0.0f && std::abs(min_child_y(*vl)) < 1e-4f,
+                "VirtualList child offsets resynced via update_render_node(false) + paint without layout");
+        release_touch(*vl);
+    }
+
+    // 10. Regression: ScrollView, VirtualList, DataGrid with max_scroll == 0 (short content)
+    //     default disabled = strict no-op; enabled = touch & wheel overscroll + rebound
+    {
+        auto send_wheel = [](RenderBox& node, float delta_y) {
+            PointerEvent wheel(PlatformEventType::PointerScroll, PointF{100.0f, 100.0f}, PointerButton::None);
+            wheel.position = PointF{100.0f, 100.0f};
+            wheel.delta = PointF{0.0f, delta_y};
+            if (node.on_pointer_move) node.on_pointer_move(wheel);
+        };
+
+        // 10a. ScrollView (content height 100 < viewport 300 => max_scroll == 0)
+        {
+            WidgetPtr sv_def_w = ScrollView{ .width = 300.0f, .height = 300.0f, .child = Box{ .height = 100.0f } };
+            auto sv_def = std::static_pointer_cast<RenderScrollView>(sv_def_w->create_render_node());
+            sv_def->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+            require(sv_def->max_scroll() == 0.0f, "ScrollView short content max_scroll == 0");
+            run_touch_drag_past_top(*sv_def);
+            require(sv_def->scroll_offset() == 0.0f, "ScrollView max_scroll==0 disabled touch no-op");
+            release_touch(*sv_def);
+            send_wheel(*sv_def, -36.0f);
+            for (int i = 0; i < 20; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                sv_def->paint(headless_ctx);
+                require(sv_def->scroll_offset() == 0.0f, "ScrollView max_scroll==0 disabled wheel no-op");
+            }
+
+            WidgetPtr sv_rb_w = ScrollView{ .width = 300.0f, .height = 300.0f, .child = Box{ .height = 100.0f }, .rubber_band_overscroll = true };
+            auto sv_rb = std::static_pointer_cast<RenderScrollView>(sv_rb_w->create_render_node());
+            sv_rb->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+            run_touch_drag_past_top(*sv_rb);
+            require(std::abs((-sv_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                    "ScrollView max_scroll==0 enabled touch overscrolls");
+            release_touch(*sv_rb);
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                sv_rb->paint(headless_ctx);
+            }
+            require(std::abs(sv_rb->scroll_offset()) < 0.5f, "ScrollView max_scroll==0 touch rebounds to 0");
+
+            send_wheel(*sv_rb, -36.0f);
+            float min_wheel = 0.0f;
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                sv_rb->paint(headless_ctx);
+                min_wheel = std::min(min_wheel, sv_rb->scroll_offset());
+            }
+            require(min_wheel < -10.0f && std::abs(sv_rb->scroll_offset()) < 0.5f,
+                    "ScrollView max_scroll==0 enabled wheel overscrolls and rebounds");
+        }
+
+        // 10b. VirtualList (3 items * 36 = 108 < viewport 300 => max_scroll == 0)
+        {
+            auto item_fn = [](size_t idx) -> WidgetPtr { return Text{ .text = "Short " + std::to_string(idx) }; };
+            WidgetPtr vl_def_w = VirtualList{ .item_count = 3, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn };
+            auto vl_def = std::static_pointer_cast<RenderVirtualList>(vl_def_w->create_render_node());
+            vl_def->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+            require(vl_def->max_scroll() == 0.0f, "VirtualList short content max_scroll == 0");
+            run_touch_drag_past_top(*vl_def);
+            require(vl_def->scroll_offset() == 0.0f, "VirtualList max_scroll==0 disabled touch no-op");
+            release_touch(*vl_def);
+            send_wheel(*vl_def, -36.0f);
+            for (int i = 0; i < 20; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                vl_def->paint(headless_ctx);
+                require(vl_def->scroll_offset() == 0.0f, "VirtualList max_scroll==0 disabled wheel no-op");
+            }
+
+            WidgetPtr vl_rb_w = VirtualList{ .item_count = 3, .item_height = 36.0f, .width = 300.0f, .height = 300.0f, .item_builder = item_fn, .rubber_band_overscroll = true };
+            auto vl_rb = std::static_pointer_cast<RenderVirtualList>(vl_rb_w->create_render_node());
+            vl_rb->layout(BoxConstraints::tight(Vec2{300.0f, 300.0f}));
+            run_touch_drag_past_top(*vl_rb);
+            require(std::abs((-vl_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                    "VirtualList max_scroll==0 enabled touch overscrolls");
+            release_touch(*vl_rb);
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                vl_rb->paint(headless_ctx);
+            }
+            require(std::abs(vl_rb->scroll_offset()) < 0.5f, "VirtualList max_scroll==0 touch rebounds to 0");
+
+            send_wheel(*vl_rb, 36.0f); // bottom overscroll on short list
+            float max_wheel = 0.0f;
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                vl_rb->paint(headless_ctx);
+                max_wheel = std::max(max_wheel, vl_rb->scroll_offset());
+            }
+            require(max_wheel > 10.0f && std::abs(vl_rb->scroll_offset()) < 0.5f,
+                    "VirtualList max_scroll==0 enabled wheel overscrolls and rebounds");
+        }
+
+        // 10c. DataGrid (3 rows * 34 = 102 < body_h 300 => max_scroll == 0)
+        {
+            std::vector<DataGridColumn> cols = { {"Name", 150.0f}, {"Value", 150.0f} };
+            std::vector<std::vector<std::string>> rows = { {"R0", "0"}, {"R1", "10"}, {"R2", "20"} };
+
+            WidgetPtr dg_def_w = DataGrid{ .columns = cols, .rows = rows, .row_height = 34.0f, .width = 300.0f, .height = 336.0f };
+            auto dg_def = std::static_pointer_cast<RenderDataGrid>(dg_def_w->create_render_node());
+            dg_def->layout(BoxConstraints::tight(Vec2{300.0f, 336.0f}));
+            require(dg_def->max_scroll() == 0.0f, "DataGrid short content max_scroll == 0");
+            run_touch_drag_past_top(*dg_def);
+            require(dg_def->scroll_offset() == 0.0f, "DataGrid max_scroll==0 disabled touch no-op");
+            release_touch(*dg_def);
+            send_wheel(*dg_def, -36.0f);
+            for (int i = 0; i < 20; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                dg_def->paint(headless_ctx);
+                require(dg_def->scroll_offset() == 0.0f, "DataGrid max_scroll==0 disabled wheel no-op");
+            }
+
+            WidgetPtr dg_rb_w = DataGrid{ .columns = cols, .rows = rows, .row_height = 34.0f, .width = 300.0f, .height = 336.0f, .rubber_band_overscroll = true };
+            auto dg_rb = std::static_pointer_cast<RenderDataGrid>(dg_rb_w->create_render_node());
+            dg_rb->layout(BoxConstraints::tight(Vec2{300.0f, 336.0f}));
+            run_touch_drag_past_top(*dg_rb);
+            require(std::abs((-dg_rb->scroll_offset()) - expected_container_100) < 1e-4f,
+                    "DataGrid max_scroll==0 enabled touch overscrolls");
+            release_touch(*dg_rb);
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                dg_rb->paint(headless_ctx);
+            }
+            require(std::abs(dg_rb->scroll_offset()) < 0.5f, "DataGrid max_scroll==0 touch rebounds to 0");
+
+            send_wheel(*dg_rb, -36.0f);
+            float min_wheel = 0.0f;
+            for (int i = 0; i < 90; ++i) {
+                FrameClock::global().advance_virtual(1.0f / 60.0f);
+                dg_rb->paint(headless_ctx);
+                min_wheel = std::min(min_wheel, dg_rb->scroll_offset());
+            }
+            require(min_wheel < -10.0f && std::abs(dg_rb->scroll_offset()) < 0.5f,
+                    "DataGrid max_scroll==0 enabled wheel overscrolls and rebounds");
+        }
+    }
+
+    std::cout << "  -> 移动端触控惯性、R4 Opt-in 橡皮筋越界、SpringSolver 回弹与三容器验证全部通过！" << std::endl;
 }
 
 void test_touch_long_press_synthesizes_secondary_click() {

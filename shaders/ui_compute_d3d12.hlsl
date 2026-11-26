@@ -21,7 +21,7 @@ KT_BINDING(5) SamplerState atlas_sampler : register(s0);
 KT_BINDING(6) RWTexture2D<float4> output : register(u0);
 KT_BINDING(7) cbuffer Frame : register(b0) {
     uint2 extent;
-    uint tile_count, groups_x, clip_count, mica_enabled, pad0, pad1;
+    uint tile_count, groups_x, clip_count, mica_enabled, render_flags, pad1;
     uint4 mica_grid[4];
 };
 KT_BINDING(8) Texture2D<float4> color_atlas : register(t5);
@@ -47,12 +47,41 @@ float4 sample_mica(float2 p) {
     return lerp(lerp(c00, c10, f.x), lerp(c01, c11, f.x), f.y);
 }
 
+// Apple G2 连续曲率超椭圆圆角 SDF (与 CpuTileRasterizer / WGSL 严格一致)
+// 常规圆角采用 L4 超椭圆 (1.35x 延伸 + 一阶梯度归一化，零折痕等宽描边)；圆形/胶囊 (r/min_half >= 0.90) 平滑保持正圆
 float box_distance(float2 p, float4 bounds, float4 radii) {
+    float2 half_size = (bounds.zw - bounds.xy) * 0.5;
     float2 delta = p - (bounds.xy + bounds.zw) * 0.5;
-    float radius = delta.x > 0 ? (delta.y > 0 ? radii.z : radii.y)
-                               : (delta.y > 0 ? radii.w : radii.x);
-    float2 q = abs(delta) - (bounds.zw - bounds.xy) * 0.5 + radius;
-    return length(max(q, 0)) + min(max(q.x, q.y), 0) - radius;
+    float raw_r = delta.x > 0 ? (delta.y > 0 ? radii.z : radii.y)
+                              : (delta.y > 0 ? radii.w : radii.x);
+    float2 ad = abs(delta);
+    float min_half = min(half_size.x, half_size.y);
+    float r = clamp(raw_r, 0.0, min_half);
+    float2 q2 = ad - half_size + r;
+    float d_circle = length(max(q2, 0.0)) + min(max(q2.x, q2.y), 0.0) - r;
+    if (r <= 0.001) return d_circle;
+
+    float ratio = r / max(min_half, 1e-4);
+    float squircle_t = saturate((0.90 - ratio) * 4.0);
+    if (squircle_t <= 0.001) return d_circle;
+
+    float r_eff = min(min_half, r * 1.35);
+    float2 q4 = ad - half_size + r_eff;
+    float d_squircle;
+    if (q4.x > 0.0 && q4.y > 0.0) {
+        float2 uv = q4 / r_eff;
+        float2 uv2 = uv * uv;
+        float2 uv4 = uv2 * uv2;
+        float s4 = uv4.x + uv4.y;
+        float s2 = sqrt(s4);
+        float d4 = sqrt(s2);
+        float denom = s2 * d4;
+        float grad = (denom > 1e-6) ? (sqrt(uv4.x * uv2.x + uv4.y * uv2.y) / denom) : 1.0;
+        d_squircle = (d4 - 1.0) * r_eff / max(grad, 0.5);
+    } else {
+        d_squircle = max(q4.x, q4.y) - r_eff;
+    }
+    return lerp(d_circle, d_squircle, squircle_t);
 }
 
 // Abramowitz & Stegun 7.1.27 四阶有理近似 (与 CpuTileRasterizer::erf_approx 严格一致，无 exp() 开销，最大误差 ~0.21 LSB)
@@ -106,7 +135,7 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
         for (uint i = 0; i < count; ++i) {
             Primitive prim = primitives[tile_indices[i]];
             if (clipped(p, prim.flags_clip >> 16u)) continue;
-            if (prim.effects.y > 0) {
+            if ((prim.flags_clip & 0x0202u) == 0u && prim.effects.y > 0) {
                 float2 origin = float2(prim.effects.w, prim.shadow_y);
                 float spread = prim.effects.z, sigma = prim.effects.y * sqrt(2.0);
                 float2 amount = (erf_approx((p - prim.bounds.xy - origin + spread) / sigma) -
@@ -127,6 +156,55 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
                 } else {
                     source = float4(0, 0, 0, 0);
                 }
+            } else if (prim.flags_clip & 512u) {
+                source = float4(0, 0, 0, 0);
+                float reveal_radius = prim.effects.y;
+                if (reveal_radius > 0.001 && all(p >= prim.bounds.xy) && all(p <= prim.bounds.zw)) {
+                    float dist = length(p - float2(prim.effects.w, prim.shadow_y));
+                    if (dist < reveal_radius) {
+                        float u = saturate(1.0 - dist / reveal_radius);
+                        float radial = u * u;
+                        float4 eval_bounds = prim.bounds;
+                        float4 eval_radii = prim.radii;
+                        uint clip_idx = prim.flags_clip >> 16u;
+                        if (clip_idx != 65535u && clip_idx < clip_count) {
+                            Clip c = clips[clip_idx];
+                            if ((c.flags & 1u) != 0u) {
+                                eval_bounds = c.bounds;
+                                eval_radii = c.radius.xxxx;
+                            }
+                        }
+                        float d = box_distance(p, eval_bounds, eval_radii);
+                        if (prim.effects.x > 0.0 || (prim.flags_clip & 4u) != 0u) {
+                            float bw = (prim.effects.x > 0.0) ? prim.effects.x : 1.0;
+                            float half_border = bw * 0.5;
+                            d = abs(d + half_border) - half_border;
+                        }
+                        float geom_cov = saturate(0.5 - d);
+                        float intensity = (prim.effects.z > 0.0) ? prim.effects.z : 1.0;
+                        float cov = saturate(geom_cov * radial * intensity);
+                        source = prim.color * cov;
+                    }
+                }
+            } else if ((prim.flags_clip & 2u) != 0u && (prim.flags_clip & 16u) == 0u) {
+                float2 g0 = float2(prim.effects.w, prim.shadow_y);
+                float2 g1 = float2(prim.effects.y, prim.effects.z);
+                float2 gdir = g1 - g0;
+                float len2 = dot(gdir, gdir);
+                if (len2 <= 1e-6) {
+                    g0 = prim.bounds.xy;
+                    gdir = float2(0.0, prim.bounds.w - prim.bounds.y);
+                    len2 = dot(gdir, gdir);
+                }
+                float t = (len2 > 1e-6) ? saturate(dot(p - g0, gdir) / len2) : 0.0;
+                float4 c1 = float4(
+                    float(prim.uv_min & 65535u),
+                    float(prim.uv_min >> 16u),
+                    float(prim.uv_max & 65535u),
+                    float(prim.uv_max >> 16u)
+                ) / 65535.0;
+                float4 base_color = lerp(prim.color, c1, t);
+                source = base_color * coverage(p, prim);
             } else {
                 source = prim.color * coverage(p, prim);
             }
@@ -134,5 +212,12 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
         }
         GroupMemoryBarrierWithGroupSync();
     }
+    if ((render_flags & 1u) != 0u && color.a > 0.0) {
+        float ign = frac(52.9829189 * frac(dot(float2(pixel), float2(0.06711056, 0.00583715))));
+        color.rgb = saturate(color.rgb + (ign - 0.5) / 255.0);
+    }
+    #if defined(KT_VULKAN)
+    color = round(saturate(color) * 255.0) / 255.0;
+    #endif
     if (all(pixel < extent)) output[pixel] = color;
 }

@@ -56,6 +56,18 @@ int main() {
     assert(evaluate_coverage(+1.0f) == 0.0f);
     assert(evaluate_coverage(-0.25f) == 0.75f);
 
+    // 6. Apple G2 连续超椭圆圆角 (sd_squircle_box) 测试
+    // 6a. 直边中点距离必须为 0
+    assert(std::abs(sd_squircle_box(Vec2{150.0f, 100.0f}, center, half_size, CornerRadii{10.0f})) < 1e-4f);
+    // 6b. 常规圆角 (r=10, min_half=30, ratio=0.333) 的 45° 角点比普通圆角更饱满（超椭圆边界在圆角外部）
+    Vec2 sq_corner_diag = center + Vec2{50.0f - 10.0f + 10.0f * 0.70710678f, 30.0f - 10.0f + 10.0f * 0.70710678f};
+    float d_sq_on_circle = sd_squircle_box(sq_corner_diag, center, half_size, CornerRadii{10.0f});
+    assert(d_sq_on_circle < -0.2f); // 位于超椭圆内部，比普通圆弧更柔和饱满
+    // 6c. 满半径正圆 (20x20, r=10, ratio=1.0) 必须严格保持 L2 正圆不变形
+    Vec2 circle_c{50.0f, 50.0f};
+    Vec2 circle_pt = circle_c + Vec2{10.0f * 0.70710678f, 10.0f * 0.70710678f};
+    assert(std::abs(sd_squircle_box(circle_pt, circle_c, Vec2{10.0f, 10.0f}, CornerRadii{10.0f})) < 1e-4f);
+
     std::cout << "[TEST] test_sdf PASSED successfully!" << std::endl;
     return 0;
 }

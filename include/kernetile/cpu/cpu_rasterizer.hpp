@@ -43,6 +43,7 @@ public:
         uint32_t                           thread_count{0}; // 0 代表自适应计算
         bool                               mica_enabled{false};
         std::array<uint32_t, 16>           mica_grid{};
+        bool                               enable_dithering{false};
     };
 
     // 执行纯 CPU 瓦片光栅化渲染，写出至 RGBA8 帧缓冲区
@@ -69,7 +70,8 @@ public:
         const std::array<uint32_t, 16>* mica_grid = nullptr,
         const uint8_t* color_atlas_pixels = nullptr,
         uint32_t color_atlas_width = 0,
-        uint32_t color_atlas_height = 0);
+        uint32_t color_atlas_height = 0,
+        bool enable_dithering = false);
 
     // 数学内核 (与 Slang / DXIL 着色器完全相同的 Abramowitz & Stegun 系数)
     static float erf_approx(float x) noexcept;

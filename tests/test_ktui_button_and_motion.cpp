@@ -1,3 +1,4 @@
+#include "test_common.hpp"
 #include <ktui/widgets/button.hpp>
 #include <ktui/animation/animation.hpp>
 #include <ktui/tree/render_box.hpp>
@@ -6,8 +7,17 @@
 #include <iostream>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 
 using namespace ktui;
+
+#define KTUI_CHECK(expr)                                                               \
+    do {                                                                               \
+        if (!(expr)) {                                                                 \
+            std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " #expr "\n"; \
+            std::exit(1);                                                              \
+        }                                                                              \
+    } while (0)
 
 // ==================== 1. 动效算法库与按需编译裁剪测试 ====================
 
@@ -114,13 +124,13 @@ void test_button_three_layer_architecture() {
     ButtonInteractiveState state;
     ResolvedButtonStyle style = ButtonStyleResolver::resolve(data, state, dark_theme);
 
-    // 验证桌面高信息密度标准：硬朗微圆角 3px，高度 28px，Accent 色值 (#0086F0)
-    assert(style.corner_radius == 3.0f);
-    assert(style.height == 28.0f);
-    assert(style.font_size == 13.0f);
-    assert(std::abs(style.background.r - 0.0f) < 1e-3f);
-    assert(std::abs(style.background.g - 0.525f) < 1e-3f);
-    assert(std::abs(style.background.b - 0.941f) < 1e-3f);
+    // 验证 WinUI 3 / Fluent 2 桌面标准：微圆角 4px，高度 32px，字号 13.5px，Dark Accent 色值 (#60CDFF)
+    KTUI_CHECK(style.corner_radius == 4.0f);
+    KTUI_CHECK(style.height == 32.0f);
+    KTUI_CHECK(style.font_size == 13.5f);
+    KTUI_CHECK(std::abs(style.background.r - 96.0f / 255.0f) < 1e-3f);
+    KTUI_CHECK(std::abs(style.background.g - 205.0f / 255.0f) < 1e-3f);
+    KTUI_CHECK(std::abs(style.background.b - 255.0f / 255.0f) < 1e-3f);
 
     // 3. 逻辑层 (button_logic.hpp) 验证
     RenderButton btn;
@@ -129,7 +139,7 @@ void test_button_three_layer_architecture() {
     btn.set_size_mode(ButtonSize::Large);
 
     btn.layout(BoxConstraints::loose(Vec2{300.0f, 100.0f}));
-    assert(btn.size().y == 32.0f); // Large 对应 32px
+    KTUI_CHECK(btn.size().y == 36.0f); // Large 对应 36px
 
     std::cout << "  -> 数据/样式/逻辑三层彻底解耦，桌面基准尺寸与主题解析 100% 吻合！" << std::endl;
 }
@@ -222,7 +232,115 @@ void test_button_reactive_bindings() {
     std::cout << "  -> Button 响应式属性绑定单向与双向更新机制验证无误！" << std::endl;
 }
 
+void test_button_pointer_reveal_opt_in_and_gating() {
+    std::cout << "[Test 8] Button Opt-in Pointer Reveal (R3) 默认禁用零抖动与状态门控验证..." << std::endl;
+
+    // 1. Default disabled across ButtonData, Button, RenderButton
+    ButtonData default_data;
+    KTUI_CHECK(default_data.enable_pointer_reveal == false);
+
+    Button default_desc;
+    KTUI_CHECK(default_desc.enable_pointer_reveal == false);
+
+    RenderButton default_btn;
+    KTUI_CHECK(default_btn.pointer_reveal_enabled() == false);
+    default_btn.layout(BoxConstraints::tight(Vec2{160.0f, 36.0f}));
+    default_btn.clear_dirty_recursive();
+
+    // PointerMove when disabled must NOT trigger mark_needs_paint()
+    PointerEvent enter_ev(PlatformEventType::PointerMove, PointF{20.0f, 18.0f});
+    default_btn.on_pointer_enter(enter_ev);
+    default_btn.clear_dirty_recursive();
+
+    PointerEvent mv1(PlatformEventType::PointerMove, PointF{20.0f, 18.0f});
+    mv1.local_position = PointF{20.0f, 18.0f};
+    default_btn.on_pointer_move(mv1);
+    KTUI_CHECK(!default_btn.needs_paint());
+
+    PointerEvent mv1b(PlatformEventType::PointerMove, PointF{40.0f, 20.0f});
+    mv1b.local_position = PointF{40.0f, 20.0f};
+    default_btn.on_pointer_move(mv1b);
+    KTUI_CHECK(!default_btn.needs_paint());
+
+    PointerEvent exit_ev(PlatformEventType::PointerMove, PointF{-10.0f, -10.0f});
+    default_btn.on_pointer_exit(exit_ev);
+    KTUI_CHECK(default_btn.needs_paint()); // hover exit marks paint to clear hover bg
+
+    // 2. Fluent builder (& and &&) and WidgetPtr creation
+    Button lvalue_desc{.text = "Reveal L"};
+    lvalue_desc.pointer_reveal(true);
+    KTUI_CHECK(lvalue_desc.enable_pointer_reveal == true);
+    WidgetPtr l_widget = lvalue_desc;
+    auto l_node = std::static_pointer_cast<RenderButton>(l_widget->create_render_node());
+    KTUI_CHECK(l_node != nullptr && l_node->pointer_reveal_enabled() == true);
+
+    WidgetPtr r_widget = Button{.text = "Reveal R"}.pointer_reveal(true);
+    auto r_node = std::static_pointer_cast<RenderButton>(r_widget->create_render_node());
+    KTUI_CHECK(r_node != nullptr && r_node->pointer_reveal_enabled() == true);
+
+    // 3. Enabled PointerMove marks needs_paint only when position actually changes; Touch is ignored
+    r_node->layout(BoxConstraints::tight(Vec2{160.0f, 36.0f}));
+    r_node->clear_dirty_recursive();
+
+    PointerEvent touch_mv(PlatformEventType::PointerMove, PointF{40.0f, 16.0f});
+    touch_mv.local_position = PointF{40.0f, 16.0f};
+    touch_mv.device_kind = PointerDeviceKind::Touch;
+    r_node->on_pointer_move(touch_mv);
+    KTUI_CHECK(!r_node->needs_paint());
+
+    PointerEvent mouse_mv1(PlatformEventType::PointerMove, PointF{40.0f, 16.0f});
+    mouse_mv1.local_position = PointF{40.0f, 16.0f};
+    r_node->on_pointer_move(mouse_mv1);
+    KTUI_CHECK(r_node->needs_paint());
+
+    // Same position -> zero redundant dirtying
+    r_node->clear_dirty_recursive();
+    r_node->on_pointer_move(mouse_mv1);
+    KTUI_CHECK(!r_node->needs_paint());
+
+    // New position -> marks dirty
+    PointerEvent mouse_mv2(PlatformEventType::PointerMove, PointF{44.0f, 18.0f});
+    mouse_mv2.local_position = PointF{44.0f, 18.0f};
+    r_node->on_pointer_move(mouse_mv2);
+    KTUI_CHECK(r_node->needs_paint());
+
+    // Exit clears reveal and marks dirty once
+    r_node->clear_dirty_recursive();
+    r_node->on_pointer_exit(exit_ev);
+    KTUI_CHECK(r_node->needs_paint());
+    r_node->clear_dirty_recursive();
+    r_node->on_pointer_exit(exit_ev);
+    KTUI_CHECK(!r_node->needs_paint());
+
+    // 4. Disabled & Loading states suppress reveal tracking
+    r_node->set_disabled(true);
+    r_node->clear_dirty_recursive();
+    r_node->on_pointer_move(mouse_mv1);
+    KTUI_CHECK(!r_node->needs_paint());
+    r_node->set_disabled(false);
+
+    r_node->set_loading(true);
+    r_node->clear_dirty_recursive();
+    r_node->on_pointer_move(mouse_mv1);
+    KTUI_CHECK(!r_node->needs_paint());
+    r_node->set_loading(false);
+
+    // 5. Reactive Property binding for pointer reveal
+    Property<bool> reveal_prop(false);
+    WidgetPtr bound_widget = Button{.text = "Bound"}
+        .bind(&RenderButton::set_pointer_reveal_enabled, reveal_prop);
+    auto bound_node = std::static_pointer_cast<RenderButton>(bound_widget->create_render_node());
+    KTUI_CHECK(bound_node != nullptr && !bound_node->pointer_reveal_enabled());
+    reveal_prop.set(true);
+    KTUI_CHECK(bound_node->pointer_reveal_enabled());
+    reveal_prop.set(false);
+    KTUI_CHECK(!bound_node->pointer_reveal_enabled());
+
+    std::cout << "  -> Button Pointer Reveal opt-in、零抖动与禁用/加载门控验证通过！" << std::endl;
+}
+
 int main() {
+    configure_test_environment();
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 动效算法管理器与 Button 三层规范单元测试   " << std::endl;
     std::cout << "==================================================" << std::endl;
@@ -234,6 +352,7 @@ int main() {
     test_button_ripple_delegation_to_motion();
     test_button_keyboard_trigger();
     test_button_reactive_bindings();
+    test_button_pointer_reveal_opt_in_and_gating();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！动效算法管理器与 Button 规范重构 100% 通过!   " << std::endl;

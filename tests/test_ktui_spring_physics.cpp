@@ -1,6 +1,8 @@
 #include <ktui/animation/animation.hpp>
+#include <ktui/widgets/scroll/smooth_scroll_physics.hpp>
 #include <iostream>
 #include <cassert>
+#include <cstdlib>
 #include <vector>
 #include <cmath>
 
@@ -243,6 +245,283 @@ void test_explicit_animation_controller() {
     std::cout << "  -> AnimationController 正向/反向/循环/停止/重置全部通过！" << std::endl;
 }
 
+void test_smooth_scroll_rubber_band_and_spring_handoff() {
+    std::cout << "[Test 8] R4 SmoothScrollPhysics Opt-in 橡皮筋公式与 SpringSolver 速度交接测试..." << std::endl;
+
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    struct VirtualClockGuard {
+        VirtualClockGuard() { FrameClock::global().enable_virtual_time(0.0); }
+        ~VirtualClockGuard() { FrameClock::global().disable_virtual_time(); }
+    } vclock_guard;
+
+    // 1. Default disabled: strict [0, max_scroll] clamping across drag, scroll_to, scroll_by, wheel, fling
+    {
+        SmoothScrollPhysics phys;
+        require(!phys.is_rubber_band_enabled() && !phys.rubber_band_enabled() && !phys.rubber_band_overscroll,
+                "default rubber_band_overscroll must be false");
+        phys.set_viewport_extent(320.0f);
+        phys.set_max_scroll(400.0f);
+
+        phys.scroll_to(-50.0f);
+        require(phys.target() == 0.0f && phys.offset() == 0.0f && phys.overscroll_amount() == 0.0f, "scroll_to(-50) clamped");
+        phys.scroll_to(500.0f);
+        require(phys.target() == 400.0f && phys.overscroll_amount() == 0.0f, "scroll_to(500) target clamped");
+        for (int i = 0; i < 60; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            bool active = phys.update();
+            require(phys.offset() >= 0.0f && phys.offset() <= 400.0f && phys.overscroll_amount() == 0.0f,
+                    "scroll_to(500) offset clamped during animation");
+            if (!active) break;
+        }
+        require(std::abs(phys.offset() - 400.0f) < 1e-3f, "scroll_to(500) settled at 400");
+
+        phys.jump_to(0.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(120.0f, 0.016);
+        require(phys.offset() == 0.0f && phys.overscroll_amount() == 0.0f, "disabled top drag clamped");
+        phys.end_touch_drag_for_test(0.0);
+        require(!phys.is_bouncing(), "disabled top drag release does not bounce");
+
+        phys.jump_to(400.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(-120.0f, 0.016);
+        require(phys.offset() == 400.0f && phys.overscroll_amount() == 0.0f, "disabled bottom drag clamped");
+        phys.end_touch_drag_for_test(0.0);
+        require(!phys.is_bouncing(), "disabled bottom drag release does not bounce");
+    }
+
+    // 2. Exact hyperbolic formula f(x) = (x * d * c) / (d + c * x) for both small (d=80 < 120) and standard (d=400) viewports
+    for (float d : {80.0f, 400.0f}) {
+        constexpr float c = 0.55f;
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(d);
+        phys.set_max_scroll(500.0f);
+
+        for (float x : {25.0f, 100.0f, 250.0f}) {
+            const float expected = (x * d * c) / (d + c * x);
+
+            // Top overscroll
+            phys.jump_to(0.0f);
+            phys.begin_touch_drag();
+            phys.apply_touch_drag_with_dt(x, 0.016);
+            require(std::abs((-phys.offset()) - expected) < 1e-4f,
+                    "top overscroll must match (x*d*c)/(d+c*x) within 1e-4");
+
+            // Bottom overscroll
+            phys.jump_to(500.0f);
+            phys.begin_touch_drag();
+            phys.apply_touch_drag_with_dt(-x, 0.016);
+            require(std::abs((phys.offset() - 500.0f) - expected) < 1e-4f,
+                    "bottom overscroll must match (x*d*c)/(d+c*x) within 1e-4");
+        }
+    }
+
+    // 3. SpringSolver handoff on release: zero-velocity pause release + non-zero velocity release, monotonic rebound
+    {
+        SmoothScrollPhysics phys;
+        phys.rubber_band_overscroll = true; // Direct public field mutation must be honored
+        phys.set_viewport_extent(400.0f);
+        phys.set_max_scroll(500.0f);
+
+        // 3a. Top overscroll with pause (zero initial release velocity)
+        phys.jump_to(0.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(100.0f, 0.016);
+        phys.end_touch_drag_for_test(0.15); // paused > 95ms -> velocity = 0
+        require(phys.is_bouncing(), "top release enters SpringSolver bounce");
+        float prev = phys.offset();
+        require(prev < -40.0f, "top release starts overscrolled");
+        for (int i = 0; i < 120 && phys.step_touch_for_test(1.0 / 60.0); ++i) {
+            float cur = phys.offset();
+            require(cur >= prev - 1e-4f && cur <= 0.5f, "top zero-vel rebound moves monotonically to 0");
+            prev = cur;
+        }
+        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "top zero-vel rebound settled at 0");
+
+        // 3b. Top overscroll with active downward pull velocity (non-zero handoff velocity)
+        phys.jump_to(0.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(60.0f, 0.016);
+        phys.apply_touch_drag_with_dt(60.0f, 0.016);
+        phys.end_touch_drag_for_test(0.0);
+        require(phys.is_bouncing() && phys.velocity() < -50.0f, "non-zero release velocity preserved in SpringSolver handoff");
+        for (int i = 0; i < 180 && phys.step_touch_for_test(1.0 / 60.0); ++i) {
+            require(phys.offset() <= 0.5f, "critically damped handoff does not overshoot past 0");
+        }
+        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "top non-zero-vel rebound settled at 0");
+
+        // 3c. Bottom overscroll monotonic rebound to max_scroll
+        phys.jump_to(500.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(-100.0f, 0.016);
+        phys.end_touch_drag_for_test(0.15);
+        require(phys.is_bouncing(), "bottom release enters SpringSolver bounce");
+        prev = phys.offset();
+        for (int i = 0; i < 120 && phys.step_touch_for_test(1.0 / 60.0); ++i) {
+            float cur = phys.offset();
+            require(cur <= prev + 1e-4f && cur >= 499.5f, "bottom zero-vel rebound moves monotonically to max_scroll");
+            prev = cur;
+        }
+        require(std::abs(phys.offset() - 500.0f) < 1e-3f && !phys.is_bouncing(), "bottom rebound settled at max_scroll");
+    }
+
+    // 4. Mid-rebound touch re-grab continuity (inv_rubber_band roundtrip)
+    {
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(400.0f);
+        phys.set_max_scroll(500.0f);
+        phys.jump_to(0.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(120.0f, 0.016);
+        phys.end_touch_drag_for_test(0.15);
+        for (int i = 0; i < 4; ++i) phys.step_touch_for_test(1.0 / 60.0);
+        float mid_offset = phys.offset();
+        require(mid_offset < -5.0f && phys.is_bouncing(), "still overscrolled mid-rebound");
+
+        phys.begin_touch_drag();
+        require(std::abs(phys.offset() - mid_offset) < 1e-4f, "begin_touch_drag preserves exact visual offset");
+        phys.apply_touch_drag_with_dt(0.0f, 0.016);
+        require(std::abs(phys.offset() - mid_offset) < 1e-3f, "zero-delta re-grab has zero jump via inv_rubber_band");
+        phys.end_touch_drag_for_test(0.0);
+        for (int i = 0; i < 120 && phys.step_touch_for_test(1.0 / 60.0); ++i) {}
+        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "re-grabbed rebound settles cleanly");
+    }
+
+    // 5. Wheel overscroll past top and bottom + automatic SpringSolver rebound
+    {
+        constexpr float d = 400.0f;
+        constexpr float c = 0.55f;
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(d);
+        phys.set_max_scroll(500.0f);
+
+        // Top wheel overscroll
+        phys.jump_to(0.0f);
+        phys.add_wheel_delta(-36.0f); // -100px
+        const float expected_100 = (100.0f * d * c) / (d + c * 100.0f);
+        require(std::abs((-phys.target()) - expected_100) < 1e-4f, "wheel top overscroll target matches f(100)");
+        for (int i = 0; i < 120; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            if (!phys.update() && !phys.is_bouncing()) break;
+        }
+        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "wheel top overscroll settles at 0");
+
+        // Bottom wheel overscroll
+        phys.jump_to(500.0f);
+        phys.add_wheel_delta(36.0f); // +100px
+        require(std::abs((phys.target() - 500.0f) - expected_100) < 1e-4f, "wheel bottom overscroll target matches f(100)");
+        bool saw_bottom_overscroll = false;
+        for (int i = 0; i < 120; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            bool active = phys.update();
+            if (phys.offset() > 510.0f) saw_bottom_overscroll = true;
+            if (!active && !phys.is_bouncing()) break;
+        }
+        require(saw_bottom_overscroll, "wheel bottom overscroll exceeded max_scroll");
+        require(std::abs(phys.offset() - 500.0f) < 1e-3f && !phys.is_bouncing(), "wheel bottom overscroll settles at 500");
+    }
+
+    // 6. Regression: set_max_scroll shrinking mid-bounce rebinds SpringSolver cleanly and never settles out of bounds
+    {
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(400.0f);
+        phys.set_max_scroll(500.0f);
+        phys.jump_to(500.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(-120.0f, 0.016);
+        phys.end_touch_drag_for_test(0.15);
+        require(phys.is_bouncing() && phys.offset() > 530.0f, "bouncing past old bottom 500 before shrink");
+
+        phys.set_max_scroll(300.0f);
+        require(phys.is_bouncing(), "still bouncing toward new max_scroll 300");
+        for (int i = 0; i < 180 && phys.step_touch_for_test(1.0 / 60.0); ++i) {}
+        require(!phys.is_bouncing() && std::abs(phys.offset() - 300.0f) < 1e-3f,
+                "shrinking max_scroll mid-bounce must settle at 300, not old 500");
+        require(phys.target() <= 300.0f && phys.offset() <= 300.5f, "offset and target remain within new max_scroll");
+    }
+
+    // 7. Regression: sub-0.1px scroll_by at boundaries preserves f(x) target and settles cleanly
+    {
+        constexpr float d = 400.0f;
+        constexpr float c = 0.55f;
+        constexpr float x = 0.01f;
+        const float expected_tiny = (x * d * c) / (d + c * x);
+
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(d);
+        phys.set_max_scroll(500.0f);
+
+        phys.jump_to(0.0f);
+        phys.scroll_by(-x);
+        require(std::abs((-phys.target()) - expected_tiny) < 1e-4f,
+                "tiny scroll_by(-0.01) target matches -f(0.01) within 1e-4");
+        for (int i = 0; i < 60; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            if (!phys.update() && !phys.is_bouncing()) break;
+        }
+        require(std::abs(phys.offset()) < 1e-4f && !phys.is_animating(),
+                "tiny top scroll_by settles cleanly at 0");
+
+        phys.jump_to(500.0f);
+        phys.scroll_by(x);
+        require(std::abs((phys.target() - 500.0f) - expected_tiny) < 1e-4f,
+                "tiny scroll_by(+0.01) target matches +f(0.01) within 1e-4");
+        for (int i = 0; i < 60; ++i) {
+            FrameClock::global().advance_virtual(1.0f / 60.0f);
+            if (!phys.update() && !phys.is_bouncing()) break;
+        }
+        require(std::abs(phys.offset() - 500.0f) < 1e-4f && !phys.is_animating(),
+                "tiny bottom scroll_by settles cleanly at 500");
+    }
+
+    // 8. Regression: disabling rubber_band mid-wheel-overscroll clears is_animating() immediately
+    {
+        SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(true);
+        phys.set_viewport_extent(400.0f);
+        phys.set_max_scroll(500.0f);
+        phys.jump_to(0.0f);
+        phys.add_wheel_delta(-36.0f);
+        require(phys.is_animating(), "wheel overscroll impulse animating before disable");
+        phys.set_rubber_band_enabled(false);
+        require(!phys.is_animating() && !phys.is_bouncing() && phys.offset() == 0.0f && phys.target() == 0.0f,
+                "disabling rubber_band mid-wheel-overscroll clears is_animating() and clamps to 0");
+    }
+
+    // 9. Regression: max_scroll == 0.0f disabled clamps strictly, enabled overscrolls and rebounds
+    {
+        SmoothScrollPhysics phys;
+        phys.set_viewport_extent(400.0f);
+        phys.set_max_scroll(0.0f);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(100.0f, 0.016);
+        require(phys.offset() == 0.0f, "max_scroll==0 disabled clamps touch drag");
+        phys.end_touch_drag_for_test(0.0);
+
+        phys.set_rubber_band_enabled(true);
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(100.0f, 0.016);
+        const float expected_100 = (100.0f * 400.0f * 0.55f) / (400.0f + 0.55f * 100.0f);
+        require(std::abs((-phys.offset()) - expected_100) < 1e-4f, "max_scroll==0 enabled top overscroll");
+        phys.end_touch_drag_for_test(0.0);
+        for (int i = 0; i < 120 && phys.step_touch_for_test(1.0 / 60.0); ++i) {}
+        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "max_scroll==0 rebounds to 0");
+    }
+
+    std::cout << "  -> R4 橡皮筋公式、SpringSolver 速度保真交接、中断再抓与滚轮越界回弹全部通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 3: SOTA 物理弹簧解析动画系统测试    " << std::endl;
@@ -255,6 +534,7 @@ int main() {
     test_multidimensional_animatables();
     test_animation_transaction_scope();
     test_explicit_animation_controller();
+    test_smooth_scroll_rubber_band_and_spring_handoff();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 3 物理弹簧动画全测试用例 100% 通过!   " << std::endl;

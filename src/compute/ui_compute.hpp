@@ -10,6 +10,8 @@
 
 namespace kernetile::compute {
 
+inline constexpr uint32_t kRenderFlagIgnDithering = 0x1u;
+
 struct Tile {
     uint32_t x;
     uint32_t y;
@@ -35,6 +37,7 @@ struct Frame {
     uint32_t color_atlas_width{0};
     uint32_t color_atlas_height{0};
     std::span<const atlas::RectU32> color_atlas_updates{};
+    uint32_t render_flags{0};
 };
 
 class Backend {

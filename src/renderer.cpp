@@ -1,5 +1,7 @@
 #include "kernetile/renderer.hpp"
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <unordered_map>
 #include "compute/ui_compute.hpp"
@@ -75,6 +77,9 @@ public:
         core::UiPrimitive p = prim;
         if (p.clip_index == core::INVALID_INDEX_U16 && m_clip_stack.depth() > 0) {
             p.clip_index = static_cast<uint16_t>(m_clip_stack.current_clip_index());
+        }
+        if (m_config.enable_pixel_snapping) {
+            snap_primitive_in_place(p);
         }
         m_primitives.push_back(p);
     }
@@ -161,7 +166,8 @@ public:
 
     void draw_text_scaled(std::string_view text, float x, float y, float font_size,
                           math::Color color, float scale, uint16_t font_weight = 400,
-                          bool italic = false, std::string_view font_family = "") override {
+                          bool italic = false, std::string_view font_family = "",
+                          bool tabular_nums = false) override {
         if (!m_text_streamer) return;
         uint16_t clip_idx = (m_clip_stack.depth() > 0) 
             ? static_cast<uint16_t>(m_clip_stack.current_clip_index()) 
@@ -169,7 +175,140 @@ public:
 
         m_text_streamer->stream_text(
             text, x, y, font_size, color,
-            m_primitives, clip_idx, scale, font_weight, italic, font_family);
+            m_primitives, clip_idx, scale, font_weight, italic, font_family, tabular_nums);
+    }
+
+    void set_dithering_enabled(bool enabled) override {
+        if (m_config.enable_dithering != enabled) {
+            m_config.enable_dithering = enabled;
+            m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
+            m_gpu_full_frame = true;
+        }
+    }
+
+    bool is_dithering_enabled() const noexcept override {
+        return m_config.enable_dithering;
+    }
+
+    void set_pixel_snapping_enabled(bool enabled) override {
+        if (m_config.enable_pixel_snapping != enabled) {
+            m_config.enable_pixel_snapping = enabled;
+            m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
+            m_gpu_full_frame = true;
+        }
+    }
+
+    bool is_pixel_snapping_enabled() const noexcept override {
+        return m_config.enable_pixel_snapping;
+    }
+
+    void draw_linear_gradient(
+        math::Rect rect,
+        math::Color start_color,
+        math::Color end_color,
+        math::Vec2 start_pt,
+        math::Vec2 end_pt,
+        float corner_radius = 0.0f,
+        float border_width = 0.0f) override
+    {
+        auto pack_unorm16 = [](float v) noexcept -> uint16_t {
+            return static_cast<uint16_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f));
+        };
+
+        core::UiPrimitive prim{};
+        prim.min_x = rect.min_x;
+        prim.min_y = rect.min_y;
+        prim.max_x = rect.max_x;
+        prim.max_y = rect.max_y;
+
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+
+        prim.color_r = start_color.r * start_color.a;
+        prim.color_g = start_color.g * start_color.a;
+        prim.color_b = start_color.b * start_color.a;
+        prim.color_a = start_color.a;
+
+        const float er = end_color.r * end_color.a;
+        const float eg = end_color.g * end_color.a;
+        const float eb = end_color.b * end_color.a;
+        const float ea = end_color.a;
+        prim.atlas_u0 = pack_unorm16(er);
+        prim.atlas_v0 = pack_unorm16(eg);
+        prim.atlas_u1 = pack_unorm16(eb);
+        prim.atlas_v1 = pack_unorm16(ea);
+
+        prim.border_width = border_width;
+        prim.shadow_offset_x = start_pt.x;
+        prim.shadow_offset_y = start_pt.y;
+        prim.shadow_blur = end_pt.x;
+        prim.shadow_spread = end_pt.y;
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient);
+        if (border_width > 0.0f) {
+            prim.flags |= static_cast<uint16_t>(core::PrimitiveFlags::HasBorder);
+        }
+
+        push_primitive(prim);
+    }
+
+    void draw_pointer_reveal(
+        math::Rect widget_bounds,
+        math::Vec2 cursor_pos,
+        float radius,
+        math::Color color,
+        float corner_radius = 0.0f,
+        float border_width = 0.0f,
+        float edge_intensity = 1.0f) override
+    {
+        if (radius <= 0.001f || color.a <= 0.0005f || widget_bounds.is_empty()) return;
+
+        const math::Rect radius_box{
+            cursor_pos.x - radius,
+            cursor_pos.y - radius,
+            cursor_pos.x + radius,
+            cursor_pos.y + radius
+        };
+        const math::Rect clamped = radius_box.intersection(widget_bounds);
+        if (clamped.is_empty()) return;
+
+        m_clip_stack.push_clip(widget_bounds, corner_radius, core::kClipFlagRevealBounds);
+
+        core::UiPrimitive prim{};
+        prim.min_x = clamped.min_x;
+        prim.min_y = clamped.min_y;
+        prim.max_x = clamped.max_x;
+        prim.max_y = clamped.max_y;
+
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+
+        prim.color_r = color.r * color.a;
+        prim.color_g = color.g * color.a;
+        prim.color_b = color.b * color.a;
+        prim.color_a = color.a;
+
+        prim.border_width = border_width;
+        prim.shadow_offset_x = cursor_pos.x;
+        prim.shadow_offset_y = cursor_pos.y;
+        prim.shadow_blur = radius;
+        prim.shadow_spread = edge_intensity;
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal);
+        if (border_width > 0.0f) {
+            prim.flags |= static_cast<uint16_t>(core::PrimitiveFlags::HasBorder);
+        }
+
+        push_primitive(prim);
+        m_clip_stack.pop_clip();
     }
 
     bool has_cached_mask(uint64_t cache_key) const noexcept override {
@@ -434,11 +573,13 @@ public:
             const std::span<const atlas::RectU32> color_atlas_updates = m_color_atlas
                 ? m_color_atlas->get_dirty_rects()
                 : std::span<const atlas::RectU32>{};
+            const uint32_t render_flags = m_config.enable_dithering ? compute::kRenderFlagIgnDithering : 0u;
             const compute::Frame frame{m_config.width, m_config.height, m_primitives,
                 m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                 {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
                 atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid,
-                color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates};
+                color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates,
+                render_flags};
             const auto start = std::chrono::steady_clock::now();
             if (m_backend->submit(frame)) {
                 m_atlas.clear_dirty_rects();
@@ -464,7 +605,8 @@ public:
                         m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                         {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
                         atlas_height, m_atlas.get_dirty_rects(), m_mica_enabled, m_mica_grid,
-                        color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates};
+                        color_atlas_span, color_atlas_width, color_atlas_height, color_atlas_updates,
+                        render_flags};
                     if (m_backend->submit(retry_frame)) {
                         m_atlas.clear_dirty_rects();
                         if (m_color_atlas) m_color_atlas->clear_dirty_rects();
@@ -516,6 +658,7 @@ public:
         params.color_atlas_height = m_color_atlas ? m_color_atlas->get_height() : 0u;
         params.mica_enabled = m_mica_enabled;
         params.mica_grid = m_mica_grid;
+        params.enable_dithering = m_config.enable_dithering;
 
         cpu::CpuTileRasterizer::render(params, dst_buffer);
 
@@ -574,6 +717,53 @@ public:
     }
 
 private:
+    static void snap_primitive_in_place(core::UiPrimitive& p) noexcept {
+        constexpr uint16_t kSkipMask =
+            static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph) |
+            static_cast<uint16_t>(core::PrimitiveFlags::IsIcon) |
+            static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal);
+        if ((p.flags & kSkipMask) != 0) return;
+
+        const bool is_gradient = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0;
+        if (!is_gradient && p.shadow_blur > 0.0f) return;
+
+        const float w_orig = p.max_x - p.min_x;
+        const float h_orig = p.max_y - p.min_y;
+        if (w_orig <= 0.0f || h_orig <= 0.0f) return;
+
+        if (p.border_width <= 0.0f &&
+            p.radius_top_left >= w_orig * 0.499f &&
+            std::abs(w_orig - h_orig) < 0.01f) {
+            return;
+        }
+
+        if (p.border_width > 0.0f) {
+            p.border_width = std::max(1.0f, std::round(p.border_width));
+        }
+
+        auto snap_axis = [&](float& a, float& b) {
+            const float ext = b - a;
+            if (p.border_width <= 0.0f && ext < 2.0f) {
+                const float w = std::max(1.0f, std::round(ext));
+                const float mid = (a + b) * 0.5f;
+                const int w_int = static_cast<int>(w);
+                const float center = (w_int & 1) ? (std::floor(mid) + 0.5f) : std::round(mid);
+                a = center - w * 0.5f;
+                b = center + w * 0.5f;
+            } else {
+                a = std::round(a);
+                b = std::round(b);
+                const float min_ext = (p.border_width > 0.0f) ? std::max(1.0f, p.border_width) : 1.0f;
+                if (b - a < min_ext) {
+                    b = a + min_ext;
+                }
+            }
+        };
+
+        snap_axis(p.min_x, p.max_x);
+        snap_axis(p.min_y, p.max_y);
+    }
+
     RendererConfig m_config{};
     tile::TileGrid m_grid;
     tile::TileBinner m_binner{};

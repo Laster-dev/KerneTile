@@ -64,8 +64,22 @@ public:
         m_disabled = disabled;
         m_is_nested = is_nested;
         m_on_click = std::move(on_click);
+        if (m_disabled) {
+            m_reveal_active = false;
+        }
         cursor_shape = (m_is_click_enabled && !m_disabled) ? CursorShape::PointingHand : CursorShape::Arrow;
         mark_needs_layout();
+    }
+
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_enable_pointer_reveal; }
+    void set_pointer_reveal_enabled(bool enabled) {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!enabled) {
+                m_reveal_active = false;
+            }
+            mark_needs_paint();
+        }
     }
 
     void set_content_box(std::shared_ptr<RenderBox> content) {
@@ -180,6 +194,15 @@ public:
             ctx.draw_rect(bounds(), bd, 4.0f, 1.0f);
         }
 
+        if (m_enable_pointer_reveal && m_reveal_active && !m_disabled) {
+            const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
+                                            : Color{0.0f, 0.0f, 0.0f, 0.05f};
+            const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
+                                         : Color{0.0f, 0.0f, 0.0f, 0.20f};
+            ctx.draw_pointer_reveal(bounds(), m_reveal_pos, 80.0f, surface, edge,
+                                    m_is_nested ? 0.0f : 4.0f, m_is_nested ? 0.0f : 1.0f);
+        }
+
         // 左侧图标与标题/描述文本
         float tx = m_is_nested ? (kPadX + kIconSize + kIconGap) : kPadX;
         if (!m_header_icon_svg.empty()) {
@@ -229,10 +252,28 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_move = [this](PointerEvent& e) {
+            if (e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch &&
+                m_enable_pointer_reveal && !m_disabled) {
+                if (!m_reveal_active ||
+                    std::abs(m_reveal_pos.x - e.local_position.x) > 0.01f ||
+                    std::abs(m_reveal_pos.y - e.local_position.y) > 0.01f) {
+                    m_reveal_active = true;
+                    m_reveal_pos = e.local_position;
+                    mark_needs_paint();
+                }
+            }
+        };
         on_pointer_exit = [this](PointerEvent&) {
+            bool need_paint = m_reveal_active;
+            m_reveal_active = false;
             if (m_hovered || m_pressed) {
                 m_hovered = false;
                 m_pressed = false;
+                need_paint = true;
+            }
+            if (need_paint) {
                 mark_needs_paint();
             }
         };
@@ -262,6 +303,9 @@ private:
     bool m_is_nested{false};
     bool m_hovered{false};
     bool m_pressed{false};
+    bool m_enable_pointer_reveal{false};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     Fn<void()> m_on_click;
     std::shared_ptr<RenderBox> m_content_box;
 };
@@ -276,6 +320,10 @@ struct SettingsCard {
     bool is_nested{false};
     WidgetPtr content{nullptr};
     Fn<void()> on_click{nullptr};
+    bool enable_pointer_reveal{false};
+
+    SettingsCard& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
+    SettingsCard&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }
 
     operator WidgetPtr() const;
 };
@@ -289,6 +337,7 @@ public:
         node->set_properties(m_desc.header, m_desc.description, m_desc.header_icon_svg,
                              m_desc.action_icon_svg, m_desc.is_click_enabled, m_desc.disabled,
                              m_desc.is_nested, m_desc.on_click);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         if (m_desc.content) {
             node->set_content_box(m_desc.content->create_render_node());
         }
@@ -300,6 +349,7 @@ public:
             c->set_properties(m_desc.header, m_desc.description, m_desc.header_icon_svg,
                               m_desc.action_icon_svg, m_desc.is_click_enabled, m_desc.disabled,
                               m_desc.is_nested, m_desc.on_click);
+            c->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         }
     }
 
@@ -347,6 +397,9 @@ public:
         m_description = std::move(description);
         m_header_icon_svg = std::move(header_icon_svg);
         m_disabled = disabled;
+        if (m_disabled) {
+            m_reveal_active = false;
+        }
         m_on_expanded_changed = std::move(on_expanded_changed);
         if (!m_initialized) {
             m_initialized = true;
@@ -380,6 +433,17 @@ public:
     }
 
     [[nodiscard]] bool is_expanded() const noexcept { return m_expanded; }
+
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_enable_pointer_reveal; }
+    void set_pointer_reveal_enabled(bool enabled) {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!enabled) {
+                m_reveal_active = false;
+            }
+            mark_needs_paint();
+        }
+    }
 
     void toggle() {
         if (m_disabled) return;
@@ -483,6 +547,15 @@ public:
             ctx.draw_rect(Rect::from_xywh(0.0f, m_header_h, w, std::max(0.0f, h - m_header_h)), body_bg, 0.0f, 0.0f);
         }
 
+        if (m_enable_pointer_reveal && m_reveal_active && !m_disabled) {
+            const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
+                                            : Color{0.0f, 0.0f, 0.0f, 0.05f};
+            const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
+                                         : Color{0.0f, 0.0f, 0.0f, 0.20f};
+            ctx.draw_pointer_reveal(Rect::from_xywh(0.0f, 0.0f, w, m_header_h), m_reveal_pos,
+                                    80.0f, surface, edge, 4.0f, 1.0f);
+        }
+
         // 2. 头部图标与标题/副标题
         float tx = kPadX;
         if (!m_header_icon_svg.empty()) {
@@ -548,15 +621,36 @@ private:
         on_pointer_move = [this](PointerEvent& e) {
             bool over_hdr = (!m_disabled && e.local_position.y < m_header_h);
             cursor_shape = over_hdr ? CursorShape::PointingHand : CursorShape::Arrow;
-            if (over_hdr != m_header_hovered) {
-                m_header_hovered = over_hdr;
+            bool need_paint = (over_hdr != m_header_hovered);
+            m_header_hovered = over_hdr;
+            if (m_enable_pointer_reveal && e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch) {
+                if (over_hdr) {
+                    if (!m_reveal_active ||
+                        std::abs(m_reveal_pos.x - e.local_position.x) > 0.01f ||
+                        std::abs(m_reveal_pos.y - e.local_position.y) > 0.01f) {
+                        m_reveal_active = true;
+                        m_reveal_pos = e.local_position;
+                        need_paint = true;
+                    }
+                } else if (m_reveal_active) {
+                    m_reveal_active = false;
+                    need_paint = true;
+                }
+            }
+            if (need_paint) {
                 mark_needs_paint();
             }
         };
         on_pointer_exit = [this](PointerEvent&) {
+            bool need_paint = m_reveal_active;
+            m_reveal_active = false;
             if (m_header_hovered || m_pressed) {
                 m_header_hovered = false;
                 m_pressed = false;
+                need_paint = true;
+            }
+            if (need_paint) {
                 mark_needs_paint();
             }
         };
@@ -587,6 +681,9 @@ private:
     bool m_disabled{false};
     bool m_header_hovered{false};
     bool m_pressed{false};
+    bool m_enable_pointer_reveal{false};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     float m_header_h{66.0f};
     float m_full_body_h{0.0f};
     float m_expand_anim{0.0f};
@@ -605,6 +702,10 @@ struct SettingsExpander {
     WidgetPtr header_content{nullptr};
     std::vector<WidgetPtr> items;
     Fn<void(bool)> on_expanded_changed{nullptr};
+    bool enable_pointer_reveal{false};
+
+    SettingsExpander& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
+    SettingsExpander&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }
 
     operator WidgetPtr() const;
 };
@@ -617,6 +718,7 @@ public:
         auto node = make_render_node<RenderSettingsExpander>();
         node->set_properties(m_desc.header, m_desc.description, m_desc.header_icon_svg,
                              m_desc.expanded, m_desc.disabled, m_desc.on_expanded_changed);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         if (m_desc.header_content) {
             node->set_header_content_box(m_desc.header_content->create_render_node());
         }
@@ -633,6 +735,7 @@ public:
         if (auto ex = std::static_pointer_cast<RenderSettingsExpander>(node)) {
             ex->set_properties(m_desc.header, m_desc.description, m_desc.header_icon_svg,
                                m_desc.expanded, m_desc.disabled, m_desc.on_expanded_changed);
+            ex->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         }
     }
 

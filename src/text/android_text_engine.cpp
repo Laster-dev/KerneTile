@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -116,11 +117,30 @@ public:
         return {size, values[1], -values[2], values[1] + values[2]};
     }
 
-    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic) override {
+    TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) override {
         TextLayoutResult result;
         result.metrics = get_metrics(size, family, font_weight, italic);
         result.total_height = result.metrics.line_height;
         const auto stops = grapheme_boundaries(text);
+        auto get_tabular_digit_advance = [&]() {
+            const uint32_t size_key = static_cast<uint32_t>(std::max(0L, std::lround(size * 100.0f)));
+            if (g_bridge_class != nullptr) {
+                if (auto cache_it = m_tab_advance_cache.find(size_key); cache_it != m_tab_advance_cache.end()) {
+                    return cache_it->second;
+                }
+            }
+            float max_w = 0.0f;
+            for (char d = '0'; d <= '9'; ++d) {
+                char buf[2]{d, '\0'};
+                float dv[3]{};
+                measure_jni(buf, size, dv);
+                max_w = std::max(max_w, dv[0]);
+            }
+            if (g_bridge_class != nullptr) {
+                m_tab_advance_cache.emplace(size_key, max_w);
+            }
+            return max_w;
+        };
         for (size_t i = 1; i < stops.size(); ++i) {
             const auto offset = stops[i - 1];
             const std::string cluster(text.substr(offset, stops[i] - offset));
@@ -131,12 +151,19 @@ public:
             result.carets.push_back({offset, result.total_width});
             GlyphPlacement glyph{};
             glyph.glyph_id = it->second;
-            glyph.x = result.total_width;
             glyph.y = result.metrics.ascender;
-            glyph.advance_x = values[0];
             glyph.cluster = offset;
+            if (tabular_nums && cluster.size() == 1 && cluster[0] >= '0' && cluster[0] <= '9') {
+                const float tab_w = get_tabular_digit_advance();
+                const float advance = std::max(tab_w, values[0]);
+                glyph.x = result.total_width + (advance - values[0]) * 0.5f;
+                glyph.advance_x = advance;
+            } else {
+                glyph.x = result.total_width;
+                glyph.advance_x = values[0];
+            }
             result.glyphs.push_back(glyph);
-            result.total_width += values[0];
+            result.total_width += glyph.advance_x;
         }
         result.carets.push_back({text.size(), result.total_width});
         return result;
@@ -157,6 +184,7 @@ private:
     static constexpr uint32_t glyph_base = 1u << 31;
     std::unordered_map<std::string, uint32_t> m_ids;
     std::vector<std::string> m_clusters;
+    std::unordered_map<uint32_t, float> m_tab_advance_cache;
 };
 
 } // namespace

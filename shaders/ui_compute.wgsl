@@ -27,7 +27,7 @@ struct Frame {
     groups_x: u32,
     clip_count: u32,
     mica_enabled: u32,
-    pad0: u32,
+    render_flags: u32,
     pad1: u32,
     mica_grid: array<vec4u, 4>,
 }
@@ -43,13 +43,44 @@ struct Frame {
 var<workgroup> tile_indices: array<u32, 64>;
 var<workgroup> tile_count_shared: u32;
 
+// Apple G2 连续曲率超椭圆圆角 SDF (与 D3D12/Vulkan HLSL 及 CPU 光栅器严格一致)
 fn box_distance(p: vec2f, bounds: vec4f, radii: vec4f) -> f32 {
-    let center = (bounds.xy + bounds.zw) * 0.5;
-    let delta = p - center;
-    let radius = select(select(radii.x, radii.w, delta.y > 0.0),
-                        select(radii.y, radii.z, delta.y > 0.0), delta.x > 0.0);
-    let q = abs(delta) - (bounds.zw - bounds.xy) * 0.5 + radius;
-    return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    let half_size = (bounds.zw - bounds.xy) * 0.5;
+    let delta = p - (bounds.xy + bounds.zw) * 0.5;
+    let raw_r = select(select(radii.x, radii.w, delta.y > 0.0),
+                       select(radii.y, radii.z, delta.y > 0.0), delta.x > 0.0);
+    let ad = abs(delta);
+    let min_half = min(half_size.x, half_size.y);
+    let r = clamp(raw_r, 0.0, min_half);
+    let q2 = ad - half_size + r;
+    let d_circle = length(max(q2, vec2f(0.0))) + min(max(q2.x, q2.y), 0.0) - r;
+    if (r <= 0.001) {
+        return d_circle;
+    }
+
+    let ratio = r / max(min_half, 1e-4);
+    let squircle_t = clamp((0.90 - ratio) * 4.0, 0.0, 1.0);
+    if (squircle_t <= 0.001) {
+        return d_circle;
+    }
+
+    let r_eff = min(min_half, r * 1.35);
+    let q4 = ad - half_size + r_eff;
+    var d_squircle: f32;
+    if (q4.x > 0.0 && q4.y > 0.0) {
+        let uv = q4 / r_eff;
+        let uv2 = uv * uv;
+        let uv4 = uv2 * uv2;
+        let s4 = uv4.x + uv4.y;
+        let s2 = sqrt(s4);
+        let d4 = sqrt(s2);
+        let denom = s2 * d4;
+        let grad = select(1.0, sqrt(uv4.x * uv2.x + uv4.y * uv2.y) / denom, denom > 1e-6);
+        d_squircle = (d4 - 1.0) * r_eff / max(grad, 0.5);
+    } else {
+        d_squircle = max(q4.x, q4.y) - r_eff;
+    }
+    return mix(d_circle, d_squircle, squircle_t);
 }
 
 fn clipped(p: vec2f, first_clip: u32) -> bool {
@@ -146,7 +177,7 @@ fn compose(@builtin(workgroup_id) group: vec3u,
             if (clipped(p, prim.flags_clip >> 16u)) {
                 continue;
             }
-            if (prim.effects.y > 0.0) {
+            if ((prim.flags_clip & 0x0202u) == 0u && prim.effects.y > 0.0) {
                 let origin = vec2f(prim.effects.w, prim.shadow_y);
                 let spread = prim.effects.z;
                 let sigma = prim.effects.y * sqrt(2.0);
@@ -169,12 +200,65 @@ fn compose(@builtin(workgroup_id) group: vec3u,
                 } else {
                     source = vec4f(0.0);
                 }
+            } else if ((prim.flags_clip & 512u) != 0u) {
+                source = vec4f(0.0);
+                let reveal_radius = prim.effects.y;
+                if (reveal_radius > 0.001 && all(p >= prim.bounds.xy) && all(p <= prim.bounds.zw)) {
+                    let dist = length(p - vec2f(prim.effects.w, prim.shadow_y));
+                    if (dist < reveal_radius) {
+                        let u = clamp(1.0 - dist / reveal_radius, 0.0, 1.0);
+                        let radial = u * u;
+                        var eval_bounds = prim.bounds;
+                        var eval_radii = prim.radii;
+                        let clip_idx = prim.flags_clip >> 16u;
+                        if (clip_idx != 65535u && clip_idx < arrayLength(&clips)) {
+                            let c = clips[clip_idx];
+                            if ((c.flags & 1u) != 0u) {
+                                eval_bounds = c.bounds;
+                                eval_radii = vec4f(c.radius);
+                            }
+                        }
+                        var d = box_distance(p, eval_bounds, eval_radii);
+                        if (prim.effects.x > 0.0 || (prim.flags_clip & 4u) != 0u) {
+                            let bw = select(1.0, prim.effects.x, prim.effects.x > 0.0);
+                            let half_border = bw * 0.5;
+                            d = abs(d + half_border) - half_border;
+                        }
+                        let geom_cov = clamp(0.5 - d, 0.0, 1.0);
+                        let intensity = select(1.0, prim.effects.z, prim.effects.z > 0.0);
+                        let cov = clamp(geom_cov * radial * intensity, 0.0, 1.0);
+                        source = prim.color * cov;
+                    }
+                }
+            } else if ((prim.flags_clip & 2u) != 0u && (prim.flags_clip & 16u) == 0u) {
+                var g0 = vec2f(prim.effects.w, prim.shadow_y);
+                let g1 = vec2f(prim.effects.y, prim.effects.z);
+                var gdir = g1 - g0;
+                var len2 = dot(gdir, gdir);
+                if (len2 <= 1e-6) {
+                    g0 = prim.bounds.xy;
+                    gdir = vec2f(0.0, prim.bounds.w - prim.bounds.y);
+                    len2 = dot(gdir, gdir);
+                }
+                let t = select(0.0, clamp(dot(p - g0, gdir) / len2, 0.0, 1.0), len2 > 1e-6);
+                let c1 = vec4f(
+                    f32(prim.uv_min & 65535u),
+                    f32(prim.uv_min >> 16u),
+                    f32(prim.uv_max & 65535u),
+                    f32(prim.uv_max >> 16u)
+                ) / 65535.0;
+                let base_color = mix(prim.color, c1, t);
+                source = base_color * coverage(p, prim);
             } else {
                 source = prim.color * coverage(p, prim);
             }
             color = source + color * (1.0 - source.a);
         }
         workgroupBarrier();
+    }
+    if ((frame.render_flags & 1u) != 0u && color.a > 0.0) {
+        let ign = fract(52.9829189 * fract(dot(vec2f(pixel), vec2f(0.06711056, 0.00583715))));
+        color = vec4f(clamp(color.rgb + vec3f((ign - 0.5) / 255.0), vec3f(0.0), vec3f(1.0)), color.a);
     }
     if (all(pixel < frame.extent)) {
         textureStore(output, vec2i(pixel), color);

@@ -545,6 +545,7 @@ private:
         params[3] = groups_x;
         params[4] = static_cast<uint32_t>(frame.clips.size());
         params[5] = frame.mica_enabled ? 1u : 0u;
+        params[6] = frame.render_flags;
         for (size_t i = 0; i < 16; ++i) params[8 + i] = frame.mica_grid[i];
         const std::array<std::span<const std::byte>, 5> input{std::as_bytes(frame.primitives),
             std::as_bytes(frame.indices), std::as_bytes(frame.tiles), std::as_bytes(frame.clips),

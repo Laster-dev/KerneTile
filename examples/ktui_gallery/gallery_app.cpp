@@ -352,9 +352,11 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"settings_card",     "SettingsCard",         "New"}
             }),
             make_cat("cat_media", "媒体", NavigationIcon::Media, false, {
-                {"image",          "Image 位图与动图", "New"},
-                {"svg",            "NanoSVG 矢量",     nullptr},
-                {"person_picture", "PersonPicture",    nullptr}
+                {"polish_showcase", "质感与微交互特性", "New"},
+                {"squircle",        "Apple 超椭圆圆角", "New"},
+                {"image",           "Image 位图与动图", "New"},
+                {"svg",             "NanoSVG 矢量",     nullptr},
+                {"person_picture",  "PersonPicture",    nullptr}
             }),
             make_cat("cat_menus", "菜单和工具栏", NavigationIcon::MenusToolbars, false, {
                 {"command_bar",     "CommandBar", nullptr},
@@ -470,6 +472,8 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"toast",                pages::build_toast_page},
                 {"progress_bar",         pages::build_progress_bar_page},
                 {"progress_ring",        pages::build_progress_ring_page},
+                {"polish_showcase",      pages::build_polish_showcase_page},
+                {"squircle",             pages::build_squircle_page},
                 {"image",                pages::build_image_page},
                 {"file_dialog",          pages::build_file_dialog_page},
                 {"drag_drop",            pages::build_drag_drop_page},

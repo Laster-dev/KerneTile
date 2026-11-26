@@ -96,6 +96,29 @@ public:
         return c;
     }
     [[nodiscard]] size_t visible_row_count() const noexcept { return m_last_visible_count; }
+    [[nodiscard]] float scroll_offset() const noexcept { return m_physics.offset(); }
+    [[nodiscard]] float max_scroll() const noexcept { return m_physics.max_scroll(); }
+
+    void set_rubber_band_enabled(bool enabled) noexcept {
+        if (m_physics.is_rubber_band_enabled() != enabled) {
+            m_physics.set_rubber_band_enabled(enabled);
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool is_rubber_band_enabled() const noexcept { return m_physics.is_rubber_band_enabled(); }
+    [[nodiscard]] bool rubber_band_enabled() const noexcept { return m_physics.rubber_band_enabled(); }
+
+    void scroll_to(float offset) {
+        m_physics.scroll_to(offset);
+        m_scrollbar.notify_activity();
+        mark_needs_paint();
+    }
+
+    void scroll_by(float delta_px) {
+        m_physics.scroll_by(delta_px);
+        m_scrollbar.notify_activity();
+        mark_needs_paint();
+    }
 
     void sort_by_column(size_t col_idx) {
         if (col_idx >= m_columns.size() || !m_columns[col_idx].sortable) return;
@@ -143,6 +166,7 @@ public:
         if (!m_user_resized) compute_column_widths();
         float body_h = std::max(0.0f, size().y - kHeaderH);
         float total_h = static_cast<float>(m_rows.size()) * m_row_height;
+        m_physics.set_viewport_extent(body_h);
         m_physics.set_max_scroll(std::max(0.0f, total_h - body_h));
     }
 
@@ -439,7 +463,7 @@ private:
                 auto m = m_scrollbar.compute_metrics(vp, total_h, m_physics.offset());
                 if (m_scrollbar.hit_test(e.local_position, m) != WinUIScrollBar::HitPart::None) return;
                 m_scrollbar.handle_pointer_up();
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_touch_tracking = true;
                     m_touch_dragging = false;
                     m_touch_start_y = e.position.y;
@@ -491,7 +515,7 @@ private:
                 return;
             }
             if (e.type == PlatformEventType::PointerScroll) {
-                if (m_physics.max_scroll() > 0.0f) {
+                if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
                     m_physics.add_wheel_delta(e.delta.y);
                     m_scrollbar.notify_activity();
                     mark_needs_paint();
@@ -678,6 +702,16 @@ struct DataGrid : BindableMixin<DataGrid, RenderDataGrid> {
     float height{320.0f};
     Fn<void(size_t)> on_row_selected{nullptr};
     DataGridCellOverflow cell_overflow{DataGridCellOverflow::Ellipsis};
+    bool rubber_band_overscroll{false};
+
+    DataGrid& rubber_band(bool enabled) & noexcept {
+        rubber_band_overscroll = enabled;
+        return *this;
+    }
+    DataGrid&& rubber_band(bool enabled) && noexcept {
+        rubber_band_overscroll = enabled;
+        return std::move(*this);
+    }
 
     operator WidgetPtr() const&;
 
@@ -693,12 +727,14 @@ public:
     std::shared_ptr<RenderBox> create_render_node() override {
         auto node = make_render_node<RenderDataGrid>();
         node->set_properties(m_desc.columns, m_desc.rows, m_desc.row_height, m_desc.width, m_desc.height, m_desc.on_row_selected, m_desc.cell_overflow);
+        node->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
         return node;
     }
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto n = std::static_pointer_cast<RenderDataGrid>(node)) {
             n->set_properties(m_desc.columns, m_desc.rows, m_desc.row_height, m_desc.width, m_desc.height, m_desc.on_row_selected, m_desc.cell_overflow);
+            n->set_rubber_band_enabled(m_desc.rubber_band_overscroll);
         }
     }
 

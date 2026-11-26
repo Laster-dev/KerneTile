@@ -16,7 +16,8 @@ public:
         float font_size, 
         std::string_view font_family = "",
         uint16_t font_weight = 400,
-        bool italic = false) = 0;
+        bool italic = false,
+        bool tabular_nums = false) = 0;
 
     // 单字形矢量轮廓光栅化 (Rasterize)
     [[nodiscard]] virtual FontRasterResult rasterize_glyph(
@@ -41,7 +42,8 @@ public:
 ITextEngine& shared_text_engine();
 std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float size,
                                                     uint16_t font_weight = 400, bool italic = false,
-                                                    std::string_view font_family = "");
+                                                    std::string_view font_family = "",
+                                                    bool tabular_nums = false);
 std::vector<size_t> grapheme_boundaries(std::string_view text);
 
 } // namespace kernetile::text

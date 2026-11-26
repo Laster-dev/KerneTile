@@ -8,9 +8,9 @@ namespace kernetile::core {
 
 // KerneTile 引擎版本常量 (与 CMakeLists.txt 保持一致)
 inline constexpr uint32_t kVersionMajor = 1;
-inline constexpr uint32_t kVersionMinor = 0;
+inline constexpr uint32_t kVersionMinor = 1;
 inline constexpr uint32_t kVersionPatch = 0;
-inline constexpr const char* kVersionString = "1.0.0";
+inline constexpr const char* kVersionString = "1.1.0";
 
 // 无效图元/裁剪索引哨兵值
 constexpr uint32_t INVALID_INDEX_U32 = 0xFFFFFFFFu;
@@ -27,8 +27,12 @@ enum class PrimitiveFlags : uint16_t {
     IsIcon            = 0x0020, // 动态图集彩色图标
     IsBackdropFilter  = 0x0040, // 背景毛玻璃滤镜
     IsSolidOpaque     = 0x0080, // 完全不透明实心瓦片 (可用于前端遮挡剔除)
-    StemDarkening     = 0x0100  // 小字号笔划加粗补偿
+    StemDarkening     = 0x0100, // 小字号笔划加粗补偿
+    IsPointerReveal   = 0x0200  // 指针跟随径向高光/边缘揭示
 };
+
+// ClipRect::flags 位掩码定义
+inline constexpr uint32_t kClipFlagRevealBounds = 0x0001u; // 标记该裁剪节点为 PointerReveal 控件外边界
 
 inline constexpr PrimitiveFlags operator|(PrimitiveFlags a, PrimitiveFlags b) noexcept {
     return static_cast<PrimitiveFlags>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b));

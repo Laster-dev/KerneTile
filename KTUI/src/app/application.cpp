@@ -298,6 +298,8 @@ std::shared_ptr<Window> Application::create_window(const WindowDesc& desc) {
     bool show_titlebar = desc.custom_titlebar && (desc.type != WindowType::Popup);
 #endif
     auto win = std::make_shared<Window>(m_next_window_id++, std::move(plat_win), show_titlebar);
+    win->set_dithering_enabled(desc.dithering_enabled);
+    win->set_pixel_snapping_enabled(desc.pixel_snapping_enabled);
     win->titlebar().on_theme_toggle = [this]() {
         set_theme(current_theme().is_dark ? Theme::light() : Theme::dark());
     };

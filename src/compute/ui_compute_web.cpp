@@ -112,7 +112,7 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
     const void* atlas, unsigned atlas_width, unsigned atlas_height, const void* atlas_updates, unsigned update_count,
     unsigned mica_enabled, const uint32_t* mica_grid,
     const void* color_atlas, unsigned color_atlas_width, unsigned color_atlas_height,
-    const void* color_atlas_updates, unsigned color_update_count), {
+    const void* color_atlas_updates, unsigned color_update_count, unsigned render_flags), {
     var state = Module['ktuiGpuStates'] && Module['ktuiGpuStates'].get(id);
     if (!state || !state.ready) return 0;
     var canvas = state.canvas;
@@ -206,6 +206,7 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
             uniformData[3] = groupsX;
             uniformData[4] = clip_bytes >>> 5;
             uniformData[5] = mica_enabled;
+            uniformData[6] = render_flags;
             if (mica_enabled && mica_grid) {
                 var mIdx = mica_grid >>> 2;
                 for (var mi = 0; mi < 16; ++mi) uniformData[8 + mi] = HEAPU32[mIdx + mi];
@@ -279,7 +280,7 @@ public:
             frame.atlas_updates.data(), frame.atlas_updates.size(),
             frame.mica_enabled ? 1u : 0u, frame.mica_grid.data(),
             frame.color_atlas.data(), frame.color_atlas_width, frame.color_atlas_height,
-            frame.color_atlas_updates.data(), frame.color_atlas_updates.size()) != 0;
+            frame.color_atlas_updates.data(), frame.color_atlas_updates.size(), frame.render_flags) != 0;
     }
 
 private:
