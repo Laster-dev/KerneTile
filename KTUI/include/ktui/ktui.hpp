@@ -119,6 +119,7 @@
 #include <ktui/widgets/pips_pager.hpp>
 #include <ktui/widgets/flip_view.hpp>
 #include <ktui/widgets/segmented_control.hpp>
+#include <ktui/widgets/pivot.hpp>
 #include <ktui/widgets/toggle_button.hpp>
 #include <ktui/widgets/navigation_view.hpp>
 #include <ktui/widgets/query_filter_builder.hpp>

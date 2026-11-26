@@ -1,4 +1,6 @@
 #include <ktui/widgets/navigation_view.hpp>
+#include <ktui/widgets/pivot.hpp>
+#include <ktui/widgets/segmented_control.hpp>
 #include <ktui/widgets/text.hpp>
 #include <ktui/theme/theme.hpp>
 #include <cassert>
@@ -96,6 +98,62 @@ int main() {
     mode.set(NavigationPaneDisplayMode::Top);
     assert(node->pane_display_mode() == NavigationPaneDisplayMode::Top);
 
-    std::cout << "All NavigationView tests passed successfully!" << std::endl;
+    // 5. Fluent 2 Pivot (无边框下划线页签：紧凑模式 + 内容联动模式) & SegmentedControl
+    {
+        Property<int> pivot_tab{0};
+        int cb_idx = -1;
+        WidgetPtr p_strip = Pivot{
+            .items = {
+                PivotItem{ .header = "历史记录" },
+                PivotItem{ .header = "内存" },
+                PivotItem{ .header = "禁用项", .disabled = true }
+            },
+            .on_selection_changed = [&](int i) { cb_idx = i; }
+        }.bind_two_way(pivot_tab);
+        auto pnode = std::static_pointer_cast<RenderPivot>(p_strip->create_render_node());
+        assert(pnode != nullptr);
+        pnode->layout(BoxConstraints::loose(Vec2{600.0f, 300.0f}));
+        assert(pnode->size().y >= 32.0f && pnode->size().y <= 36.0f);
+        assert(pnode->size().x < 260.0f); // 紧凑贴合内容宽度，不撑满父宽
+
+        pnode->select(1);
+        assert(pivot_tab.get() == 1);
+        assert(cb_idx == 1);
+
+        pnode->select(2); // 禁用项不可选中
+        assert(pnode->selected_index() == 1);
+        assert(pivot_tab.get() == 1);
+
+        // 带 content_builder 的完整 Pivot 容器
+        int built_tab = -1;
+        WidgetPtr p_full = Pivot{
+            .items = {
+                PivotItem{ .header = "差值计算" },
+                PivotItem{ .header = "加减天数" }
+            },
+            .content_builder = [&](int idx) -> WidgetPtr {
+                built_tab = idx;
+                return Text{ .text = (idx == 0) ? "Tab0" : "Tab1" };
+            }
+        };
+        auto fnode = std::static_pointer_cast<RenderPivot>(p_full->create_render_node());
+        fnode->layout(BoxConstraints::loose(Vec2{500.0f, 400.0f}));
+        assert(built_tab == 0);
+        assert(fnode->size().y > 40.0f);
+        fnode->select(1);
+        assert(built_tab == 1);
+
+        // SegmentedControl 双向绑定验证
+        Property<int> seg_idx{0};
+        WidgetPtr sptr = SegmentedControl{
+            .items = { SegmentedItem{ .label = "浅色" }, SegmentedItem{ .label = "深色" } }
+        }.bind_two_way(seg_idx);
+        auto snode = std::static_pointer_cast<RenderSegmentedControl>(sptr->create_render_node());
+        snode->layout(BoxConstraints::loose(Vec2{400.0f, 100.0f}));
+        snode->select(1);
+        assert(seg_idx.get() == 1);
+    }
+
+    std::cout << "All NavigationView, Pivot & SegmentedControl tests passed successfully!" << std::endl;
     return 0;
 }

@@ -92,10 +92,10 @@ public:
         const float w = size().x;
         const float h = size().y;
 
-        // 1. Fluent 2 外槽底板 (ControlAltFillColorSecondary + ControlStrokeColorDefault)
-        Color track_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.035f} : Color{0.0f, 0.0f, 0.0f, 0.038f};
-        ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), track_bg, 6.0f, 0.0f);
-        ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, h), theme.colors.control_stroke_default, 6.0f, 1.0f);
+        // 1. Fluent 2 轻质凹槽底板 (单层极简凹槽，去除双层硬描边)
+        Color track_bg = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.24f} : Color{0.0f, 0.0f, 0.0f, 0.045f};
+        Color track_border = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.06f} : Color{0.0f, 0.0f, 0.0f, 0.065f};
+        ctx.draw_box(Rect::from_xywh(0.0f, 0.0f, w, h), track_bg, track_border, 6.0f, 1.0f);
 
         // 2. 独立 steady_clock 指数阻尼平滑滑块 (消除 FrameClock 抖动与取整跳帧)
         auto now = std::chrono::steady_clock::now();
@@ -123,7 +123,7 @@ public:
         }
 
         // 3. 非激活相邻分段之间的柔和分隔竖线
-        Color sep_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.09f};
+        Color sep_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.08f};
         for (int i = 1; i < static_cast<int>(m_items.size()); ++i) {
             if (i == m_selected || i - 1 == m_selected || i == m_hovered || i - 1 == m_hovered) continue;
             Rect sr = segment_rect(i);
@@ -137,27 +137,21 @@ public:
             ctx.draw_rect(segment_rect(m_hovered), hbg, 4.0f, 0.0f);
         }
 
-        // 5. Fluent 2 激活滑块 (Subpixel 平滑 + Elevation 质感 + 底部主题微指示条)
+        // 5. Fluent 2 轻质悬浮滑块 (无冗余内描边/底部小短条，仅以表面层级与微高光区分)
         Rect pill = Rect::from_xywh(m_pill_x, 2.0f, m_pill_w, h - 4.0f);
         if (!theme.is_dark) {
             ctx.draw_rect(Rect::from_xywh(pill.min_x, pill.min_y + 1.0f, pill.width(), pill.height()),
-                          Color{0.0f, 0.0f, 0.0f, 0.05f}, 4.0f, 0.0f);
+                          Color{0.0f, 0.0f, 0.0f, 0.06f}, 4.5f, 0.0f);
         }
         Color pill_bg = theme.is_dark
-            ? (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.075f} : Color{1.0f, 1.0f, 1.0f, 0.098f})
-            : (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.88f}  : Color{1.0f, 1.0f, 1.0f, 0.98f});
-        ctx.draw_rect(pill, pill_bg, 4.0f, 0.0f);
-        ctx.draw_rect(pill, theme.colors.control_stroke_default, 4.0f, 1.0f);
+            ? (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.095f} : Color{1.0f, 1.0f, 1.0f, 0.125f})
+            : (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.90f}  : Color{1.0f, 1.0f, 1.0f, 0.99f});
+        ctx.draw_rect(pill, pill_bg, 4.5f, 0.0f);
         if (theme.is_dark) {
-            ctx.draw_rect(Rect::from_xywh(pill.min_x + 3.0f, pill.min_y + 0.5f,
-                                          std::max(0.0f, pill.width() - 6.0f), 1.0f),
-                          Color{1.0f, 1.0f, 1.0f, 0.08f}, 0.0f, 0.0f);
+            ctx.draw_rect(Rect::from_xywh(pill.min_x + 4.0f, pill.min_y + 0.5f,
+                                          std::max(0.0f, pill.width() - 8.0f), 1.0f),
+                          Color{1.0f, 1.0f, 1.0f, 0.10f}, 0.0f, 0.0f);
         }
-        // 底部居中 Fluent 2 主题色药丸指示条
-        float bar_w = std::min(18.0f, std::max(10.0f, pill.width() * 0.28f));
-        ctx.draw_rect(Rect::from_xywh(pill.min_x + (pill.width() - bar_w) * 0.5f,
-                                      pill.max_y - 2.5f, bar_w, 2.5f),
-                      theme.colors.primary, 1.25f, 0.0f);
 
         Color active_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.96f} : Color{0.0f, 0.0f, 0.0f, 0.92f};
         Color hover_c  = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.84f} : Color{0.0f, 0.0f, 0.0f, 0.80f};
@@ -167,7 +161,8 @@ public:
             int idx = static_cast<int>(i);
             Rect sr = segment_rect(idx);
             const auto& it = m_items[i];
-            Color tc = (idx == m_selected) ? active_c : (idx == m_hovered ? hover_c : idle_c);
+            bool is_sel = (idx == m_selected);
+            Color tc = is_sel ? active_c : (idx == m_hovered ? hover_c : idle_c);
             Vec2 ts = TextMeasure::measure(it.label, 13.0f);
             float content_w = ts.x + (it.svg_path.empty() ? 0.0f : 20.0f);
             float sx = std::round(sr.min_x + (sr.width() - content_w) * 0.5f);
@@ -176,7 +171,8 @@ public:
                 SvgEngine::draw_svg_path(ctx, it.svg_path, 24.0f, 24.0f, ir, tc);
                 sx += 20.0f;
             }
-            ctx.draw_text(it.label, PointF{sx, std::round((h - ts.y) * 0.5f)}, 13.0f, tc);
+            ctx.draw_text(it.label, PointF{sx, std::round((h - ts.y) * 0.5f)}, 13.0f, tc,
+                          is_sel ? FontWeight::SemiBold : FontWeight::Regular);
         }
     }
 
