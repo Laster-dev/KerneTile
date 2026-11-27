@@ -445,6 +445,14 @@ public:
 
     void set_on_select(Fn<void(int)> cb) { m_data.on_select = std::move(cb); }
 
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
+
     void select() {
         if (m_state.is_disabled) return;
         if (!m_data.checked) set_checked(true, true);
@@ -476,10 +484,15 @@ public:
 
         const Rect b = bounds();
 
-        // 1. 卡片底色与锐利 1.5px 边框 (移除模糊外光圈)
+        // 1. 卡片底色与锐利 1.5px 边框 + Fluent Pointer Reveal
         ctx.draw_rect(b, style.background, style.corner_radius, 0.0f);
         const Color border_col = lerp_color(style.border_idle, style.accent, m_border_val);
         ctx.draw_rect(b, border_col, style.corner_radius, style.border_width);
+        if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_state.is_disabled) {
+            const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.05f};
+            const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.30f} : Color{0.0f, 0.0f, 0.0f, 0.20f};
+            ctx.draw_pointer_reveal(b, m_reveal_pos, 72.0f, surf, edge, style.corner_radius, style.border_width);
+        }
 
         // 2. 左上角圆形选中指示点
         if (m_dot_val > 0.01f) {
@@ -585,10 +598,20 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_move = [this](PointerEvent& ev) {
+            if (!m_state.is_disabled && ev.type == PlatformEventType::PointerMove &&
+                ev.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = ev.local_position;
+                m_reveal_active = true;
+                mark_needs_paint();
+            }
+        };
         on_pointer_exit = [this](PointerEvent&) {
             if (!m_state.is_disabled) {
                 m_state.is_hovered = false;
                 m_state.is_pressed = false;
+                m_reveal_active = false;
                 is_hovered = false;
                 update_anim_targets();
                 mark_needs_paint();
@@ -622,6 +645,9 @@ private:
     RadioButtonInteractiveState m_state;
 
     bool m_initialized{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     float m_border_from{0.0f}, m_border_to{0.0f}, m_border_val{0.0f}, m_border_elapsed{kBorderDurSec};
     float m_dot_from{0.0f}, m_dot_to{0.0f}, m_dot_val{0.0f}, m_dot_elapsed{kDotDurSec};
     float m_checked_from{0.0f}, m_checked_to{0.0f}, m_checked_val{0.0f}, m_checked_elapsed{kLabelDurSec};
@@ -640,6 +666,7 @@ struct RadioCard : BindableMixin<RadioCard, RenderRadioCard> {
     float tile_height{68.0f};
     float corner_radius{8.0f};
     float font_size{13.0f};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     Fn<void(int)> on_change{nullptr};
 
     operator WidgetPtr() const&;
@@ -695,6 +722,7 @@ private:
         node->set_tile_size(m_desc.tile_width, m_desc.tile_height);
         node->set_corner_radius(m_desc.corner_radius);
         node->set_font_size(m_desc.font_size);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         node->set_on_select(m_desc.on_change);
     }
 

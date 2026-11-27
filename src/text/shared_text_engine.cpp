@@ -1,9 +1,43 @@
 #include "kernetile/text/font_engine.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <list>
+#include <unordered_map>
 
 namespace kernetile::text {
+
+namespace {
+
+constexpr size_t kTextLayoutCacheCapacity = 4096;
+
+uint64_t hash_layout_key(std::string_view text, std::string_view family,
+                         float size, uint16_t weight, bool italic, bool tabular_nums) noexcept {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    auto mix_u64 = [&h](uint64_t v) noexcept {
+        h ^= v;
+        h *= 0x100000001b3ULL;
+    };
+    auto mix_sv = [&mix_u64](std::string_view sv) noexcept {
+        mix_u64(static_cast<uint64_t>(sv.size()));
+        for (unsigned char c : sv) {
+            mix_u64(static_cast<uint64_t>(c));
+        }
+    };
+    uint32_t size_bits = 0;
+    std::memcpy(&size_bits, &size, sizeof(size_bits));
+    uint64_t meta = (static_cast<uint64_t>(size_bits) << 32u) |
+                    (static_cast<uint64_t>(weight) << 8u) |
+                    (italic ? 2u : 0u) |
+                    (tabular_nums ? 1u : 0u);
+    mix_u64(meta);
+    mix_sv(family);
+    mix_sv(text);
+    return h;
+}
+
+} // namespace
 
 ITextEngine& shared_text_engine() {
     static thread_local auto engine = create_text_engine();
@@ -15,6 +49,7 @@ std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float
                                                     std::string_view font_family,
                                                     bool tabular_nums) {
     struct Entry {
+        uint64_t hash;
         std::string text;
         std::string family;
         float size;
@@ -23,14 +58,22 @@ std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float
         bool tabular_nums;
         std::shared_ptr<const TextLayoutResult> layout;
     };
-    static thread_local std::list<Entry> cache;
-    auto hit = std::find_if(cache.begin(), cache.end(), [&](const auto& entry) {
-        return entry.size == size && entry.weight == font_weight && entry.italic == italic &&
-               entry.tabular_nums == tabular_nums && entry.family == font_family && entry.text == text;
-    });
-    if (hit != cache.end()) {
-        cache.splice(cache.begin(), cache, hit);
-        return cache.front().layout;
+    struct LayoutCache {
+        std::list<Entry> lru;
+        std::unordered_multimap<uint64_t, std::list<Entry>::iterator> index;
+        LayoutCache() { index.reserve(kTextLayoutCacheCapacity); }
+    };
+    static thread_local LayoutCache cache;
+
+    const uint64_t key_hash = hash_layout_key(text, font_family, size, font_weight, italic, tabular_nums);
+    auto range = cache.index.equal_range(key_hash);
+    for (auto it = range.first; it != range.second; ++it) {
+        const auto& entry = *(it->second);
+        if (entry.size == size && entry.weight == font_weight && entry.italic == italic &&
+            entry.tabular_nums == tabular_nums && entry.family == font_family && entry.text == text) {
+            cache.lru.splice(cache.lru.begin(), cache.lru, it->second);
+            return entry.layout;
+        }
     }
     auto layout = std::make_shared<TextLayoutResult>();
     size_t start = 0;
@@ -66,8 +109,19 @@ std::shared_ptr<const TextLayoutResult> layout_text(std::string_view text, float
         if (text[end] == '\r' && start < text.size() && text[start] == '\n') ++start;
     }
     if (text.size() <= 16384) {
-        cache.push_front({std::string(text), std::string(font_family), size, font_weight, italic, tabular_nums, layout});
-        if (cache.size() > 256) cache.pop_back();
+        cache.lru.push_front(Entry{key_hash, std::string(text), std::string(font_family), size, font_weight, italic, tabular_nums, layout});
+        cache.index.emplace(key_hash, cache.lru.begin());
+        if (cache.lru.size() > kTextLayoutCacheCapacity) {
+            auto last = std::prev(cache.lru.end());
+            auto ev_range = cache.index.equal_range(last->hash);
+            for (auto it = ev_range.first; it != ev_range.second; ++it) {
+                if (it->second == last) {
+                    cache.index.erase(it);
+                    break;
+                }
+            }
+            cache.lru.pop_back();
+        }
     }
     return layout;
 }

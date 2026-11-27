@@ -43,6 +43,13 @@ public:
     }
 
     void set_on_confirmed(Fn<void()> cb) { m_on_confirmed = std::move(cb); }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
     [[nodiscard]] float progress() const noexcept { return m_progress; }
     [[nodiscard]] bool is_holding() const noexcept { return m_holding; }
 
@@ -149,13 +156,18 @@ public:
         }
         context.pop_clip();
 
-        // 4. 精致 1px 外轮廓描边
+        // 4. 精致 1px 外轮廓描边 + Fluent Pointer Reveal
         Color bd = (m_confirm_flash > 0.01f)
             ? Color{ok_col.r, ok_col.g, ok_col.b, 0.65f}
             : (m_holding
                 ? Color{accent.r, accent.g, accent.b, 0.60f}
                 : (is_dark ? Color{1, 1, 1, 0.075f} : Color{0, 0, 0, 0.075f}));
         context.draw_rect(bounds(), bd, kRad, 1.0f);
+        if (t.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+            const Color surf = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.055f};
+            const Color edge = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.32f} : Color{0.0f, 0.0f, 0.0f, 0.22f};
+            context.draw_pointer_reveal(bounds(), m_reveal_pos, 68.0f, surf, edge, kRad, 1.0f);
+        }
 
         // 5. 文案与精致矢量图标（危险点 / 完成对勾）
         std::string label = m_text;
@@ -218,6 +230,11 @@ private:
             : (is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.09f});
         Rect track_r = Rect::from_xywh(cx - ring_r, cy - ring_r, ring_r * 2.0f, ring_r * 2.0f);
         context.draw_rect(track_r, track_c, ring_r, (m_confirm_flash > 0.01f) ? stroke : 1.2f);
+        if (t.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+            const Color surf = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.055f};
+            const Color edge = is_dark ? Color{1.0f, 1.0f, 1.0f, 0.34f} : Color{0.0f, 0.0f, 0.0f, 0.22f};
+            context.draw_pointer_reveal(circle_r, m_reveal_pos, std::max(48.0f, d * 0.9f), surf, edge, outer_r, 1.0f);
+        }
 
         // 3. 高密度平滑 360° 矢量进度弧（64 段无折线锯齿）
         if (m_progress > 0.002f && m_confirm_flash <= 0.01f) {
@@ -256,8 +273,18 @@ private:
 
     void setup_behavior() {
         on_pointer_enter = [this](PointerEvent&) { m_hovered = true; mark_needs_paint(); };
+        on_pointer_move = [this](PointerEvent& ev) {
+            if (ev.type == PlatformEventType::PointerMove &&
+                ev.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = ev.local_position;
+                m_reveal_active = true;
+                mark_needs_paint();
+            }
+        };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = false;
+            m_reveal_active = false;
             if (m_holding) m_holding = false;
             mark_needs_paint();
         };
@@ -291,6 +318,9 @@ private:
     bool m_hovered{false};
     bool m_holding{false};
     bool m_fired_this_hold{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     float m_progress{0.0f};
     float m_confirm_flash{0.0f};
     std::chrono::steady_clock::time_point m_last_tick{};
@@ -304,6 +334,7 @@ struct HoldConfirmButton : BindableMixin<HoldConfirmButton, RenderHoldConfirmBut
     bool danger{true};
     HoldConfirmShape shape{HoldConfirmShape::PillBar};
     float diameter{64.0f};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     Fn<void()> on_confirmed{nullptr};
 
     operator WidgetPtr() const&;
@@ -316,13 +347,16 @@ public:
     explicit HoldConfirmButtonWidget(HoldConfirmButton&& desc) noexcept : m_desc(std::move(desc)) {}
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        return make_render_node<RenderHoldConfirmButton>(
+        auto node = make_render_node<RenderHoldConfirmButton>(
             m_desc.text, m_desc.holding_text, m_desc.confirmed_text,
             m_desc.hold_duration_sec, m_desc.danger, m_desc.shape, m_desc.diameter, m_desc.on_confirmed);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
+        return node;
     }
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto n = std::static_pointer_cast<RenderHoldConfirmButton>(node)) {
             n->set_on_confirmed(m_desc.on_confirmed);
+            n->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         }
     }
 private:

@@ -86,8 +86,12 @@ WidgetPtr build_inspector_grid_page(GalleryApp& app) {
             HStack {
                 .justify = JustifyContent::SpaceBetween,
                 .align_items = AlignItems::Center,
+                .spacing = 12.0f,
                 .content = {
-                    app.make_accent(*status, 12.0f, FontWeight::Medium),
+                    Expanded {
+                        .flex = 1.0f,
+                        .child = app.make_accent(*status, 12.0f, FontWeight::Medium)
+                    },
                     Button {
                         .text = "全部恢复默认",
                         .on_click = [ref, status]() {

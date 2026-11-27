@@ -48,7 +48,7 @@ public:
         ResolvedNavigationViewStyle s;
         if (theme.is_dark) {
             s.pane_bg                = Color::transparent();
-            s.pane_overlay_bg        = Color{38.0f / 255.0f, 38.0f / 255.0f, 40.0f / 255.0f, 1.0f};
+            s.pane_overlay_bg        = Color{36.0f / 255.0f, 38.0f / 255.0f, 44.0f / 255.0f, 0.82f};
             s.pane_overlay_border    = Color{1.0f, 1.0f, 1.0f, 0.09f};
             s.pane_overlay_shadow    = Color{0.0f, 0.0f, 0.0f, 0.42f};
             s.content_surface_bg     = Color{1.0f, 1.0f, 1.0f, 0.032f};
@@ -70,7 +70,7 @@ public:
             s.page_header_text       = Color{1.0f, 1.0f, 1.0f, 0.96f};
         } else {
             s.pane_bg                = Color::transparent();
-            s.pane_overlay_bg        = Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 1.0f};
+            s.pane_overlay_bg        = Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.84f};
             s.pane_overlay_border    = Color{0.0f, 0.0f, 0.0f, 0.09f};
             s.pane_overlay_shadow    = Color{0.0f, 0.0f, 0.0f, 0.16f};
             s.content_surface_bg     = Color{1.0f, 1.0f, 1.0f, 0.55f};

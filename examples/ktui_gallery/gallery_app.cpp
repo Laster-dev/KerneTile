@@ -207,14 +207,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     app = &application;
     window = std::move(win);
 
-    // Gallery 全局启用 Fluent 指针高光跟随（深浅色主题切换时自动保持）
-    Theme::set_global_pointer_reveal(true);
-    {
-        Theme cur = app->theme.get();
-        cur.enable_pointer_reveal = true;
-        app->theme.set(cur);
-    }
-
     app->theme.subscribe([this](const Theme& t) {
         if (t.is_dark) {
 #if defined(__ANDROID__)

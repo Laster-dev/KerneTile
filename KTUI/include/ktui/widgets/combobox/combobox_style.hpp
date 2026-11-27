@@ -68,9 +68,9 @@ public:
             style.placeholder_text = Color{1.0f, 1.0f, 1.0f, 0.56f};
             style.chevron          = Color{1.0f, 1.0f, 1.0f, 0.78f};
 
-            // Flyout Surface (SolidBackgroundFillColorQuarternary / Acrylic Dark)
-            style.popup_bg         = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 1.0f}; // #2C2C2C
-            style.popup_border     = Color{1.0f, 1.0f, 1.0f, 0.09f};
+            // Flyout Surface (Translucent Frosted Acrylic Dark)
+            style.popup_bg         = Color{36.0f / 255.0f, 38.0f / 255.0f, 44.0f / 255.0f, 0.78f};
+            style.popup_border     = Color{1.0f, 1.0f, 1.0f, 0.14f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.34f};
 
             style.item_hover_bg    = Color{1.0f, 1.0f, 1.0f, 0.0605f};   // SubtleFillColorSecondary
@@ -96,9 +96,9 @@ public:
             style.placeholder_text = Color{0.0f, 0.0f, 0.0f, 0.56f};
             style.chevron          = Color{0.0f, 0.0f, 0.0f, 0.65f};
 
-            // Flyout Surface (Acrylic Light)
-            style.popup_bg         = Color{250.0f / 255.0f, 250.0f / 255.0f, 250.0f / 255.0f, 1.0f}; // #FAFAFA
-            style.popup_border     = Color{0.0f, 0.0f, 0.0f, 0.09f};
+            // Flyout Surface (Translucent Frosted Acrylic Light)
+            style.popup_bg         = Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.82f};
+            style.popup_border     = Color{0.0f, 0.0f, 0.0f, 0.11f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.14f};
 
             style.item_hover_bg    = Color{0.0f, 0.0f, 0.0f, 0.038f};

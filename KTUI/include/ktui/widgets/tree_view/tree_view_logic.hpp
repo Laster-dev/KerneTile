@@ -123,14 +123,51 @@ public:
         const float w = size().x;
         const float h = size().y;
 
-        // 推进折叠/展开平滑高度动画、惯性平滑滚动与滚动条淡入淡出
+        // 推进折叠/展开平滑高度动画、单选指示条平滑滑动动画、惯性平滑滚动与滚动条淡入淡出
         bool anim_exp = step_expand_animations();
         if (anim_exp) {
             rebuild_flat_rows();
         }
+        bool anim_sel = false;
+        float sel_target_y = -1.0f;
+        float sel_target_h = kRowH;
+        if (m_selection_mode == TreeViewSelectionMode::Single && !m_selected_id.empty()) {
+            float cy = 0.0f;
+            for (const auto& r : m_rows) {
+                float rh = kRowH * r.height_scale;
+                if (rh < 0.5f) continue;
+                if (r.node && r.node->id == m_selected_id) {
+                    sel_target_y = cy;
+                    sel_target_h = rh;
+                    break;
+                }
+                cy += rh;
+            }
+        }
+        if (sel_target_y >= 0.0f) {
+            if (!m_sel_anim_init) {
+                m_sel_anim_y = sel_target_y;
+                m_sel_anim_init = true;
+            } else if (std::abs(m_sel_anim_y - sel_target_y) > 0.2f) {
+                auto now = std::chrono::steady_clock::now();
+                float dt = m_has_sel_time
+                    ? std::clamp(std::chrono::duration<float>(now - m_last_sel_time).count(), 0.001f, 0.05f)
+                    : (1.0f / 60.0f);
+                m_last_sel_time = now;
+                m_has_sel_time = true;
+                m_sel_anim_y += (sel_target_y - m_sel_anim_y) * (1.0f - std::exp(-dt * 24.0f));
+                anim_sel = true;
+            } else {
+                m_sel_anim_y = sel_target_y;
+                m_has_sel_time = false;
+            }
+        } else {
+            m_sel_anim_init = false;
+            m_has_sel_time = false;
+        }
         bool anim_scroll = m_physics.update();
         bool anim_bar = m_scrollbar.update_animations(m_viewport_hovered);
-        if (anim_exp || anim_scroll || anim_bar) {
+        if (anim_exp || anim_sel || anim_scroll || anim_bar) {
             mark_needs_paint();
         }
 
@@ -186,6 +223,17 @@ public:
         }
         ctx.push_feathered_clip(body_vp, 0.0f, top_f, bot_f);
 
+        // 1.5 单选平滑滑动背景高亮与 Fluent 2 左侧 3px 强调色指示条
+        if (m_sel_anim_init && sel_target_y >= 0.0f) {
+            float sy = body_vp.min_y + 4.0f + std::round(m_sel_anim_y) - scroll_y;
+            Rect sr = Rect::from_xywh(4.0f, sy, std::max(0.0f, w - 8.0f), sel_target_h);
+            if (sr.max_y >= body_vp.min_y && sr.min_y <= body_vp.max_y) {
+                ctx.draw_rect(sr, sel_bg, 4.0f, 0.0f);
+                ctx.draw_rect(Rect::from_xywh(sr.min_x + 2.0f, sr.min_y + 8.0f, 3.0f, std::max(4.0f, sel_target_h - 16.0f)),
+                              resolved_style.accent, 1.5f, 0.0f);
+            }
+        }
+
         bool any_cb_animating = false;
         float y = body_vp.min_y + 4.0f - scroll_y;
         for (size_t i = 0; i < m_rows.size(); ++i) {
@@ -204,11 +252,7 @@ public:
                 bool is_hov = (static_cast<int>(i) == m_hovered_row);
 
                 if (is_sel) {
-                    Color sb = sel_bg; sb.a *= alpha_s;
-                    Color ac = resolved_style.accent; ac.a *= alpha_s;
-                    ctx.draw_rect(rr, sb, 4.0f, 0.0f);
-                    ctx.draw_rect(Rect::from_xywh(rr.min_x + 2.0f, rr.min_y + 8.0f, 3.0f, std::max(4.0f, rh - 16.0f)),
-                                  ac, 1.5f, 0.0f);
+                    // 单选高亮与左侧指示条已由上方平滑滑动动画层统一绘制
                 } else if (is_hov) {
                     Color hb = hov_bg; hb.a *= alpha_s;
                     ctx.draw_rect(rr, hb, 4.0f, 0.0f);
@@ -678,7 +722,11 @@ private:
             }
 
             if (m_selection_mode == TreeViewSelectionMode::Single) {
-                m_selected_id = row.node->id;
+                if (m_selected_id != row.node->id) {
+                    m_selected_id = row.node->id;
+                    m_last_sel_time = std::chrono::steady_clock::now();
+                    m_has_sel_time = true;
+                }
                 mark_needs_paint();
                 if (m_on_selection_changed) m_on_selection_changed(row.node->id, row.node->label);
                 e.stop_propagation();
@@ -706,6 +754,10 @@ private:
     std::chrono::steady_clock::time_point m_last_expand_time{};
     TreeViewSelectionMode m_selection_mode{TreeViewSelectionMode::Single};
     std::string m_selected_id;
+    float m_sel_anim_y{0.0f};
+    bool m_sel_anim_init{false};
+    bool m_has_sel_time{false};
+    std::chrono::steady_clock::time_point m_last_sel_time{};
     float m_width{0.0f};
     float m_height{0.0f};
     bool m_viewport_hovered{false};

@@ -210,6 +210,11 @@ public:
         }
         const bool tactile_active = m_tactile_press.is_active();
         const Rect base_rect = bounds();
+        if (!tactile_active && context.has_clip() &&
+            m_size.x > 0.0f && m_size.y > 0.0f &&
+            !context.is_rect_visible(base_rect, 64.0f)) {
+            return;
+        }
         const Rect paint_rect = tactile_active ? m_tactile_press.transform_rect(base_rect) : base_rect;
         const float eff_radius = resolve_effective_corner_radius() * (tactile_active ? m_tactile_press.current_scale() : 1.0f);
 

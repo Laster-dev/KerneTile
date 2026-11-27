@@ -37,10 +37,29 @@ public:
         return Vec2{w, h};
     }
 
+    void set_overlay_tracking(uint64_t overlay_id, Vec2 initial_pos, Fn<void()> on_begin_dismiss) {
+        m_overlay_id = overlay_id;
+        m_current_x = initial_pos.x;
+        m_current_y = initial_pos.y;
+        m_target_y = initial_pos.y;
+        m_on_begin_dismiss = std::move(on_begin_dismiss);
+    }
+
+    void set_target_y(float target_y) noexcept {
+        if (std::abs(m_target_y - target_y) > 0.25f) {
+            m_target_y = target_y;
+            m_pos_animating = true;
+            mark_needs_paint();
+        }
+    }
+
     void begin_dismiss() {
         if (m_closing) return;
         m_closing = true;
         m_close_start = std::chrono::steady_clock::now();
+        if (auto cb = std::move(m_on_begin_dismiss)) {
+            cb();
+        }
         mark_needs_paint();
     }
 
@@ -90,40 +109,52 @@ public:
             }
         }
 
+        if (m_pos_animating) {
+            float diff = m_target_y - m_current_y;
+            if (std::abs(diff) < 0.35f) {
+                m_current_y = m_target_y;
+                m_pos_animating = false;
+            } else {
+                float k = 1.0f - std::exp(-dt * 16.0f);
+                m_current_y += diff * k;
+                mark_needs_paint();
+            }
+            if (Window* w = Window::active_window(); w && m_overlay_id != 0) {
+                w->set_overlay_position(m_overlay_id, Vec2{std::round(m_current_x), std::round(m_current_y)});
+            }
+        }
+
         const Theme& theme = ThemeContext::current();
         const float w = size().x;
         const float h = size().y;
         Rect panel = Rect::from_xywh(slide_x, slide_y, w, h);
 
+        // 超高模糊半透磨砂亚克力底板 (对齐 Fluent 2 Acrylic Flyout)
         Color bg = theme.is_dark
-            ? Color{44.0f / 255.0f, 45.0f / 255.0f, 50.0f / 255.0f, alpha}
-            : Color{252.0f / 255.0f, 252.0f / 255.0f, 252.0f / 255.0f, alpha};
+            ? Color{36.0f / 255.0f, 38.0f / 255.0f, 44.0f / 255.0f, 0.78f * alpha}
+            : Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.82f * alpha};
         Color border = theme.is_dark
-            ? Color{1.0f, 1.0f, 1.0f, 0.11f * alpha}
-            : Color{0.0f, 0.0f, 0.0f, 0.11f * alpha};
+            ? Color{1.0f, 1.0f, 1.0f, 0.14f * alpha}
+            : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha};
         Color title_col = theme.is_dark
             ? Color{1.0f, 1.0f, 1.0f, 0.96f * alpha}
             : Color{0.0f, 0.0f, 0.0f, 0.92f * alpha};
         Color msg_col = theme.is_dark
-            ? Color{1.0f, 1.0f, 1.0f, 0.74f * alpha}
-            : Color{0.0f, 0.0f, 0.0f, 0.68f * alpha};
+            ? Color{1.0f, 1.0f, 1.0f, 0.78f * alpha}
+            : Color{0.0f, 0.0f, 0.0f, 0.70f * alpha};
         Color accent = severity_color(theme.is_dark);
         accent.a *= alpha;
 
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel, 8.0f, theme.is_dark, 32.0f, alpha);
 
-        // 2. 圆角卡片底板与描边 (可选亚克力微颗粒与方向性玻璃高光)
-        ctx.draw_rect(panel, bg, 8.0f, 0.0f);
-        if (m_desc.acrylic_grain) {
-            Color tint = bg; tint.a = 0.02f * alpha;
-            ctx.draw_acrylic_panel(panel, tint, 8.0f, 0.024f, 1.0f);
-        }
+        // 2. 超高模糊半透亚克力卡片底板 + 细微噪点 + 方向性玻璃高光描边
+        ctx.draw_acrylic_panel(panel, bg, 8.0f, 0.026f, 1.0f);
         ctx.draw_rect(panel, border, 8.0f, 1.0f);
-        if (m_desc.directional_rim) {
-            const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.26f * alpha} : Color{1.0f, 1.0f, 1.0f, 0.75f * alpha};
-            const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.34f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.14f * alpha};
-            ctx.draw_directional_rim(panel, top_hi, bot_sh, 8.0f, 1.0f, Vec2{-0.18f, -0.98f}, 0.26f);
+        {
+            const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.24f * alpha} : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha};
+            const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.30f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha};
+            ctx.draw_directional_rim(panel, top_hi, bot_sh, 8.0f, 1.0f, Vec2{-0.18f, -0.98f}, 0.28f);
         }
 
         // 3. 左侧语义徽标圆点 + 图标
@@ -260,6 +291,12 @@ private:
 
     ToastDesc m_desc;
     Fn<void()> m_on_finish_close;
+    Fn<void()> m_on_begin_dismiss;
+    uint64_t m_overlay_id{0};
+    float m_current_x{0.0f};
+    float m_current_y{0.0f};
+    float m_target_y{0.0f};
+    bool m_pos_animating{false};
     Rect m_close_rect;
     Rect m_action_rect;
     bool m_hovered{false};
@@ -273,26 +310,53 @@ private:
     std::chrono::steady_clock::time_point m_last_tick{};
 };
 
-// 静态便捷弹出器 (Toast::show)，支持多条通知自动垂直错位堆叠
+// 静态便捷弹出器 (Toast::show)，支持多条通知自动垂直错位堆叠与关闭后平滑沉降补位动画
 struct Toast {
+    static void reflow_placement(ToastPlacement placement) {
+        Window* win = Window::active_window();
+        if (!win) return;
+        const Vec2 win_sz = win->size();
+        const float margin = 16.0f;
+        const float tb = win->titlebar_height();
+        float accumulated_h = 0.0f;
+        auto& slots = live_slots();
+        for (const auto& s : slots) {
+            if (s.placement != placement || s.closing) continue;
+            if (auto node = s.node.lock()) {
+                float target_y = (placement == ToastPlacement::TopRight)
+                    ? (tb + margin + accumulated_h)
+                    : std::max(tb + margin, win_sz.y - s.height - margin - accumulated_h);
+                node->set_target_y(std::round(target_y));
+                accumulated_h += s.height + 10.0f;
+            }
+        }
+    }
+
     static uint64_t show(const ToastDesc& desc) {
         Window* win = Window::active_window();
         if (!win) return 0;
 
         auto overlay_id = std::make_shared<uint64_t>(0);
         auto on_close = desc.on_close;
+        const ToastPlacement placement = desc.placement;
         auto& active_slots = live_slots();
 
-        // 计算当前同方位已存活 Toast 数量，自动向上/向下堆叠避免重叠
-        int slot_idx = 0;
+        // 按同方位未关闭 Toast 的实际高度逐条累加偏移，彻底避免不同高度堆叠重叠
+        float accumulated_h = 0.0f;
+        int same_place_cnt = 0;
         for (const auto& s : active_slots) {
-            if (s.placement == desc.placement) ++slot_idx;
+            if (s.placement == placement && !s.closing) {
+                accumulated_h += s.height + 10.0f;
+                ++same_place_cnt;
+            }
         }
-        slot_idx = std::min(slot_idx, 4);
+        if (same_place_cnt >= 5) {
+            accumulated_h = std::min(accumulated_h, 420.0f);
+        }
 
         auto toast = make_render_node<RenderToast>(
             desc,
-            [overlay_id, on_close]() {
+            [overlay_id, on_close, placement]() {
                 uint64_t id = *overlay_id;
                 *overlay_id = 0;
                 auto user_cb = on_close; // 先拷贝至栈上，防止 hide_overlay 销毁 RenderToast 与当前 lambda 后悬空
@@ -302,42 +366,53 @@ struct Toast {
                 if (Window* w = Window::active_window(); w && id != 0) {
                     w->hide_overlay(id);
                 }
+                reflow_placement(placement);
                 if (user_cb) user_cb();
             });
 
         Vec2 sz = toast->compute_size();
         Vec2 win_sz = win->size();
         const float margin = 16.0f;
-        const float stack_step = sz.y + 10.0f;
         float gx = margin;
         float gy = margin;
 
-        switch (desc.placement) {
+        switch (placement) {
             case ToastPlacement::TopRight:
                 gx = std::max(margin, win_sz.x - sz.x - margin);
-                gy = win->titlebar_height() + margin + static_cast<float>(slot_idx) * stack_step;
+                gy = win->titlebar_height() + margin + accumulated_h;
                 break;
             case ToastPlacement::BottomCenter:
                 gx = std::max(margin, std::round((win_sz.x - sz.x) * 0.5f));
-                gy = std::max(win->titlebar_height() + margin, win_sz.y - sz.y - margin - static_cast<float>(slot_idx) * stack_step);
+                gy = std::max(win->titlebar_height() + margin, win_sz.y - sz.y - margin - accumulated_h);
                 break;
             case ToastPlacement::BottomRight:
             default:
                 gx = std::max(margin, win_sz.x - sz.x - margin);
-                gy = std::max(win->titlebar_height() + margin, win_sz.y - sz.y - margin - static_cast<float>(slot_idx) * stack_step);
+                gy = std::max(win->titlebar_height() + margin, win_sz.y - sz.y - margin - accumulated_h);
                 break;
         }
 
+        Vec2 init_pos{std::round(gx), std::round(gy)};
         OverlayEntry entry;
         entry.content = toast;
-        entry.global_pos = Vec2{std::round(gx), std::round(gy)};
+        entry.global_pos = init_pos;
         entry.size = sz;
         entry.dismiss_on_outside_click = false;
         entry.is_modal = false;
 
         uint64_t id = win->show_overlay(std::move(entry));
         *overlay_id = id;
-        active_slots.push_back(Slot{id, desc.placement});
+        active_slots.push_back(Slot{id, placement, sz.y, toast, false});
+        toast->set_overlay_tracking(id, init_pos, [overlay_id, placement]() {
+            uint64_t id_now = *overlay_id;
+            for (auto& s : live_slots()) {
+                if (s.overlay_id == id_now) {
+                    s.closing = true;
+                    break;
+                }
+            }
+            reflow_placement(placement);
+        });
         return id;
     }
 
@@ -345,6 +420,9 @@ private:
     struct Slot {
         uint64_t overlay_id{0};
         ToastPlacement placement{ToastPlacement::BottomRight};
+        float height{72.0f};
+        std::weak_ptr<RenderToast> node;
+        bool closing{false};
     };
     static std::vector<Slot>& live_slots() {
         static std::vector<Slot> s;

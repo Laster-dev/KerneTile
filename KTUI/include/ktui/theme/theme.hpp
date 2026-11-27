@@ -2,20 +2,21 @@
 
 #include "design_tokens.hpp"
 #include "color_palette.hpp"
+#include <optional>
 
 namespace ktui {
 
 // 完整主题聚合对象 (严格对齐 Windows 11 Fluent 2 / WinUI 3 官方设计令牌体系)
 struct Theme {
     bool is_dark = true;
-    bool enable_pointer_reveal = false; // 全局 Opt-in Fluent 指针高光跟随 (默认关闭，宿主可全局开启)
+    std::optional<bool> enable_pointer_reveal = std::nullopt; // 未显式设置时实时跟随 Theme::global_pointer_reveal()（框架默认 true）
     ColorPalette colors;
     TypographyTokens typography;
     SpacingTokens spacing;
     CornerRadiusTokens radii;
     ShadowTokens shadows;
 
-    // 全局指针高光默认开关：供应用启动时一键开启，且在深/浅色主题切换时自动保持
+    // 全局指针高光开关：框架默认 true，宿主可调用 Theme::set_global_pointer_reveal(false) 实时全局关闭
     [[nodiscard]] static bool global_pointer_reveal() noexcept {
         return global_pointer_reveal_storage();
     }
@@ -23,11 +24,17 @@ struct Theme {
         global_pointer_reveal_storage() = enabled;
     }
 
+    // 统一三层优先级解析：控件级显式设置 (最高) > 主题级显式设置 > 框架全局开关 (默认 true)
+    [[nodiscard]] bool resolve_pointer_reveal(std::optional<bool> widget_override) const noexcept {
+        if (widget_override.has_value()) return *widget_override;
+        if (enable_pointer_reveal.has_value()) return *enable_pointer_reveal;
+        return global_pointer_reveal_storage();
+    }
+
     // Windows 11 Fluent 2 / WinUI 3 官方深色主题 (Dark Theme)
     [[nodiscard]] static Theme dark() noexcept {
         Theme t;
         t.is_dark = true;
-        t.enable_pointer_reveal = global_pointer_reveal_storage();
 
         // 中性表面与边界 (WinUI 3 SolidBackground / Layer / SurfaceStroke)
         t.colors.background = Color{32.0f / 255.0f, 32.0f / 255.0f, 32.0f / 255.0f, 1.0f};          // #202020 SolidBackgroundFillColorBase
@@ -74,8 +81,8 @@ struct Theme {
         t.colors.control_fill_disabled     = Color{1.0f, 1.0f, 1.0f, 0.0419f};
         t.colors.control_stroke_default    = Color{1.0f, 1.0f, 1.0f, 0.0698f};
         t.colors.control_stroke_bottom     = Color{1.0f, 1.0f, 1.0f, 0.5442f};
-        t.colors.flyout_surface            = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 1.0f};
-        t.colors.flyout_stroke             = Color{1.0f, 1.0f, 1.0f, 0.0837f};
+        t.colors.flyout_surface            = Color{36.0f / 255.0f, 38.0f / 255.0f, 44.0f / 255.0f, 0.78f};
+        t.colors.flyout_stroke             = Color{1.0f, 1.0f, 1.0f, 0.14f};
         t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.0512f};
         t.colors.card_stroke               = Color{0.0f, 0.0f, 0.0f, 0.10f};
         t.colors.subtle_fill_secondary     = Color{1.0f, 1.0f, 1.0f, 0.0605f};
@@ -89,7 +96,6 @@ struct Theme {
     [[nodiscard]] static Theme light() noexcept {
         Theme t;
         t.is_dark = false;
-        t.enable_pointer_reveal = global_pointer_reveal_storage();
 
         // 中性表面与边界 (WinUI 3 Mica Base #F3F3F3 / Layer #FFFFFF)
         t.colors.background = Color{243.0f / 255.0f, 243.0f / 255.0f, 243.0f / 255.0f, 1.0f};       // #F3F3F3 SolidBackgroundFillColorBase
@@ -136,8 +142,8 @@ struct Theme {
         t.colors.control_fill_disabled     = Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.30f};
         t.colors.control_stroke_default    = Color{0.0f, 0.0f, 0.0f, 0.0578f};
         t.colors.control_stroke_bottom     = Color{0.0f, 0.0f, 0.0f, 0.4458f};
-        t.colors.flyout_surface            = Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 1.0f};
-        t.colors.flyout_stroke             = Color{0.0f, 0.0f, 0.0f, 0.0578f};
+        t.colors.flyout_surface            = Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.82f};
+        t.colors.flyout_stroke             = Color{0.0f, 0.0f, 0.0f, 0.10f};
         t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.70f};
         t.colors.card_stroke               = Color{0.0f, 0.0f, 0.0f, 0.0578f};
         t.colors.subtle_fill_secondary     = Color{0.0f, 0.0f, 0.0f, 0.0373f};
@@ -159,7 +165,7 @@ struct Theme {
 
 private:
     static bool& global_pointer_reveal_storage() noexcept {
-        static bool s_enabled = false;
+        static bool s_enabled = true;
         return s_enabled;
     }
 };

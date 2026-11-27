@@ -375,6 +375,11 @@ public:
                     : (m_hovered ? theme.colors.control_fill_secondary : theme.colors.control_fill_default));
         ctx.draw_rect(box, bg, 4.0f, 0.0f);
         ctx.draw_rect(box, theme.colors.control_stroke_default, 4.0f, 1.0f);
+        if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_disabled) {
+            const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.055f};
+            const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.32f} : Color{0.0f, 0.0f, 0.0f, 0.22f};
+            ctx.draw_pointer_reveal(box, m_reveal_pos, 68.0f, surf, edge, 4.0f, 1.0f);
+        }
 
         Color bottom_line = m_popup_handle.is_open() ? resolved_style.accent : theme.colors.control_stroke_bottom;
         ctx.draw_rect(Rect::from_xywh(box.min_x + 2.0f, box.max_y - (m_popup_handle.is_open() ? 2.0f : 1.0f),
@@ -447,9 +452,23 @@ private:
         on_pointer_enter = [this](PointerEvent&) {
             if (!m_disabled) { m_hovered = true; mark_needs_paint(); }
         };
+        on_pointer_move = [this](PointerEvent& e) {
+            if (!m_disabled && e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal) &&
+                box_rect().contains(e.local_position)) {
+                m_reveal_pos = e.local_position;
+                m_reveal_active = true;
+                mark_needs_paint();
+            } else if (m_reveal_active) {
+                m_reveal_active = false;
+                mark_needs_paint();
+            }
+        };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = false;
             m_pressed = false;
+            m_reveal_active = false;
             mark_needs_paint();
         };
         on_pointer_down = [this](PointerEvent& e) {
@@ -476,10 +495,20 @@ private:
     bool m_disabled{false};
     bool m_hovered{false};
     bool m_pressed{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     PopupHandle m_popup_handle;
     Fn<void(const TimeOfDay&)> m_on_time_changed;
 
 public:
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
     void wrap_on_time_changed(Fn<void(const TimeOfDay&)> extra) {
         auto prev = std::move(m_on_time_changed);
         m_on_time_changed = [prev = std::move(prev), extra = std::move(extra)](const TimeOfDay& t) {
@@ -497,6 +526,7 @@ struct TimePicker : BindableMixin<TimePicker, RenderTimePicker> {
     int minute_increment{1};
     float width{190.0f};
     bool disabled{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     Fn<void(const TimeOfDay&)> on_time_changed{nullptr};
 
     operator WidgetPtr() const&;
@@ -544,6 +574,7 @@ private:
         node->set_properties(
             m_desc.time, m_desc.header, m_desc.use_24h, m_desc.minute_increment,
             m_desc.width, m_desc.disabled, m_desc.on_time_changed);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
     }
 
     TimePicker m_desc;

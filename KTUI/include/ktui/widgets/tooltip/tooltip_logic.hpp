@@ -62,7 +62,7 @@ public:
         Color fg = resolved_style.text_primary;
         fg.a *= alpha;
 
-        ctx.draw_rect(r, bg, 4.0f, 0.0f);
+        ctx.draw_acrylic_panel(r, bg, 4.0f, 0.024f, 1.0f);
         ctx.draw_rect(r, stroke, 4.0f, 1.0f);
 
         Vec2 ts = TextMeasure::measure(m_text, kFontSize);

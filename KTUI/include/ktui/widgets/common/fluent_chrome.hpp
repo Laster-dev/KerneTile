@@ -120,8 +120,15 @@ public:
         Color border = theme.colors.flyout_stroke;
         border.a *= alpha;
         ctx.draw_elevation_shadow(panel, radius, theme.is_dark, 32.0f, alpha);
-        ctx.draw_rect(panel, bg, radius, 0.0f);
+        ctx.draw_acrylic_panel(panel, bg, radius, 0.026f, 1.0f);
         ctx.draw_rect(panel, border, radius, 1.0f);
+        const Color top_hi = theme.is_dark
+            ? Color{1.0f, 1.0f, 1.0f, 0.22f * alpha}
+            : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha};
+        const Color bot_sh = theme.is_dark
+            ? Color{0.0f, 0.0f, 0.0f, 0.28f * alpha}
+            : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha};
+        ctx.draw_directional_rim(panel, top_hi, bot_sh, radius, 1.0f, Vec2{-0.18f, -0.98f}, 0.26f);
     }
 
     [[nodiscard]] static Vec2 compute_anchored_pos(const Window& win,

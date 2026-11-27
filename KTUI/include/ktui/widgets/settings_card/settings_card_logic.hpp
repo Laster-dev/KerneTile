@@ -65,11 +65,13 @@ public:
         mark_needs_layout();
     }
 
-    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_enable_pointer_reveal; }
-    void set_pointer_reveal_enabled(bool enabled) {
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept {
+        return ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal);
+    }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) {
         if (m_enable_pointer_reveal != enabled) {
             m_enable_pointer_reveal = enabled;
-            if (!enabled) {
+            if (!pointer_reveal_enabled()) {
                 m_reveal_active = false;
             }
             mark_needs_paint();
@@ -193,7 +195,7 @@ public:
             ctx.draw_directional_rim(bounds(), top_hi, bot_sh, 4.0f, 1.0f, Vec2{-0.18f, -0.98f}, 0.25f);
         }
 
-        if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active && !m_disabled) {
+        if (ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_disabled) {
             const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
                                             : Color{0.0f, 0.0f, 0.0f, 0.05f};
             const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
@@ -254,7 +256,7 @@ private:
         on_pointer_move = [this](PointerEvent& e) {
             if (e.type == PlatformEventType::PointerMove &&
                 e.device_kind != PointerDeviceKind::Touch &&
-                (m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && !m_disabled) {
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal) && !m_disabled) {
                 if (!m_reveal_active ||
                     std::abs(m_reveal_pos.x - e.local_position.x) > 0.01f ||
                     std::abs(m_reveal_pos.y - e.local_position.y) > 0.01f) {
@@ -302,7 +304,7 @@ private:
     bool m_is_nested{false};
     bool m_hovered{false};
     bool m_pressed{false};
-    bool m_enable_pointer_reveal{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
     bool m_directional_rim{false};
     bool m_reveal_active{false};
     PointF m_reveal_pos{0.0f, 0.0f};
@@ -329,7 +331,7 @@ struct SettingsCard : BindableMixin<SettingsCard, RenderSettingsCard> {
     bool is_nested{false};
     WidgetPtr content{nullptr};
     Fn<void()> on_click{nullptr};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     bool directional_rim{false};
 
     SettingsCard& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
@@ -446,11 +448,13 @@ public:
 
     [[nodiscard]] bool is_expanded() const noexcept { return m_expanded; }
 
-    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_enable_pointer_reveal; }
-    void set_pointer_reveal_enabled(bool enabled) {
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept {
+        return ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal);
+    }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) {
         if (m_enable_pointer_reveal != enabled) {
             m_enable_pointer_reveal = enabled;
-            if (!enabled) {
+            if (!pointer_reveal_enabled()) {
                 m_reveal_active = false;
             }
             mark_needs_paint();
@@ -559,7 +563,7 @@ public:
             ctx.draw_rect(Rect::from_xywh(0.0f, m_header_h, w, std::max(0.0f, h - m_header_h)), body_bg, 0.0f, 0.0f);
         }
 
-        if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active && !m_disabled) {
+        if (ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_disabled) {
             const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
                                             : Color{0.0f, 0.0f, 0.0f, 0.05f};
             const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
@@ -635,7 +639,7 @@ private:
             cursor_shape = over_hdr ? CursorShape::PointingHand : CursorShape::Arrow;
             bool need_paint = (over_hdr != m_header_hovered);
             m_header_hovered = over_hdr;
-            if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && e.type == PlatformEventType::PointerMove &&
+            if (ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal) && e.type == PlatformEventType::PointerMove &&
                 e.device_kind != PointerDeviceKind::Touch) {
                 if (over_hdr) {
                     if (!m_reveal_active ||
@@ -693,7 +697,7 @@ private:
     bool m_disabled{false};
     bool m_header_hovered{false};
     bool m_pressed{false};
-    bool m_enable_pointer_reveal{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
     bool m_reveal_active{false};
     PointF m_reveal_pos{0.0f, 0.0f};
     float m_header_h{66.0f};
@@ -714,7 +718,7 @@ struct SettingsExpander : BindableMixin<SettingsExpander, RenderSettingsExpander
     WidgetPtr header_content{nullptr};
     std::vector<WidgetPtr> items;
     Fn<void(bool)> on_expanded_changed{nullptr};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
 
     SettingsExpander& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
     SettingsExpander&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }

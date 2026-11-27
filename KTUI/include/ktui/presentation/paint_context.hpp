@@ -56,6 +56,7 @@ public:
     // 绘制实心或带边框矩形
     KTUI_NOINLINE void draw_rect(Rect rect, Color color, float corner_radius = 0.0f, float border_width = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
+        if (!is_abs_rect_visible(abs_rect, border_width + 2.0f)) return;
         if (m_renderer) {
             Rect px = to_pixels(abs_rect);
             const float cr_px = corner_radius * m_render_scale;
@@ -82,6 +83,8 @@ public:
                            Vec2 shadow_offset = Vec2{0.0f, 0.0f},
                            float border_width = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
+        const float cull_pad = border_width + shadow_blur * 3.0f + std::max(std::abs(shadow_offset.x), std::abs(shadow_offset.y)) + 2.0f;
+        if (!is_abs_rect_visible(abs_rect, cull_pad)) return;
         if (m_renderer) {
             Rect px = to_pixels(abs_rect);
             const float rtl_px = radius_tl * m_render_scale;
@@ -124,6 +127,7 @@ public:
                                             float border_width = 0.0f,
                                             bool oklab = true) {
         Rect abs_rect = to_absolute_rect(rect);
+        if (!is_abs_rect_visible(abs_rect, border_width + 2.0f)) return;
         PointF abs_start = start_pt + m_current_offset;
         PointF abs_end = end_pt + m_current_offset;
         if (m_renderer) {
@@ -355,7 +359,17 @@ public:
                    FontWeight weight = FontWeight::Regular, bool italic = false,
                    std::string_view font_family = "", bool tabular_nums = false,
                    bool font_gamma = true) {
+        if (text.empty()) return;
         PointF abs_pos = pos + m_current_offset;
+        if (!m_clip_stack.empty()) {
+            const Rect& clip = m_clip_stack.back();
+            if (clip.is_empty() ||
+                abs_pos.y > clip.max_y + font_size * 0.5f ||
+                abs_pos.y + font_size * 2.0f < clip.min_y ||
+                abs_pos.x > clip.max_x + 4.0f) {
+                return;
+            }
+        }
         if (m_renderer) {
             m_renderer->draw_text_scaled(text, abs_pos.x, abs_pos.y, font_size, color,
                                          m_render_scale, static_cast<uint16_t>(weight), italic,
@@ -374,6 +388,7 @@ public:
     KTUI_NOINLINE void draw_alpha_mask(uint64_t cache_key, Rect dst_rect, uint32_t mask_w, uint32_t mask_h,
                          const uint8_t* alpha_pixels, Color tint) {
         Rect abs_rect = to_absolute_rect(dst_rect);
+        if (!is_abs_rect_visible(abs_rect, 2.0f)) return;
         if (m_renderer) {
             m_renderer->draw_alpha_mask(cache_key, to_pixels(abs_rect), mask_w, mask_h, alpha_pixels, tint);
         }
@@ -397,6 +412,7 @@ public:
                     Rect uv_rect = Rect{0.0f, 0.0f, 1.0f, 1.0f},
                     uint32_t frame_revision = 0) {
         Rect abs_rect = to_absolute_rect(dst_rect);
+        if (!is_abs_rect_visible(abs_rect, 2.0f)) return;
         if (m_renderer) {
             m_renderer->draw_image(cache_key, to_pixels(abs_rect), img_w, img_h, rgba8_pixels,
                                    corner_radius * m_render_scale, tint, uv_rect, frame_revision);
@@ -471,7 +487,7 @@ public:
         }
     }
 
-    // 推入局部裁剪矩形
+    // 推入局部裁剪矩形 (与父级裁剪矩形实时求交，供大页面视口剔除 O(1) 判定)
     KTUI_NOINLINE void push_clip(Rect rect, float corner_radius = 0.0f) {
         Rect abs_rect = to_absolute_rect(rect);
         if (m_renderer) {
@@ -486,7 +502,8 @@ public:
             }
             m_renderer->push_clip(px, corner_radius * m_render_scale);
         }
-        m_clip_stack.push_back(abs_rect);
+        Rect eff = m_clip_stack.empty() ? abs_rect : abs_rect.intersection(m_clip_stack.back());
+        m_clip_stack.push_back(eff);
     }
 
     // 推入带上下边缘渐隐羽化的裁剪矩形 (Scroll Edge Alpha Feathering)
@@ -507,7 +524,8 @@ public:
                                             top_feather * m_render_scale,
                                             bottom_feather * m_render_scale);
         }
-        m_clip_stack.push_back(abs_rect);
+        Rect eff = m_clip_stack.empty() ? abs_rect : abs_rect.intersection(m_clip_stack.back());
+        m_clip_stack.push_back(eff);
     }
 
     // 弹出裁剪矩形
@@ -518,6 +536,28 @@ public:
                 m_renderer->pop_clip();
             }
         }
+    }
+
+    // 视口裁剪可见性快速判定 (O(1) AABB 碰撞，供 RenderBox / ScrollView 跳过屏幕外子树)
+    [[nodiscard]] bool has_clip() const noexcept { return !m_clip_stack.empty(); }
+
+    [[nodiscard]] Rect current_clip() const noexcept {
+        return m_clip_stack.empty() ? Rect{} : m_clip_stack.back();
+    }
+
+    [[nodiscard]] bool is_abs_rect_visible(const Rect& abs_rect, float margin = 0.0f) const noexcept {
+        if (m_clip_stack.empty()) return true;
+        const Rect& clip = m_clip_stack.back();
+        if (clip.is_empty()) return false;
+        return (abs_rect.max_x + margin >= clip.min_x) &&
+               (abs_rect.min_x - margin <= clip.max_x) &&
+               (abs_rect.max_y + margin >= clip.min_y) &&
+               (abs_rect.min_y - margin <= clip.max_y);
+    }
+
+    [[nodiscard]] bool is_rect_visible(const Rect& local_rect, float margin = 0.0f) const noexcept {
+        if (m_clip_stack.empty()) return true;
+        return is_abs_rect_visible(to_absolute_rect(local_rect), margin);
     }
 
     [[nodiscard]] Vec2 current_offset() const noexcept { return m_current_offset; }

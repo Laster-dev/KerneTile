@@ -179,20 +179,51 @@ void ensure_wallpaper_loaded(BlurredWallpaperCache& c) {
     generate_fallback_ambient_wallpaper(w, h, raw);
 #endif
 
-    // 使用 KerneTile 自研 DualKawaseBlur 执行离线强模糊 (抹除壁纸纹理，仅留柔和云母光感)
+    // 使用 KerneTile 自研 DualKawaseBlur 执行单次离线强模糊 (在 <=256px 缓冲上 radius=12/offset=1.5 ≈ 全屏 90px 高斯核)
+    // 既彻底抹除壁纸高频细节，又完整保留桌面宏观色彩空间梯度（避免过度双遍模糊坍缩为单一灰平均色）
     kernetile::fx::BlurParams params{};
     params.quality = kernetile::fx::BlurQuality::High;
-    params.radius = 24.0f;
-    params.offset_scale = 2.0f;
-    std::vector<uint8_t> pass1(raw.size());
-    std::vector<uint8_t> pass2(raw.size());
-    kernetile::fx::DualKawaseBlur::blur_cpu(raw.data(), w, h, pass1.data(), params);
-    kernetile::fx::DualKawaseBlur::blur_cpu(pass1.data(), w, h, pass2.data(), params);
+    params.radius = 12.0f;
+    params.offset_scale = 1.5f;
+    std::vector<uint8_t> blurred(raw.size());
+    kernetile::fx::DualKawaseBlur::blur_cpu(raw.data(), w, h, blurred.data(), params);
 
     c.width = w;
     c.height = h;
-    c.rgba = std::move(pass2);
+    c.rgba = std::move(blurred);
     c.loaded = true;
+}
+
+// W3C / Direct2D D2D1_BLEND_MODE_LUMINOSITY 精确亮度计算与色度保留 SetLum 实现
+// 与 Windows 11 DWM MicaController 内部 Luminosity Blend 管线完全一致
+inline float w3c_lum(float r, float g, float b) noexcept {
+    return 0.30f * r + 0.59f * g + 0.11f * b;
+}
+
+inline void w3c_clip_color(float& r, float& g, float& b) noexcept {
+    const float l = w3c_lum(r, g, b);
+    const float mn = std::min({r, g, b});
+    const float mx = std::max({r, g, b});
+    if (mn < 0.0f) {
+        const float denom = std::max(1e-6f, l - mn);
+        r = l + ((r - l) * l) / denom;
+        g = l + ((g - l) * l) / denom;
+        b = l + ((b - l) * l) / denom;
+    }
+    if (mx > 1.0f) {
+        const float denom = std::max(1e-6f, mx - l);
+        r = l + ((r - l) * (1.0f - l)) / denom;
+        g = l + ((g - l) * (1.0f - l)) / denom;
+        b = l + ((b - l) * (1.0f - l)) / denom;
+    }
+}
+
+inline void w3c_set_lum(float& r, float& g, float& b, float target_lum) noexcept {
+    const float d = target_lum - w3c_lum(r, g, b);
+    r += d;
+    g += d;
+    b += d;
+    w3c_clip_color(r, g, b);
 }
 
 void sample_bilinear(const BlurredWallpaperCache& c, float u, float v, float& out_r, float& out_g, float& out_b) noexcept {
@@ -244,36 +275,53 @@ bool MicaBackdropEngine::build_mica_grid(WindowBackdrop backdrop,
         return false;
     }
 
-    // 对齐 CUI.Core DrawMicaBackground / DrawMicaAltBackground 的精准色值与混合系数
-    float base_r = is_dark ? (0x20 / 255.0f) : (0xEA / 255.0f);
-    float base_g = is_dark ? (0x20 / 255.0f) : (0xED / 255.0f);
-    float base_b = is_dark ? (0x20 / 255.0f) : (0xF1 / 255.0f);
+    // 严格对齐 Microsoft Windows 11 WinUI 3 MicaController 官方参数表:
+    //   Mica (Base)    Dark : Tint=#202020, TintOpacity=0.80, LuminosityOpacity=1.00, Fallback=#202020
+    //   Mica (Base)    Light: Tint=#F3F3F3, TintOpacity=0.50, LuminosityOpacity=1.00, Fallback=#F3F3F3
+    //   MicaAlt(Tabbed) Dark : Tint=#0A0A0A, TintOpacity=0.00, LuminosityOpacity=0.96, Fallback=#202020
+    //   MicaAlt(Tabbed) Light: Tint=#DADADA, TintOpacity=0.50, LuminosityOpacity=1.00, Fallback=#E8E8E8
+    float tint_r, tint_g, tint_b;
+    float fallback_r, fallback_g, fallback_b;
+    float tint_opacity;
+    float luminosity_opacity;
 
     if (backdrop == WindowBackdrop::MicaAlt) {
         if (is_dark) {
-            base_r *= 0.72f;
-            base_g *= 0.72f;
-            base_b *= 0.76f;
+            tint_r = tint_g = tint_b = 0x0A / 255.0f;
+            fallback_r = fallback_g = fallback_b = 0x20 / 255.0f;
+            tint_opacity = 0.00f;
+            luminosity_opacity = 0.96f;
         } else {
-            base_r *= 0.94f;
-            base_g *= 0.95f;
-            base_b *= 0.97f;
+            tint_r = tint_g = tint_b = 0xDA / 255.0f;
+            fallback_r = fallback_g = fallback_b = 0xE8 / 255.0f;
+            tint_opacity = 0.50f;
+            luminosity_opacity = 1.00f;
+        }
+    } else {
+        if (is_dark) {
+            tint_r = tint_g = tint_b = 0x20 / 255.0f;
+            fallback_r = fallback_g = fallback_b = 0x20 / 255.0f;
+            tint_opacity = 0.80f;
+            luminosity_opacity = 1.00f;
+        } else {
+            tint_r = tint_g = tint_b = 0xF3 / 255.0f;
+            fallback_r = fallback_g = fallback_b = 0xF3 / 255.0f;
+            tint_opacity = 0.50f;
+            luminosity_opacity = 1.00f;
         }
     }
 
     const float clamped_active = std::clamp(active_factor, 0.0f, 1.0f);
 
-    // 完全失焦时按 Windows 11 / CUI.Core 规范退化为纯净主题底色
+    // 完全失焦时按 Windows 11 规范退化为官方 Fallback 纯色
     if (clamped_active <= 0.001f) {
-        const uint32_t solid = pack_rgba8(base_r, base_g, base_b, 1.0f);
+        const uint32_t solid = pack_rgba8(fallback_r, fallback_g, fallback_b, 1.0f);
         out_grid.fill(solid);
         return true;
     }
 
-    const float base_wp_opacity = (backdrop == WindowBackdrop::MicaAlt)
-        ? (is_dark ? 0.34f : 0.38f)
-        : (is_dark ? 0.20f : 0.24f);
-    const float wp_opacity = base_wp_opacity * clamped_active;
+    const float tint_lum = w3c_lum(tint_r, tint_g, tint_b);
+    const float sat_boost = is_dark ? 1.15f : 1.05f;
 
     auto& c = cache();
     LightLock lock(c.mutex);
@@ -285,12 +333,31 @@ bool MicaBackdropEngine::build_mica_grid(WindowBackdrop backdrop,
         for (uint32_t ix = 0; ix < 4; ++ix) {
             const float tx = static_cast<float>(ix) / 3.0f;
             const float u = monitor_uv_rect.min_x + monitor_uv_rect.width() * tx;
-            float wr = base_r, wg = base_g, wb = base_b;
+            float wr = fallback_r, wg = fallback_g, wb = fallback_b;
             sample_bilinear(c, u, v, wr, wg, wb);
-            // Source-over 混合: wallpaper(opacity) over opaque baseBg
-            const float r = wr * wp_opacity + base_r * (1.0f - wp_opacity);
-            const float g = wg * wp_opacity + base_g * (1.0f - wp_opacity);
-            const float b = wb * wp_opacity + base_b * (1.0f - wp_opacity);
+
+            // 轻微色彩饱和度补偿（对齐 DWM HostBackdrop 鲜活度）
+            const float wp_lum = w3c_lum(wr, wg, wb);
+            wr = std::clamp(wp_lum + (wr - wp_lum) * sat_boost, 0.0f, 1.0f);
+            wg = std::clamp(wp_lum + (wg - wp_lum) * sat_boost, 0.0f, 1.0f);
+            wb = std::clamp(wp_lum + (wb - wp_lum) * sat_boost, 0.0f, 1.0f);
+
+            // Stage 1: D2D1 Luminosity Blend (将壁纸亮度拉齐至主题 Tint 亮度，完整保留壁纸色相与饱和度)
+            float sr = wr, sg = wg, sb = wb;
+            w3c_set_lum(sr, sg, sb, tint_lum);
+            const float lr = wr + (sr - wr) * luminosity_opacity;
+            const float lg = wg + (sg - wg) * luminosity_opacity;
+            const float lb = wb + (sb - wb) * luminosity_opacity;
+
+            // Stage 2: TintColor Source-Over (按官方 TintOpacity 叠加主题色层)
+            const float mr = tint_r * tint_opacity + lr * (1.0f - tint_opacity);
+            const float mg = tint_g * tint_opacity + lg * (1.0f - tint_opacity);
+            const float mb = tint_b * tint_opacity + lb * (1.0f - tint_opacity);
+
+            // Stage 3: 聚焦/失焦平滑过渡至 FallbackColor
+            const float r = fallback_r + (mr - fallback_r) * clamped_active;
+            const float g = fallback_g + (mg - fallback_g) * clamped_active;
+            const float b = fallback_b + (mb - fallback_b) * clamped_active;
             out_grid[iy * 4u + ix] = pack_rgba8(r, g, b, 1.0f);
         }
     }

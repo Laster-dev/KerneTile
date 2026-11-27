@@ -114,6 +114,7 @@ public:
                 m_wrapped_lines.emplace_back(m_text.substr(line_start));
             }
             float line_h = TextMeasure::measure({}, m_font_size, m_font_weight, false, m_font_family, m_tabular_nums).y;
+            m_cached_line_height = line_h;
             m_size = m_constraints.constrain(Vec2{max_w, line_h * static_cast<float>(std::max<size_t>(1, m_wrapped_lines.size()))});
         } else {
             m_size = m_constraints.constrain(measured);
@@ -138,11 +139,17 @@ public:
         // alpha < 0 表示自动跟随当前深浅色主题的 text_primary，彻底消除浅色模式下白字问题
         const Color draw_col = (m_color.a < 0.0f) ? ThemeContext::current().colors.text_primary : m_color;
         if (m_text.empty() || draw_col.a <= 0.001f) return;
+        if (context.has_clip() && m_size.x > 0.0f && m_size.y > 0.0f &&
+            !context.is_rect_visible(bounds(), 4.0f)) {
+            return;
+        }
 
         // 强制硬件视口裁剪，绝不允许文本溢出自身包围盒
         context.push_clip(bounds(), 0.0f);
         if (m_overflow == TextOverflow::Wrap && !m_wrapped_lines.empty()) {
-            float line_h = TextMeasure::measure("A", m_font_size, m_font_weight, false, m_font_family, m_tabular_nums).y;
+            float line_h = (m_cached_line_height > 0.0f)
+                ? m_cached_line_height
+                : TextMeasure::measure("A", m_font_size, m_font_weight, false, m_font_family, m_tabular_nums).y;
             float y = 0.0f;
             for (const auto& line : m_wrapped_lines) {
                 if (!line.empty()) {
@@ -158,6 +165,7 @@ public:
     }
 
 private:
+    float m_cached_line_height{0.0f};
     std::string m_text;
     std::string m_elided_text;
     std::vector<std::string> m_wrapped_lines;

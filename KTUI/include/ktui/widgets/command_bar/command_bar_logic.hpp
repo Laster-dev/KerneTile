@@ -89,6 +89,11 @@ public:
                 bool prs = (m_pressed_slot == slot.slot_idx || m_overflow_open);
                 if (prs) ctx.draw_rect(slot.rect, prs_bg, 4.0f, 0.0f);
                 else if (hov) ctx.draw_rect(slot.rect, hov_bg, 4.0f, 0.0f);
+                if (hov && theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+                    const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.05f};
+                    const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.30f} : Color{0.0f, 0.0f, 0.0f, 0.20f};
+                    ctx.draw_pointer_reveal(slot.rect, m_reveal_pos, 48.0f, surf, edge, 4.0f, 1.0f);
+                }
 
                 fluent_icons::draw_centered(ctx, fluent_icons::kMoreHorizontal, slot.rect, 16.0f, text_col);
                 continue;
@@ -114,6 +119,11 @@ public:
                 ctx.draw_rect(slot.rect, prs_bg, 4.0f, 0.0f);
             } else if (hov) {
                 ctx.draw_rect(slot.rect, hov_bg, 4.0f, 0.0f);
+            }
+            if (hov && theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+                const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.05f};
+                const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.30f} : Color{0.0f, 0.0f, 0.0f, 0.20f};
+                ctx.draw_pointer_reveal(slot.rect, m_reveal_pos, 54.0f, surf, edge, 4.0f, 1.0f);
             }
 
             Color fg = item.disabled ? dis_col : (checked ? accent_fg : text_col);
@@ -333,16 +343,29 @@ private:
     void setup_behavior() {
         on_pointer_move = [this](PointerEvent& e) {
             int hs = hit_test_slot(e.local_position);
+            bool need_paint = false;
+            if (hs >= 0 && e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = e.local_position;
+                m_reveal_active = true;
+                need_paint = true;
+            } else if (m_reveal_active) {
+                m_reveal_active = false;
+                need_paint = true;
+            }
             if (hs != m_hovered_slot) {
                 m_hovered_slot = hs;
                 cursor_shape = (hs >= 0) ? CursorShape::PointingHand : CursorShape::Arrow;
-                mark_needs_paint();
+                need_paint = true;
             }
+            if (need_paint) mark_needs_paint();
         };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_hovered_slot != -1 || m_pressed_slot != -1) {
+            if (m_hovered_slot != -1 || m_pressed_slot != -1 || m_reveal_active) {
                 m_hovered_slot = -1;
                 m_pressed_slot = -1;
+                m_reveal_active = false;
                 mark_needs_paint();
             }
         };
@@ -383,6 +406,18 @@ private:
     int m_hovered_slot{-1};
     int m_pressed_slot{-1};
     bool m_overflow_open{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
+
+public:
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
 };
 
 // C++20 指定初始化器声明式 WinUI 3 CommandBar
@@ -392,6 +427,7 @@ struct CommandBar : BindableMixin<CommandBar, RenderCommandBar> {
     std::vector<CommandBarItem> secondary_commands;
     CommandBarDefaultLabelPosition default_label_position{CommandBarDefaultLabelPosition::Right};
     float width{0.0f};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
 
     operator WidgetPtr() const&;
 
@@ -408,6 +444,7 @@ public:
         auto node = make_render_node<RenderCommandBar>();
         node->set_properties(m_desc.content, m_desc.primary_commands, m_desc.secondary_commands,
                              m_desc.default_label_position, m_desc.width);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         return node;
     }
 
@@ -415,6 +452,7 @@ public:
         if (auto cb = std::static_pointer_cast<RenderCommandBar>(node)) {
             cb->set_properties(m_desc.content, m_desc.primary_commands, m_desc.secondary_commands,
                                m_desc.default_label_position, m_desc.width);
+            cb->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         }
     }
 

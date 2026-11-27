@@ -166,6 +166,13 @@ public:
             ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, w, m_header_h), border, 6.0f, 1.0f);
         }
 
+        // 1.5 Fluent Pointer Reveal (控件级覆写最高优先级，未设置时继承全局 Theme::enable_pointer_reveal)
+        if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_disabled) {
+            const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.05f};
+            const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f} : Color{0.0f, 0.0f, 0.0f, 0.18f};
+            ctx.draw_pointer_reveal(Rect::from_xywh(0.0f, 0.0f, w, m_header_h), m_reveal_pos, 80.0f, surf, edge, 6.0f, 1.0f);
+        }
+
         // 2. 标题栏图标、主标题、副标题
         float cur_x = 16.0f;
         if (!m_svg_path.empty()) {
@@ -233,16 +240,28 @@ private:
         on_pointer_move = [this](PointerEvent& e) {
             if (m_disabled) return;
             bool hh = (e.local_position.y >= 0.0f && e.local_position.y <= m_header_h);
+            bool need_paint = false;
+            if (hh && e.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = e.local_position;
+                m_reveal_active = true;
+                need_paint = true;
+            } else if (!hh && m_reveal_active) {
+                m_reveal_active = false;
+                need_paint = true;
+            }
             if (hh != m_header_hovered) {
                 m_header_hovered = hh;
                 cursor_shape = hh ? CursorShape::PointingHand : CursorShape::Arrow;
-                mark_needs_paint();
+                need_paint = true;
             }
+            if (need_paint) mark_needs_paint();
         };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_header_hovered || m_pressed) {
+            if (m_header_hovered || m_pressed || m_reveal_active) {
                 m_header_hovered = false;
                 m_pressed = false;
+                m_reveal_active = false;
                 cursor_shape = CursorShape::Arrow;
                 mark_needs_paint();
             }
@@ -283,9 +302,19 @@ private:
     float m_expand_anim{0.0f};
     bool m_header_hovered{false};
     bool m_pressed{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     std::chrono::steady_clock::time_point m_anim_time{};
 
 public:
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
     void wrap_on_expanded_changed(Fn<void(bool)> extra) {
         auto prev = std::move(m_on_expanded_changed);
         m_on_expanded_changed = [prev = std::move(prev), extra = std::move(extra)](bool v) {
@@ -302,6 +331,7 @@ struct Expander : BindableMixin<Expander, RenderExpander> {
     std::string svg_path{""};
     bool is_expanded{false};
     bool disabled{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     EdgeInsets content_padding{14.0f, 16.0f};
     WidgetPtr content{nullptr};
     Fn<void(bool)> on_expanded_changed{nullptr};
@@ -363,6 +393,7 @@ private:
             m_desc.header, m_desc.subtitle, m_desc.svg_path,
             m_desc.is_expanded, m_desc.disabled, m_desc.content_padding,
             m_desc.on_expanded_changed);
+        ex->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
     }
 
     Expander m_desc;

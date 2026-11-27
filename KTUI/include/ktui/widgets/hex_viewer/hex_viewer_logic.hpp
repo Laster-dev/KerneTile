@@ -119,7 +119,7 @@ public:
         const size_t last_row = std::min(total_rows, first_row + static_cast<size_t>(std::ceil(body.height() / kRowH)) + 2u);
 
         for (size_t r = first_row; r < last_row; ++r) {
-            float ry = kHeaderH + static_cast<float>(r) * kRowH - m_scroll_y;
+            float ry = std::round(kHeaderH + static_cast<float>(r) * kRowH - m_scroll_y);
             if ((r & 1u) != 0) {
                 context.draw_rect(Rect::from_xywh(0.0f, ry, m_size.x, kRowH),
                                   is_dark ? Color{1, 1, 1, 0.016f} : Color{0, 0, 0, 0.016f}, 0.0f, 0.0f);
@@ -129,6 +129,43 @@ public:
             std::snprintf(off_buf, sizeof(off_buf), "0x%04X", static_cast<unsigned>(r * m_cols));
             context.draw_text(off_buf, PointF{kOffX, ry + 4.0f}, 11.5f, resolved_style.text_secondary);
 
+            // 2a. 连续选区合并绘制 (Hex 区与 ASCII 区各自绘制整段无缝高亮带，仅外露角使用圆角)
+            const int row_start_idx = static_cast<int>(r * m_cols);
+            const int row_end_idx = std::min(static_cast<int>(m_bytes.size()) - 1, row_start_idx + static_cast<int>(m_cols) - 1);
+            if (sel_lo >= 0 && sel_hi >= row_start_idx && sel_lo <= row_end_idx) {
+                const int lo_in_row = std::max(sel_lo, row_start_idx);
+                const int hi_in_row = std::min(sel_hi, row_end_idx);
+                const size_t c0 = static_cast<size_t>(lo_in_row - row_start_idx);
+                const size_t c1 = static_cast<size_t>(hi_in_row - row_start_idx);
+
+                auto is_selected_idx = [&](int idx) noexcept -> bool {
+                    return idx >= sel_lo && idx <= sel_hi && idx >= 0 && idx < static_cast<int>(m_bytes.size());
+                };
+                const bool above_c0 = is_selected_idx(lo_in_row - static_cast<int>(m_cols));
+                const bool above_c1 = is_selected_idx(hi_in_row - static_cast<int>(m_cols));
+                const bool below_c0 = is_selected_idx(lo_in_row + static_cast<int>(m_cols));
+                const bool below_c1 = is_selected_idx(hi_in_row + static_cast<int>(m_cols));
+
+                const float r_tl = above_c0 ? 0.0f : 4.0f;
+                const float r_tr = above_c1 ? 0.0f : 4.0f;
+                const float r_br = below_c1 ? 0.0f : 4.0f;
+                const float r_bl = below_c0 ? 0.0f : 4.0f;
+                const Color band_fill = Color{accent.r, accent.g, accent.b, is_dark ? 0.22f : 0.17f};
+
+                // Hex 连续选区带（平滑跨字节、跨 8 字节组间距、跨行无缝拼接）
+                const float hx0 = hex_col_x(c0) - 2.0f;
+                const float hx1 = hex_col_x(c1) + m_cell_w - 2.0f;
+                context.draw_rounded_rect(Rect::from_xywh(hx0, ry, std::max(0.0f, hx1 - hx0), kRowH),
+                                          band_fill, r_tl, r_tr, r_br, r_bl);
+
+                // ASCII 连续选区带
+                const float ax0 = m_ascii_x + static_cast<float>(c0) * m_asc_w - 1.5f;
+                const float ax1 = m_ascii_x + static_cast<float>(c1 + 1) * m_asc_w + 0.5f;
+                context.draw_rounded_rect(Rect::from_xywh(ax0, ry, std::max(0.0f, ax1 - ax0), kRowH),
+                                          band_fill, r_tl, r_tr, r_br, r_bl);
+            }
+
+            // 2b. 逐字节绘制光标焦点框、悬停态与文字
             for (size_t c = 0; c < m_cols; ++c) {
                 size_t idx = r * m_cols + c;
                 if (idx >= m_bytes.size()) break;
@@ -139,15 +176,15 @@ public:
                 const bool is_hov = (iidx == m_hovered);
 
                 float cx = hex_col_x(c);
-                Rect hr = Rect::from_xywh(cx - 1.0f, ry + 1.0f, m_cell_w - 1.0f, kRowH - 2.0f);
+                Rect hr = Rect::from_xywh(cx - 1.0f, ry + 1.0f, m_cell_w - 2.0f, kRowH - 2.0f);
                 Rect ar = Rect::from_xywh(m_ascii_x + static_cast<float>(c) * m_asc_w - 1.0f, ry + 1.0f, m_asc_w + 1.0f, kRowH - 2.0f);
 
-                if (in_sel) {
-                    Color fill = Color{accent.r, accent.g, accent.b, is_cur ? 0.34f : 0.22f};
-                    context.draw_rect(hr, fill, 3.0f, 0.0f);
-                    if (is_cur) context.draw_rect(hr, accent, 3.0f, 1.0f);
-                    context.draw_rect(ar, fill, 2.0f, 0.0f);
-                } else if (is_hov) {
+                if (is_cur) {
+                    Color cur_fill = Color{accent.r, accent.g, accent.b, is_dark ? 0.24f : 0.18f};
+                    context.draw_rect(hr, cur_fill, 3.0f, 0.0f);
+                    context.draw_rect(hr, accent, 3.0f, 1.0f);
+                    context.draw_rect(ar, cur_fill, 2.0f, 0.0f);
+                } else if (!in_sel && is_hov) {
                     Color hc = is_dark ? Color{1, 1, 1, 0.10f} : Color{0, 0, 0, 0.08f};
                     context.draw_rect(hr, hc, 3.0f, 0.0f);
                     context.draw_rect(ar, hc, 2.0f, 0.0f);

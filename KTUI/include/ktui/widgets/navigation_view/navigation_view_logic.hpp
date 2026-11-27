@@ -67,11 +67,11 @@ public:
     [[nodiscard]] bool can_go_back() const noexcept { return m_data.is_back_enabled || m_history.size() > 1; }
     [[nodiscard]] const std::shared_ptr<RenderBox>& content_box() const noexcept { return m_content_box; }
     [[nodiscard]] bool is_submenu_open() const noexcept { return m_submenu_overlay_id != 0; }
-    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_data.enable_pointer_reveal; }
-    void set_pointer_reveal_enabled(bool enabled) {
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal); }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) {
         if (m_data.enable_pointer_reveal != enabled) {
             m_data.enable_pointer_reveal = enabled;
-            if (!enabled) {
+            if (!ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal)) {
                 m_has_reveal_cursor = false;
             }
             mark_needs_paint();
@@ -619,7 +619,7 @@ private:
     void paint_content_area(PaintContext& ctx, const ResolvedNavigationViewStyle& style, NavigationPaneDisplayMode eff);
 
     void paint_item_pointer_reveal(PaintContext& ctx, Rect r, float corner_radius, bool enabled, float alpha_mul = 1.0f) const {
-        if (!(m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) || !m_has_reveal_cursor || !enabled || r.is_empty() || alpha_mul <= 0.01f) {
+        if (!ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal) || !m_has_reveal_cursor || !enabled || r.is_empty() || alpha_mul <= 0.01f) {
             return;
         }
         constexpr float kRevealRadius = 72.0f;

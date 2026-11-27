@@ -3,6 +3,7 @@
 #include "data_grid_data.hpp"
 #include "data_grid_style.hpp"
 #include "../common/fluent_icons.hpp"
+#include "../menu_flyout/menu_flyout_logic.hpp"
 #include "../scroll/scrollbar.hpp"
 #include "../scroll/smooth_scroll_physics.hpp"
 #include <ktui/event/event_types.hpp>
@@ -49,6 +50,12 @@ public:
         m_selected_mask.assign(m_rows.size(), false);
         m_user_resized = false;
         m_sel_anim_init = false;
+        m_col_order.resize(m_columns.size());
+        std::iota(m_col_order.begin(), m_col_order.end(), size_t{0});
+        m_col_visible.assign(m_columns.size(), true);
+        m_drag_col_tracking = false;
+        m_dragging_col = -1;
+        m_drop_vis_slot = -1;
         m_order.resize(m_rows.size());
         std::iota(m_order.begin(), m_order.end(), size_t{0});
         mark_needs_layout();
@@ -189,15 +196,22 @@ public:
         Color stripe = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.022f} : Color{0.0f, 0.0f, 0.0f, 0.020f};
         Color head_bg = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.045f} : Color{0.0f, 0.0f, 0.0f, 0.035f};
 
-        // 1. 固定表头 (支持列宽分隔线悬停高亮与拖拽调宽)
+        // 1. 固定表头 (支持列宽分隔线悬停/拖拽调宽、表头拖拽调序、右键菜单选择显示列)
+        const auto vis_cols = visible_col_indices();
         ctx.push_clip(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, w - 2.0f), kHeaderH), 5.0f);
         ctx.draw_rect(Rect::from_xywh(1.0f, 1.0f, std::max(0.0f, w - 2.0f), kHeaderH), head_bg, 0.0f, 0.0f);
 
         float cx = 1.0f;
-        for (size_t c = 0; c < m_columns.size(); ++c) {
+        for (size_t vc = 0; vc < vis_cols.size(); ++vc) {
+            size_t c = vis_cols[vc];
             float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
             Rect hr = Rect::from_xywh(cx, 1.0f, cw, kHeaderH - 1.0f);
-            if (static_cast<int>(c) == m_hovered_col && m_hover_divider < 0 && m_resizing_col < 0 && m_columns[c].sortable) {
+            bool is_drag_src = (m_dragging_col == static_cast<int>(c));
+            if (is_drag_src) {
+                Color drag_dim = resolved_style.accent;
+                drag_dim.a = theme.is_dark ? 0.14f : 0.10f;
+                ctx.draw_rect(hr, drag_dim, 0.0f, 0.0f);
+            } else if (static_cast<int>(c) == m_hovered_col && m_hover_divider < 0 && m_resizing_col < 0 && m_dragging_col < 0 && m_columns[c].sortable) {
                 ctx.draw_rect(hr, theme.colors.subtle_fill_secondary, 0.0f, 0.0f);
             }
             bool has_sort_icon = (m_sort_col == static_cast<int>(c) && m_sort_dir != DataGridSortDirection::None);
@@ -207,9 +221,11 @@ public:
                 ? truncate_with_ellipsis(m_columns[c].title, title_max_w, 12.5f)
                 : m_columns[c].title;
             Vec2 ts = TextMeasure::measure(htext, 12.5f);
+            Color hc_col = (m_sort_col == static_cast<int>(c)) ? resolved_style.accent : head_c;
+            if (is_drag_src) hc_col.a *= 0.45f;
             ctx.draw_text(htext,
                           PointF{hr.min_x + 12.0f, std::round(hr.min_y + (hr.height() - ts.y) * 0.5f)},
-                          12.5f, (m_sort_col == static_cast<int>(c)) ? resolved_style.accent : head_c);
+                          12.5f, hc_col);
             ctx.pop_clip();
 
             if (has_sort_icon) {
@@ -219,7 +235,7 @@ public:
                 fluent_icons::draw_centered(ctx, icon, sr, 10.0f, resolved_style.accent);
             }
 
-            if (c + 1 < m_columns.size()) {
+            if (vc + 1 < vis_cols.size()) {
                 bool div_hot = (m_resizing_col == static_cast<int>(c) || m_hover_divider == static_cast<int>(c));
                 Color dc = div_hot ? resolved_style.accent : theme.colors.divider_stroke;
                 ctx.draw_rect(Rect::from_xywh(hr.max_x - 1.0f, hr.min_y + (div_hot ? 2.0f : 8.0f),
@@ -227,6 +243,31 @@ public:
                               dc, 0.0f, 0.0f);
             }
             cx += cw;
+        }
+        // 表头拖拽重排时的 2px 强调色插入指示线 + 跟随鼠标的浮动幽灵表头
+        if (m_dragging_col >= 0 && m_dragging_col < static_cast<int>(m_columns.size())) {
+            if (m_drop_vis_slot >= 0 && m_drop_vis_slot <= static_cast<int>(vis_cols.size())) {
+                float ix = 1.0f;
+                for (int s = 0; s < m_drop_vis_slot && s < static_cast<int>(vis_cols.size()); ++s) {
+                    size_t col_i = vis_cols[static_cast<size_t>(s)];
+                    ix += (col_i < m_col_widths.size()) ? m_col_widths[col_i] : 120.0f;
+                }
+                ctx.draw_rect(Rect::from_xywh(std::clamp(ix - 1.0f, 1.0f, std::max(1.0f, w - 3.0f)), 2.0f, 2.5f, kHeaderH - 4.0f),
+                              resolved_style.accent, 1.0f, 0.0f);
+            }
+            float gw = (static_cast<size_t>(m_dragging_col) < m_col_widths.size()) ? m_col_widths[static_cast<size_t>(m_dragging_col)] : 120.0f;
+            float gx = std::clamp(m_drag_cur_x - gw * 0.5f, 2.0f, std::max(2.0f, w - gw - 2.0f));
+            Rect gr = Rect::from_xywh(gx, 3.0f, gw, kHeaderH - 6.0f);
+            Color gbg = theme.colors.flyout_surface;
+            gbg.a = 0.92f;
+            ctx.draw_rect(gr, gbg, 4.0f, 0.0f);
+            ctx.draw_rect(gr, resolved_style.accent, 4.0f, 1.0f);
+            Vec2 gts = TextMeasure::measure(m_columns[static_cast<size_t>(m_dragging_col)].title, 12.5f);
+            ctx.push_clip(Rect::from_xywh(gr.min_x + 6.0f, gr.min_y, std::max(0.0f, gr.width() - 12.0f), gr.height()));
+            ctx.draw_text(m_columns[static_cast<size_t>(m_dragging_col)].title,
+                          PointF{gr.min_x + 10.0f, std::round(gr.min_y + (gr.height() - gts.y) * 0.5f)},
+                          12.5f, text_c);
+            ctx.pop_clip();
         }
         ctx.pop_clip();
         ctx.draw_rect(Rect::from_xywh(1.0f, kHeaderH, std::max(0.0f, w - 2.0f), 1.0f),
@@ -274,7 +315,7 @@ public:
 
             float cell_x = body_vp.min_x;
             const auto& row_data = m_rows[orig];
-            for (size_t c = 0; c < m_columns.size(); ++c) {
+            for (size_t c : vis_cols) {
                 float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
                 if (c < row_data.size() && !row_data[c].empty()) {
                     float avail_w = std::max(0.0f, cw - 20.0f);
@@ -409,12 +450,31 @@ private:
         return -1;
     }
 
+    [[nodiscard]] std::vector<size_t> visible_col_indices() const {
+        std::vector<size_t> out;
+        out.reserve(m_columns.size());
+        if (m_col_order.size() != m_columns.size()) {
+            for (size_t i = 0; i < m_columns.size(); ++i) {
+                if (i >= m_col_visible.size() || m_col_visible[i]) out.push_back(i);
+            }
+            return out;
+        }
+        for (size_t orig : m_col_order) {
+            if (orig < m_columns.size() && (orig >= m_col_visible.size() || m_col_visible[orig])) {
+                out.push_back(orig);
+            }
+        }
+        return out;
+    }
+
     int hit_header_divider(Vec2 local) const noexcept {
         if (local.y < 1.0f || local.y > kHeaderH + 2.0f) return -1;
+        auto vis_cols = visible_col_indices();
         float x = 1.0f;
-        for (size_t i = 0; i + 1 < m_col_widths.size(); ++i) {
-            x += m_col_widths[i];
-            if (std::abs(local.x - x) <= 4.5f) return static_cast<int>(i);
+        for (size_t vc = 0; vc + 1 < vis_cols.size(); ++vc) {
+            size_t c = vis_cols[vc];
+            x += (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
+            if (std::abs(local.x - x) <= 4.5f) return static_cast<int>(c);
         }
         return -1;
     }
@@ -440,10 +500,11 @@ private:
 
     void compute_column_widths() {
         m_col_widths.assign(m_columns.size(), 120.0f);
+        auto vis_cols = visible_col_indices();
         float avail = std::max(40.0f, size().x - 14.0f);
         float fixed_sum = 0.0f;
         int flex_cnt = 0;
-        for (size_t i = 0; i < m_columns.size(); ++i) {
+        for (size_t i : vis_cols) {
             if (m_columns[i].width > 0.0f) {
                 m_col_widths[i] = m_columns[i].width;
                 fixed_sum += m_columns[i].width;
@@ -453,7 +514,7 @@ private:
         }
         if (flex_cnt > 0) {
             float flex_w = std::max(80.0f, (avail - fixed_sum) / static_cast<float>(flex_cnt));
-            for (size_t i = 0; i < m_columns.size(); ++i) {
+            for (size_t i : vis_cols) {
                 if (m_columns[i].width <= 0.0f) m_col_widths[i] = flex_w;
             }
         }
@@ -461,12 +522,96 @@ private:
 
     int hit_header_col(Vec2 local) const noexcept {
         if (local.y < 1.0f || local.y > kHeaderH) return -1;
+        auto vis_cols = visible_col_indices();
         float x = 1.0f;
-        for (size_t i = 0; i < m_col_widths.size(); ++i) {
-            if (local.x >= x && local.x < x + m_col_widths[i]) return static_cast<int>(i);
-            x += m_col_widths[i];
+        for (size_t c : vis_cols) {
+            float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
+            if (local.x >= x && local.x < x + cw) return static_cast<int>(c);
+            x += cw;
         }
         return -1;
+    }
+
+    int compute_drop_vis_slot(float local_x) const noexcept {
+        auto vis_cols = visible_col_indices();
+        float x = 1.0f;
+        for (size_t vc = 0; vc < vis_cols.size(); ++vc) {
+            size_t c = vis_cols[vc];
+            float cw = (c < m_col_widths.size()) ? m_col_widths[c] : 120.0f;
+            if (local_x < x + cw * 0.5f) return static_cast<int>(vc);
+            x += cw;
+        }
+        return static_cast<int>(vis_cols.size());
+    }
+
+    void reorder_column(size_t orig_col, int target_vis_slot) {
+        auto vis_cols = visible_col_indices();
+        if (vis_cols.size() < 2) return;
+        // 确保 m_col_order 完整初始化
+        if (m_col_order.size() != m_columns.size()) {
+            m_col_order.resize(m_columns.size());
+            std::iota(m_col_order.begin(), m_col_order.end(), size_t{0});
+        }
+        int clamped_slot = std::clamp(target_vis_slot, 0, static_cast<int>(vis_cols.size()));
+        size_t insert_before_orig = (clamped_slot < static_cast<int>(vis_cols.size()))
+            ? vis_cols[static_cast<size_t>(clamped_slot)]
+            : m_columns.size();
+        if (insert_before_orig == orig_col) return;
+
+        auto src_it = std::find(m_col_order.begin(), m_col_order.end(), orig_col);
+        if (src_it == m_col_order.end()) return;
+        m_col_order.erase(src_it);
+
+        if (insert_before_orig >= m_columns.size()) {
+            m_col_order.push_back(orig_col);
+        } else {
+            auto dst_it = std::find(m_col_order.begin(), m_col_order.end(), insert_before_orig);
+            m_col_order.insert(dst_it, orig_col);
+        }
+        mark_needs_paint();
+    }
+
+    void show_header_column_menu(PointF global_pos) {
+        if (m_columns.empty()) return;
+        if (m_col_visible.size() != m_columns.size()) {
+            m_col_visible.assign(m_columns.size(), true);
+        }
+        size_t vis_cnt = 0;
+        for (bool v : m_col_visible) if (v) ++vis_cnt;
+
+        std::vector<MenuFlyoutItem> items;
+        items.reserve(m_columns.size() + 2);
+        for (size_t i = 0; i < m_columns.size(); ++i) {
+            bool is_vis = m_col_visible[i];
+            items.push_back(MenuFlyoutItem{
+                .label = m_columns[i].title,
+                .is_checkable = true,
+                .checked = is_vis,
+                .disabled = (is_vis && vis_cnt <= 1),
+                .on_click = [this, i]() {
+                    if (i >= m_col_visible.size()) return;
+                    size_t cur_vis = 0;
+                    for (bool v : m_col_visible) if (v) ++cur_vis;
+                    if (m_col_visible[i] && cur_vis <= 1) return;
+                    m_col_visible[i] = !m_col_visible[i];
+                    if (!m_user_resized) compute_column_widths();
+                    mark_needs_paint();
+                }
+            });
+        }
+        items.push_back(MenuFlyoutItem::separator());
+        items.push_back(MenuFlyoutItem{
+            .label = "重置列顺序与显隐",
+            .on_click = [this]() {
+                m_col_order.resize(m_columns.size());
+                std::iota(m_col_order.begin(), m_col_order.end(), size_t{0});
+                m_col_visible.assign(m_columns.size(), true);
+                m_user_resized = false;
+                compute_column_widths();
+                mark_needs_paint();
+            }
+        });
+        MenuFlyout::show_at(std::move(items), global_pos);
     }
 
     int hit_body_row(Vec2 local) const noexcept {
@@ -556,6 +701,19 @@ private:
                 e.stop_propagation();
                 return;
             }
+            if (m_drag_col_tracking) {
+                m_drag_cur_x = e.local_position.x;
+                if (m_dragging_col < 0 && std::abs(m_drag_cur_x - m_drag_start_x) >= 6.0f) {
+                    m_dragging_col = m_drag_col_candidate;
+                }
+                if (m_dragging_col >= 0) {
+                    m_drop_vis_slot = compute_drop_vis_slot(m_drag_cur_x);
+                    cursor_shape = CursorShape::PointingHand;
+                    mark_needs_paint();
+                    e.stop_propagation();
+                    return;
+                }
+            }
             if (m_marquee_tracking) {
                 Rect vp = body_rect();
                 float cur_x = std::clamp(e.local_position.x, vp.min_x, vp.max_x);
@@ -594,6 +752,13 @@ private:
         };
 
         on_pointer_down = [this](PointerEvent& e) {
+            if (e.button == PointerButton::Secondary) {
+                if (e.local_position.y >= 1.0f && e.local_position.y <= kHeaderH) {
+                    show_header_column_menu(e.position);
+                    e.stop_propagation();
+                }
+                return;
+            }
             if (e.button != PointerButton::Primary) return;
             int hdiv = hit_header_divider(e.local_position);
             if (hdiv >= 0 && hdiv < static_cast<int>(m_col_widths.size())) {
@@ -614,7 +779,11 @@ private:
             }
             int hc = hit_header_col(e.local_position);
             if (hc >= 0) {
-                sort_by_column(static_cast<size_t>(hc));
+                m_drag_col_tracking = true;
+                m_drag_col_candidate = hc;
+                m_dragging_col = -1;
+                m_drop_vis_slot = -1;
+                m_drag_start_x = m_drag_cur_x = e.local_position.x;
                 e.stop_propagation();
                 return;
             }
@@ -655,6 +824,22 @@ private:
 
         on_pointer_up = [this](PointerEvent& e) {
             if (m_resizing_col >= 0) { m_resizing_col = -1; mark_needs_paint(); return; }
+            if (m_drag_col_tracking) {
+                int dragged = m_dragging_col;
+                int cand = m_drag_col_candidate;
+                int slot = m_drop_vis_slot;
+                m_drag_col_tracking = false;
+                m_dragging_col = -1;
+                m_drag_col_candidate = -1;
+                m_drop_vis_slot = -1;
+                if (dragged >= 0 && slot >= 0) {
+                    reorder_column(static_cast<size_t>(dragged), slot);
+                } else if (cand >= 0) {
+                    sort_by_column(static_cast<size_t>(cand));
+                }
+                mark_needs_paint();
+                return;
+            }
             if (m_marquee_tracking || m_marquee_active) {
                 bool was_marquee = m_marquee_active;
                 m_marquee_tracking = false;
@@ -680,7 +865,15 @@ private:
     std::vector<DataGridColumn> m_columns;
     std::vector<std::vector<std::string>> m_rows;
     std::vector<size_t> m_order;
+    std::vector<size_t> m_col_order;
+    std::vector<bool> m_col_visible;
     std::vector<float> m_col_widths;
+    bool m_drag_col_tracking{false};
+    int m_drag_col_candidate{-1};
+    int m_dragging_col{-1};
+    int m_drop_vis_slot{-1};
+    float m_drag_start_x{0.0f};
+    float m_drag_cur_x{0.0f};
     std::vector<bool> m_selected_mask;
     float m_row_height{34.0f};
     float m_width{0.0f};

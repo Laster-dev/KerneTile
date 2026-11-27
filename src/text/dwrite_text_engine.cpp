@@ -8,8 +8,10 @@
 #include "kernetile/text/font_engine.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iterator>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 namespace kernetile::text {
@@ -69,12 +71,26 @@ public:
     }
 
     FontMetrics get_metrics(float size, std::string_view family, uint16_t font_weight, bool italic) override {
+        uint32_t sb = 0;
+        std::memcpy(&sb, &size, sizeof(sb));
+        uint64_t h = 0xcbf29ce484222325ULL;
+        auto mix = [&h](uint64_t v) noexcept { h ^= v; h *= 0x100000001b3ULL; };
+        mix((static_cast<uint64_t>(sb) << 32u) | (static_cast<uint64_t>(font_weight) << 1u) | (italic ? 1u : 0u));
+        for (unsigned char c : family) mix(c);
+        if (auto it = m_metrics_cache.find(h); it != m_metrics_cache.end()) {
+            return it->second;
+        }
+        FontMetrics res{size, size * 0.8f, -size * 0.2f, size};
         auto layout = make_layout(L"M", size, family, font_weight, italic);
         DWRITE_LINE_METRICS line{};
         UINT32 count = 0;
-        if (layout && SUCCEEDED(layout->GetLineMetrics(&line, 1, &count)) && count)
-            return {size, line.baseline, line.baseline - line.height, line.height};
-        return {size, size * 0.8f, -size * 0.2f, size};
+        if (layout && SUCCEEDED(layout->GetLineMetrics(&line, 1, &count)) && count) {
+            res = {size, line.baseline, line.baseline - line.height, line.height};
+        }
+        if (m_metrics_cache.size() < 512) {
+            m_metrics_cache.emplace(h, res);
+        }
+        return res;
     }
 
     TextLayoutResult shape_text(std::string_view text, float size, std::string_view family, uint16_t font_weight, bool italic, bool tabular_nums = false) override {
@@ -420,6 +436,7 @@ private:
 
     LOGFONTW m_font;
     std::wstring m_mono_family;
+    std::unordered_map<uint64_t, FontMetrics> m_metrics_cache;
     ComPtr<IDWriteFactory> m_factory;
     ComPtr<IDWriteGdiInterop> m_gdi;
     std::vector<Glyph> m_glyphs;

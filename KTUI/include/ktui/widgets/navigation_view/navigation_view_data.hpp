@@ -120,7 +120,7 @@ struct NavigationViewData {
     Fn<void(const std::string&)> on_selection_changed{nullptr};
     Fn<void()> on_back_requested{nullptr};
     Fn<void(bool)> on_pane_toggled{nullptr};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
 };
 
 } // namespace ktui

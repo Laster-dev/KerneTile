@@ -157,6 +157,10 @@ public:
         request_redraw();
         if (m_platform_window) m_platform_window->invalidate();
     }
+    void set_overlay_position(uint64_t id, Vec2 global_pos) {
+        m_overlay_manager.update_position(id, global_pos);
+        request_redraw();
+    }
     void dismiss_all_overlays() {
         m_overlay_manager.dismiss_all();
         request_redraw();

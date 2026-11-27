@@ -53,6 +53,21 @@ public:
 
     [[nodiscard]] int hovered_index() const noexcept { return m_hovered_index; }
     [[nodiscard]] float scroll_offset() const noexcept { return m_scroll.offset(); }
+    [[nodiscard]] bool is_closing() const noexcept { return m_closing; }
+
+    void start_close(Fn<void()> on_finished) {
+        if (m_closing) return;
+        m_closing = true;
+        m_close_start = std::chrono::steady_clock::now();
+        m_close_from = m_open_progress;
+        m_on_close_finished = std::move(on_finished);
+        mark_needs_paint();
+    }
+
+    bool hit_test(HitTestResult& result, PointF position) override {
+        if (m_closing) return false;
+        return RenderBox::hit_test(result, position);
+    }
 
     void perform_layout() override {
         float w = m_constraints.max_width;
@@ -101,14 +116,19 @@ public:
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel_rect, style.popup_corner_radius, theme.is_dark, 32.0f, alpha_mul);
 
-        // 2. 浮层背景板 (8px 圆角 + 1px 精致边框)
+        // 2. 超高模糊半透亚克力浮层背景板 (8px 圆角 + 磨砂颗粒 + 1px 玻璃高光描边)
         Color bg = style.popup_bg;
         bg.a *= alpha_mul;
-        ctx.draw_rect(panel_rect, bg, style.popup_corner_radius, 0.0f);
+        ctx.draw_acrylic_panel(panel_rect, bg, style.popup_corner_radius, 0.026f, 1.0f);
 
         Color border = style.popup_border;
         border.a *= alpha_mul;
         ctx.draw_rect(panel_rect, border, style.popup_corner_radius, style.border_width);
+        {
+            const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.22f * alpha_mul} : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha_mul};
+            const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.28f * alpha_mul} : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha_mul};
+            ctx.draw_directional_rim(panel_rect, top_hi, bot_sh, style.popup_corner_radius, 1.0f, Vec2{-0.18f, -0.98f}, 0.26f);
+        }
 
         // 3. 选项列表裁剪与绘制
         const float pad = style.popup_padding;
@@ -327,8 +347,22 @@ private:
     }
 
     void update_open_animation() {
-        if (m_open_progress >= 1.0f) return;
         auto now = std::chrono::steady_clock::now();
+        if (m_closing) {
+            float elapsed = std::chrono::duration<float>(now - m_close_start).count();
+            float t = std::clamp(elapsed / 0.11f, 0.0f, 1.0f);
+            m_open_progress = m_close_from * (1.0f - t);
+            if (t < 1.0f) {
+                mark_needs_paint();
+            } else {
+                m_open_progress = 0.0f;
+                if (auto cb = std::move(m_on_close_finished)) {
+                    cb();
+                }
+            }
+            return;
+        }
+        if (m_open_progress >= 1.0f) return;
         float elapsed = std::chrono::duration<float>(now - m_open_start).count();
         m_open_progress = std::clamp(elapsed / 0.14f, 0.0f, 1.0f);
         if (m_open_progress < 1.0f) {
@@ -354,6 +388,10 @@ private:
     WinUIScrollBar m_scrollbar;
     float m_open_progress{0.0f};
     std::chrono::steady_clock::time_point m_open_start;
+    bool m_closing{false};
+    float m_close_from{1.0f};
+    std::chrono::steady_clock::time_point m_close_start;
+    Fn<void()> m_on_close_finished;
     Fn<void(int)> m_on_select;
 };
 
@@ -367,7 +405,7 @@ public:
     }
 
     ~RenderComboBox() override {
-        close_popup();
+        close_popup(true);
     }
 
     [[nodiscard]] int selected_index() const noexcept { return m_data.selected_index; }
@@ -442,7 +480,7 @@ public:
             is_focusable = !disabled;
             cursor_shape = disabled ? CursorShape::Forbidden : CursorShape::PointingHand;
             if (disabled) {
-                close_popup();
+                close_popup(true);
             }
             mark_needs_paint();
         }
@@ -450,6 +488,14 @@ public:
 
     void set_on_change(Fn<void(int, const std::string&)> cb) {
         m_data.on_change = std::move(cb);
+    }
+
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
     }
 
     void open_popup() {
@@ -492,34 +538,57 @@ public:
                 open_upward,
                 [this](int chosen_idx) {
                     set_selected_index(chosen_idx, true);
-                    close_popup();
+                    close_popup(false);
                 });
 
+            m_popup_weak = popup;
+
+            auto entry_id_box = std::make_shared<uint64_t>(0);
             OverlayEntry entry;
             entry.content = popup;
             entry.global_pos = Vec2{popup_x, popup_y};
             entry.size = Vec2{popup_w, popup_h};
             entry.dismiss_on_outside_click = true;
             entry.is_modal = false;
-            entry.on_dismiss = [this]() {
-                m_overlay_id = 0;
-                m_state.is_open = false;
-                m_last_dismiss_time = std::chrono::steady_clock::now();
-                m_last_anim_time = m_last_dismiss_time;
-                mark_needs_paint();
+            entry.on_request_dismiss = [this, entry_id_box]() -> bool {
+                if (m_overlay_id == *entry_id_box && m_overlay_id != 0) {
+                    m_last_dismiss_time = std::chrono::steady_clock::now();
+                    close_popup(false);
+                    return true;
+                }
+                return false;
+            };
+            entry.on_dismiss = [this, entry_id_box]() {
+                if (m_overlay_id == *entry_id_box) {
+                    m_overlay_id = 0;
+                    m_popup_weak.reset();
+                    m_state.is_open = false;
+                    m_last_dismiss_time = std::chrono::steady_clock::now();
+                    m_last_anim_time = m_last_dismiss_time;
+                    mark_needs_paint();
+                }
             };
 
             m_overlay_id = win->show_overlay(std::move(entry));
+            *entry_id_box = m_overlay_id;
         }
 
         mark_needs_paint();
     }
 
-    void close_popup() {
+    void close_popup(bool immediate = false) {
         if (m_overlay_id != 0) {
             uint64_t id = m_overlay_id;
             m_overlay_id = 0;
-            if (Window* win = Window::active_window()) {
+            auto popup = m_popup_weak.lock();
+            m_popup_weak.reset();
+            if (!immediate && popup && !popup->is_closing()) {
+                popup->start_close([id]() {
+                    if (Window* win = Window::active_window()) {
+                        win->hide_overlay(id);
+                    }
+                });
+            } else if (Window* win = Window::active_window()) {
                 win->hide_overlay(id);
             }
         }
@@ -563,6 +632,13 @@ public:
             float line_x = style.corner_radius;
             float line_w = std::max(0.0f, size().x - style.corner_radius * 2.0f);
             ctx.draw_rect(Rect::from_xywh(line_x, size().y - 1.0f, line_w, 1.0f), style.bottom_border, 0.0f, 0.0f);
+        }
+
+        // 2.5 Fluent Pointer Reveal (控件级覆写最高优先级，未设置时继承全局 Theme::enable_pointer_reveal)
+        if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active && !m_state.is_disabled) {
+            const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.055f};
+            const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.32f} : Color{0.0f, 0.0f, 0.0f, 0.22f};
+            ctx.draw_pointer_reveal(box_rect, m_reveal_pos, 68.0f, surf, edge, style.corner_radius, style.border_width);
         }
 
         // 3. 当前选中文本或占位文本 (左侧对齐，右侧预留 28px 给下拉箭头)
@@ -617,9 +693,20 @@ private:
             mark_needs_paint();
         };
 
+        on_pointer_move = [this](PointerEvent& e) {
+            if (!m_state.is_disabled && e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = e.local_position;
+                m_reveal_active = true;
+                mark_needs_paint();
+            }
+        };
+
         on_pointer_exit = [this](PointerEvent&) {
             m_state.is_hovered = false;
             m_state.is_pressed = false;
+            m_reveal_active = false;
             m_last_anim_time = std::chrono::steady_clock::now();
             mark_needs_paint();
         };
@@ -721,8 +808,12 @@ private:
     ComboBoxData m_data;
     ComboBoxInteractiveState m_state;
     uint64_t m_overlay_id{0};
+    std::weak_ptr<RenderComboBoxPopup> m_popup_weak;
     float m_open_anim{0.0f};
     float m_chevron_offset{0.0f};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     std::chrono::steady_clock::time_point m_last_anim_time;
     std::chrono::steady_clock::time_point m_last_dismiss_time;
 };
@@ -739,6 +830,7 @@ struct ComboBox : BindableMixin<ComboBox, RenderComboBox> {
     int max_visible_items{8};
     float max_dropdown_height{280.0f};
     bool disabled{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
 
     Fn<void(int, const std::string&)> on_change{nullptr};
 
@@ -793,6 +885,7 @@ private:
                              m_desc.item_height, m_desc.font_size,
                              m_desc.max_visible_items, m_desc.max_dropdown_height);
         node->set_disabled(m_desc.disabled);
+        node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
         node->set_on_change(m_desc.on_change);
     }
 

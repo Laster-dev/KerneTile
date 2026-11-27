@@ -155,11 +155,13 @@ public:
         }
     }
 
-    [[nodiscard]] bool pointer_reveal_enabled() const noexcept { return m_data.enable_pointer_reveal; }
-    void set_pointer_reveal_enabled(bool enabled) {
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept {
+        return ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal);
+    }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) {
         if (m_data.enable_pointer_reveal != enabled) {
             m_data.enable_pointer_reveal = enabled;
-            if (!enabled) {
+            if (!pointer_reveal_enabled()) {
                 m_reveal_active = false;
             }
             mark_needs_paint();
@@ -353,8 +355,8 @@ public:
                 clip_r, bw, m_tactile_press.tilted_light_dir(), 0.22f * press_w);
         }
 
-        // 4.5 Opt-in Fluent Pointer Reveal (支持控件级或 Theme 全局开启)
-        if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) &&
+        // 4.5 Fluent Pointer Reveal (控件级覆写最高优先级，未设置时继承全局 Theme::enable_pointer_reveal)
+        if (ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal) &&
             m_reveal_active && !m_state.is_disabled && !m_state.is_loading) {
             const bool is_dark = ThemeContext::current().is_dark;
             const bool use_light_sheen = is_dark ||
@@ -389,7 +391,9 @@ public:
 
             float avail_left = style.padding.left;
             float avail_w = std::max(0.0f, m_size.x - style.padding.horizontal());
-            float start_x = avail_left + std::max(0.0f, (avail_w - total_w) * 0.5f);
+            float start_x = (avail_w >= total_w)
+                ? (avail_left + (avail_w - total_w) * 0.5f)
+                : std::max(2.0f, (m_size.x - total_w) * 0.5f);
 
             if (!m_svg_path.empty()) {
                 Rect ir = Rect::from_xywh(std::round(start_x), std::round((m_size.y - icon_size) * 0.5f), icon_size, icon_size);
@@ -479,7 +483,7 @@ private:
                     m_tactile_press.on_move(ev.local_position, m_size);
                     need_paint = true;
                 }
-                if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) &&
+                if (ThemeContext::current().resolve_pointer_reveal(m_data.enable_pointer_reveal) &&
                     (!m_reveal_active ||
                      std::abs(m_reveal_pos.x - ev.local_position.x) > 0.01f ||
                      std::abs(m_reveal_pos.y - ev.local_position.y) > 0.01f)) {
@@ -619,7 +623,7 @@ struct Button : BindableMixin<Button, RenderButton> {
     bool loading{false};
     bool focusable{true};
     bool enable_ripple{true};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     bool tactile_press{false};
     float tactile_press_scale{0.962f};
     float tactile_tilt_shift{3.0f};

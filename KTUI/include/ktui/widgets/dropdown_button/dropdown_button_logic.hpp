@@ -108,7 +108,7 @@ struct DropDownButton : BindableMixin<DropDownButton, RenderDropDownButton> {
     std::string svg_path{""};
     std::vector<MenuFlyoutItem> items;
     bool disabled{false};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     bool tactile_press{false};
 
     operator WidgetPtr() const&;
@@ -293,7 +293,7 @@ public:
         }
     }
 
-    void set_visual_polish(bool pointer_reveal, bool tactile_press) {
+    void set_visual_polish(std::optional<bool> pointer_reveal, bool tactile_press) {
         if (m_main_btn) {
             m_main_btn->set_pointer_reveal_enabled(pointer_reveal);
             m_main_btn->set_tactile_press(tactile_press);
@@ -344,7 +344,7 @@ struct SplitButton : BindableMixin<SplitButton, RenderSplitButton> {
     bool accent{false};
     std::vector<MenuFlyoutItem> items;
     bool disabled{false};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     bool tactile_press{false};
     Fn<void()> on_click{nullptr};
 

@@ -175,8 +175,17 @@ namespace ktui {
 
 inline void RenderBox::paint(PaintContext& context) {
     // 默认遍历所有子节点，平移到子节点的局部 offset 并递归绘制
+    // 大页面滚动视口剔除：完全落在当前有效裁剪视口外（含 64px 阴影安全外扩）的子树直接跳过
+    const bool clip_active = context.has_clip();
     for (RenderNode* child = first_child(); child != nullptr; child = child->next_sibling()) {
         if (auto* child_box = (child ? (child)->as_render_box() : nullptr)) {
+            if (clip_active) {
+                const Vec2 sz = child_box->size();
+                if (sz.x > 0.0f && sz.y > 0.0f &&
+                    !context.is_rect_visible(child_box->frame(), 64.0f)) {
+                    continue;
+                }
+            }
             PaintContext::OffsetScope scope(context, child_box->offset());
             child_box->paint(context);
         }

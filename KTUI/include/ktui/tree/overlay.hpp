@@ -28,6 +28,7 @@ struct OverlayEntry {
     bool allow_hit_passthrough{false}; // true 时若 content->hit_test 返回 false，则放行事件穿透到底层真实控件（如聚光灯镂空区）
     Color barrier_color{Color{0.0f, 0.0f, 0.0f, 0.50f}};
     Fn<void()> on_dismiss{nullptr};
+    Fn<bool()> on_request_dismiss{nullptr}; // 可选：返回 true 表示浮层自行播放退场动画并在结束后调用 hide_overlay
 };
 
 // 浮层与弹出层管理器 (OverlayManager)
@@ -46,6 +47,19 @@ public:
         }
         m_entries.push_back(std::move(entry));
         return m_entries.back().id;
+    }
+
+    // 动态更新指定浮层的全局坐标（供 Toast 平滑沉降/补位等动画使用）
+    void update_position(uint64_t id, Vec2 global_pos) noexcept {
+        for (auto& e : m_entries) {
+            if (e.id == id) {
+                e.global_pos = global_pos;
+                if (e.content) {
+                    e.content->set_offset(global_pos);
+                }
+                return;
+            }
+        }
     }
 
     // 按 ID 关闭指定浮层
@@ -241,6 +255,14 @@ public:
                 if (entry.dismiss_on_outside_click) {
                     uint64_t id_to_dismiss = entry.id;
                     bool was_modal = entry.is_modal;
+                    if (entry.on_request_dismiss) {
+                        auto req = entry.on_request_dismiss;
+                        entry.dismiss_on_outside_click = false;
+                        entry.allow_hit_passthrough = true;
+                        if (req()) {
+                            return was_modal;
+                        }
+                    }
                     hide(id_to_dismiss);
                     return was_modal; // 模态弹窗点击外部关闭时阻断底层点击穿透
                 }

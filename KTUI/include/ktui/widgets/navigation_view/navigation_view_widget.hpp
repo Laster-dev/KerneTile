@@ -31,7 +31,7 @@ struct NavigationView : BindableMixin<NavigationView, RenderNavigationView> {
     Fn<void(const std::string&)> on_selection_changed{nullptr};
     Fn<void()> on_back_requested{nullptr};
     Fn<void(bool)> on_pane_toggled{nullptr};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
 
     NavigationView& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
     NavigationView&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }

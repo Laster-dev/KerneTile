@@ -1174,7 +1174,23 @@ void verify_widget_dirty_tile_isolation(RenderBox& root,
 void test_m22_pointer_reveal_dirty_tile_isolation() {
     std::cout << "[M2.2 Test 13] R3 16x16 脏瓦片局部剔除隔离验证 (Button / NavigationView / SettingsCard)..." << std::endl;
 
-    // 1. RenderButton (disabled=false default zero-churn vs enabled=true 16x16 dirty tile isolation)
+    // 0. 框架默认全局开启 + 控件级三态覆写最高优先级校验
+    KTUI_CHECK(Theme::global_pointer_reveal() == true);
+    {
+        Theme t = Theme::dark();
+        KTUI_CHECK(t.resolve_pointer_reveal(std::nullopt) == true);
+        KTUI_CHECK(t.resolve_pointer_reveal(false) == false);
+        KTUI_CHECK(t.resolve_pointer_reveal(true) == true);
+
+        Theme::set_global_pointer_reveal(false);
+        Theme t_off = Theme::dark();
+        KTUI_CHECK(t_off.resolve_pointer_reveal(std::nullopt) == false);
+        KTUI_CHECK(t_off.resolve_pointer_reveal(true) == true);   // 控件开启覆写全局关闭
+        KTUI_CHECK(t_off.resolve_pointer_reveal(false) == false);
+        Theme::set_global_pointer_reveal(true);
+    }
+
+    // 1. RenderButton (explicit false overrides global true -> zero-churn; explicit/default true -> 16x16 dirty tile isolation)
     {
         auto root = std::make_unique<RenderSizedBox>(Vec2{640.0f, 480.0f});
         auto btn = std::make_unique<RenderButton>();
@@ -1184,7 +1200,8 @@ void test_m22_pointer_reveal_dirty_tile_isolation() {
         root->layout(BoxConstraints::tight(Vec2{640.0f, 480.0f}));
         btn->layout(BoxConstraints::tight(Vec2{260.0f, 40.0f}));
 
-        // Default disabled: consecutive move inside button causes zero needs_paint() and zero pixel diff
+        // Explicit widget-level false overrides global true: consecutive move inside button causes zero needs_paint()
+        btn->set_pointer_reveal_enabled(false);
         EventDispatcher disp;
         PointerEvent p1(PlatformEventType::PointerMove, PointF{100.0f, 60.0f});
         PointerEvent p2(PlatformEventType::PointerMove, PointF{130.0f, 62.0f});
@@ -1193,12 +1210,21 @@ void test_m22_pointer_reveal_dirty_tile_isolation() {
         disp.dispatch_pointer_event(root.get(), p2);
         KTUI_CHECK(!btn->needs_paint());
 
-        // Enabled: strict 16x16 tile isolation within (cursor_union +- 64) intersect button_bounds
+        // Global false with widget inherit (nullopt): zero needs_paint() immediately without rebuilding Theme
+        btn->set_pointer_reveal_enabled(std::nullopt);
+        Theme::set_global_pointer_reveal(false);
+        disp.dispatch_pointer_event(root.get(), p1);
+        btn->clear_dirty_recursive();
+        disp.dispatch_pointer_event(root.get(), p2);
+        KTUI_CHECK(!btn->needs_paint());
+
+        // Widget explicit true overrides global false: strict 16x16 tile isolation
         btn->set_pointer_reveal_enabled(true);
         const Rect abs_bounds = Rect::from_xywh(40.0f, 40.0f, 260.0f, 40.0f);
         verify_widget_dirty_tile_isolation(*root, *btn, abs_bounds,
                                            PointF{100.0f, 60.0f}, PointF{116.0f, 64.0f},
                                            64.0f, "RenderButton");
+        Theme::set_global_pointer_reveal(true);
     }
 
     // 2. RenderNavigationView (Left mode, 640x480)
@@ -1213,7 +1239,8 @@ void test_m22_pointer_reveal_dirty_tile_isolation() {
         });
         nav->layout(BoxConstraints::tight(Vec2{640.0f, 480.0f}));
 
-        // Default disabled: zero needs_paint() on same-row PointerMove
+        // Explicit widget-level false overrides global true: zero needs_paint() on same-row PointerMove
+        nav->set_pointer_reveal_enabled(false);
         EventDispatcher disp;
         PointerEvent p1(PlatformEventType::PointerMove, PointF{48.0f, 24.0f});
         PointerEvent p2(PlatformEventType::PointerMove, PointF{64.0f, 26.0f});
@@ -1240,6 +1267,7 @@ void test_m22_pointer_reveal_dirty_tile_isolation() {
         root->layout(BoxConstraints::tight(Vec2{640.0f, 480.0f}));
         card->layout(BoxConstraints::tight(Vec2{560.0f, 72.0f}));
 
+        card->set_pointer_reveal_enabled(false);
         EventDispatcher disp;
         PointerEvent p1(PlatformEventType::PointerMove, PointF{120.0f, 66.0f});
         PointerEvent p2(PlatformEventType::PointerMove, PointF{140.0f, 68.0f});
@@ -1286,7 +1314,7 @@ void test_m22_headless_window_pointer_reveal() {
             auto* hw = static_cast<HeadlessWindow*>(win->platform_window());
             KTUI_CHECK(hw != nullptr);
 
-            // Default disabled vs explicit false bit-exact
+            // Default (inherits global ON) vs explicit true bit-exact
             win->set_content(Box{
                 .width = 320.0f, .height = 120.0f,
                 .padding = EdgeInsets(20.0f),
@@ -1298,11 +1326,11 @@ void test_m22_headless_window_pointer_reveal() {
             win->set_content(Box{
                 .width = 320.0f, .height = 120.0f,
                 .padding = EdgeInsets(20.0f),
-                .child = Button{.text = "Default", .variant = v}.pointer_reveal(false)
+                .child = Button{.text = "Default", .variant = v}.pointer_reveal(true)
             });
             win->render_frame(true);
-            const auto fb_false = send_move(*win, *hw, 66.0f, 34.0f);
-            KTUI_CHECK(fb_def == fb_false);
+            const auto fb_true = send_move(*win, *hw, 66.0f, 34.0f);
+            KTUI_CHECK(fb_def == fb_true);
 
             // Enabled: baseline -> 4px same-tile move -> exit back to baseline
             win->set_content(Box{

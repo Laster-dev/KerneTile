@@ -99,7 +99,7 @@ public:
             const Color sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.40f} : Color{0.0f, 0.04f, 0.12f, 0.18f};
             ctx.draw_inset_shadow(track_r, sh, 6.0f, 4.0f, 0.3f, Vec2{0.0f, 1.4f});
         }
-        if ((m_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active) {
+        if (ThemeContext::current().resolve_pointer_reveal(m_pointer_reveal) && m_reveal_active) {
             const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
             const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.26f} : Color{0.0f, 0.0f, 0.0f, 0.18f};
             ctx.draw_pointer_reveal(track_r, m_reveal_pos, 72.0f, surf, edge, 6.0f, 1.0f);
@@ -218,7 +218,7 @@ private:
             int h = hit_segment(e.local_position);
             bool dirty = (h != m_hovered);
             m_hovered = h;
-            if (m_pointer_reveal || ThemeContext::current().enable_pointer_reveal) {
+            if (ThemeContext::current().resolve_pointer_reveal(m_pointer_reveal)) {
                 m_reveal_pos = e.local_position;
                 m_reveal_active = true;
                 dirty = true;
@@ -260,7 +260,7 @@ private:
     bool m_liquid_indicator{false};
     float m_liquid_smooth_k{14.0f};
     bool m_inset_shadow{false};
-    bool m_pointer_reveal{false};
+    std::optional<bool> m_pointer_reveal{std::nullopt};
     bool m_reveal_active{false};
     PointF m_reveal_pos{0.0f, 0.0f};
     bool m_has_last_frame{false};
@@ -272,10 +272,13 @@ public:
     void set_inset_shadow(bool enabled) noexcept {
         if (m_inset_shadow != enabled) { m_inset_shadow = enabled; mark_needs_paint(); }
     }
-    void set_pointer_reveal_enabled(bool enabled) noexcept {
+    [[nodiscard]] bool pointer_reveal_enabled() const noexcept {
+        return ThemeContext::current().resolve_pointer_reveal(m_pointer_reveal);
+    }
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
         if (m_pointer_reveal != enabled) {
             m_pointer_reveal = enabled;
-            if (!enabled) m_reveal_active = false;
+            if (!pointer_reveal_enabled()) m_reveal_active = false;
             mark_needs_paint();
         }
     }
@@ -295,7 +298,7 @@ struct SegmentedControl : BindableMixin<SegmentedControl, RenderSegmentedControl
     bool liquid_indicator{false};
     float liquid_smooth_k{14.0f};
     bool inset_shadow{false};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     Fn<void(int)> on_selected_index_changed{nullptr};
 
     SegmentedControl& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }

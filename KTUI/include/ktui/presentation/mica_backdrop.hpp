@@ -6,11 +6,11 @@
 
 namespace ktui {
 
-// 窗口自算材质类型 (对齐 CUI.Core WindowBackdrop)
+// 窗口自算材质类型 (严格对齐 Windows 11 WinUI 3 MicaController 官方规范)
 enum class WindowBackdrop : uint8_t {
     None = 0,     // 纯色背景
-    Mica = 1,     // 标准云母：主题底色 + 20%(暗)/24%(亮) 屏幕空间模糊壁纸采样，失焦退化为纯色
-    MicaAlt = 2   // 深层云母：更深底色 + 34%(暗)/38%(亮) 更高饱和度壁纸采样
+    Mica = 1,     // 标准云母 (Base)：D2D1 Luminosity Blend (1.0) + TintOpacity (暗 #202020 80% / 亮 #F3F3F3 50%)，失焦平滑退化为 Fallback 纯色
+    MicaAlt = 2   // 深层云母 (Tabbed)：D2D1 Luminosity Blend (暗 0.96 / 亮 1.0) + TintOpacity (暗 #0A0A0A 0% / 亮 #DADADA 50%)
 };
 
 // 自算云母壁纸缓存与 4x4 屏幕空间色场采样器

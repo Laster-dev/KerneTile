@@ -207,6 +207,15 @@ public:
             if (!is_sel && is_hov) {
                 Rect hov_r = Rect::from_xywh(tr.min_x + 2.0f, tr.min_y + 2.0f, tr.width() - 4.0f, tr.height() - 4.0f);
                 ctx.draw_rect(hov_r, hov_bg, 5.0f, 0.0f);
+                if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+                    const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.09f} : Color{0.0f, 0.0f, 0.0f, 0.045f};
+                    const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f} : Color{0.0f, 0.0f, 0.0f, 0.18f};
+                    ctx.draw_pointer_reveal(hov_r, m_reveal_pos, 58.0f, surf, edge, 5.0f, 1.0f);
+                }
+            } else if (is_sel && is_hov && theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+                const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
+                const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.24f} : Color{0.0f, 0.0f, 0.0f, 0.16f};
+                ctx.draw_pointer_reveal(tr, m_reveal_pos, 58.0f, surf, edge, 6.0f, 1.0f);
             }
 
             Color fg = (is_sel || is_hov) ? text_active : text_idle;
@@ -242,6 +251,11 @@ public:
         if (m_show_add_button && m_add_btn_rect.width() > 0.0f) {
             if (m_add_hovered) {
                 ctx.draw_rect(m_add_btn_rect, hov_bg, 5.0f, 0.0f);
+                if (theme.resolve_pointer_reveal(m_enable_pointer_reveal) && m_reveal_active) {
+                    const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.10f} : Color{0.0f, 0.0f, 0.0f, 0.05f};
+                    const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.30f} : Color{0.0f, 0.0f, 0.0f, 0.20f};
+                    ctx.draw_pointer_reveal(m_add_btn_rect, m_reveal_pos, 42.0f, surf, edge, 5.0f, 1.0f);
+                }
             }
             float px = m_add_btn_rect.min_x + m_add_btn_rect.width() * 0.5f;
             float py = m_add_btn_rect.min_y + m_add_btn_rect.height() * 0.5f;
@@ -326,19 +340,32 @@ private:
                     }
                 }
             }
+            bool need_paint = false;
+            if ((ht >= 0 || ha) && e.type == PlatformEventType::PointerMove &&
+                e.device_kind != PointerDeviceKind::Touch &&
+                ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
+                m_reveal_pos = e.local_position;
+                m_reveal_active = true;
+                need_paint = true;
+            } else if (m_reveal_active) {
+                m_reveal_active = false;
+                need_paint = true;
+            }
             if (ht != m_hovered_tab || hc != m_hovered_close || ha != m_add_hovered) {
                 m_hovered_tab = ht;
                 m_hovered_close = hc;
                 m_add_hovered = ha;
                 cursor_shape = (ht >= 0 || ha) ? CursorShape::PointingHand : CursorShape::Arrow;
-                mark_needs_paint();
+                need_paint = true;
             }
+            if (need_paint) mark_needs_paint();
         };
         on_pointer_exit = [this](PointerEvent&) {
-            if (m_hovered_tab != -1 || m_hovered_close != -1 || m_add_hovered) {
+            if (m_hovered_tab != -1 || m_hovered_close != -1 || m_add_hovered || m_reveal_active) {
                 m_hovered_tab = -1;
                 m_hovered_close = -1;
                 m_add_hovered = false;
+                m_reveal_active = false;
                 cursor_shape = CursorShape::Arrow;
                 mark_needs_paint();
             }
@@ -391,6 +418,9 @@ private:
     int m_hovered_tab{-1};
     int m_hovered_close{-1};
     bool m_add_hovered{false};
+    std::optional<bool> m_enable_pointer_reveal{std::nullopt};
+    bool m_reveal_active{false};
+    PointF m_reveal_pos{0.0f, 0.0f};
     float m_ind_x{0.0f};
     float m_ind_w{0.0f};
     bool m_ind_init{false};
@@ -401,6 +431,13 @@ private:
     std::shared_ptr<RenderBox> m_active_content_box;
 
 public:
+    void set_pointer_reveal_enabled(std::optional<bool> enabled) noexcept {
+        if (m_enable_pointer_reveal != enabled) {
+            m_enable_pointer_reveal = enabled;
+            if (!ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) m_reveal_active = false;
+            mark_needs_paint();
+        }
+    }
     void wrap_on_selection_changed(Fn<void(int)> extra) {
         auto prev = std::move(m_on_selection_changed);
         m_on_selection_changed = [prev = std::move(prev), extra = std::move(extra)](int idx) {
@@ -416,6 +453,7 @@ struct TabView : BindableMixin<TabView, RenderTabView> {
     int selected_index{0};
     bool is_add_tab_button_visible{true};
     float height{260.0f};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     Fn<WidgetPtr(const std::string&)> content_builder{nullptr};
     Fn<void(int)> on_selection_changed{nullptr};
     Fn<void(int)> on_tab_close{nullptr};
@@ -467,6 +505,7 @@ private:
             m_desc.tabs, m_desc.selected_index, m_desc.is_add_tab_button_visible,
             m_desc.height, m_desc.content_builder,
             m_desc.on_selection_changed, m_desc.on_tab_close, m_desc.on_add_tab);
+        tv->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
     }
 
     TabView m_desc;

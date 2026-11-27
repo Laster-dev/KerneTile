@@ -98,7 +98,7 @@ struct ToggleButton : BindableMixin<ToggleButton, RenderToggleButton> {
     std::string text;
     std::string svg_path;
     bool disabled{false};
-    bool enable_pointer_reveal{false};
+    std::optional<bool> enable_pointer_reveal{std::nullopt};
     bool tactile_press{false};
     Fn<void(bool)> on_change{nullptr};
 
