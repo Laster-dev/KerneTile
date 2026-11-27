@@ -79,12 +79,23 @@ public:
 
         const Theme& theme = ThemeContext::current();
 
-        // 0. 全窗口平滑淡入/淡出 Smoke 遮罩层 (随弹窗动效同步过渡)
-        if (m_smoke_window_size.x > 0.0f && m_smoke_window_size.y > 0.0f && smoke_alpha > 0.001f) {
+        // 0. 全窗口平滑淡入/淡出 Smoke 遮罩层 (实时跟踪当前窗口尺寸与居中偏移，最大化/缩放无缝铺满)
+        Vec2 live_win_sz = m_smoke_window_size;
+        if (Window* active_win = Window::active_window()) {
+            Vec2 wsz = active_win->size();
+            if (wsz.x > 0.0f && wsz.y > 0.0f) {
+                live_win_sz = wsz;
+            }
+        }
+        Vec2 live_pos = offset();
+        if (live_pos.x == 0.0f && live_pos.y == 0.0f) {
+            live_pos = m_dialog_global_pos;
+        }
+        if (live_win_sz.x > 0.0f && live_win_sz.y > 0.0f && smoke_alpha > 0.001f) {
             float max_smoke = theme.is_dark ? 0.45f : 0.30f;
             ctx.draw_rect(
-                Rect::from_xywh(-m_dialog_global_pos.x, -m_dialog_global_pos.y,
-                                m_smoke_window_size.x, m_smoke_window_size.y),
+                Rect::from_xywh(-live_pos.x, -live_pos.y,
+                                live_win_sz.x, live_win_sz.y),
                 Color{0.0f, 0.0f, 0.0f, max_smoke * smoke_alpha}, 0.0f, 0.0f);
         }
 
@@ -376,6 +387,7 @@ struct ContentDialog {
         entry.size = dlg_sz;
         entry.dismiss_on_outside_click = false;
         entry.is_modal = true;
+        entry.center_in_viewport = true;
         entry.barrier_color = Color::transparent(); // 由 RenderContentDialog 自绘平滑淡入/淡出 Smoke 遮罩
         entry.on_dismiss = [on_result, result_fired]() {
             if (!*result_fired && on_result) {

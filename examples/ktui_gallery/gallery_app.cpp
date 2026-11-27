@@ -300,11 +300,10 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         cat.id = id;
         cat.label = label;
         cat.icon = icon;
-        cat.badge = std::to_string(list.size());
         cat.expanded = expanded;
         cat.children.reserve(list.size());
         for (const auto& e : list) {
-            cat.children.push_back(NavigationViewItem{ .id = e.id, .label = e.label, .badge = e.badge ? e.badge : "" });
+            cat.children.push_back(NavigationViewItem{ .id = e.id, .label = e.label });
         }
         return cat;
     };

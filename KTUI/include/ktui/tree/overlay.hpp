@@ -24,6 +24,7 @@ struct OverlayEntry {
     Vec2 size{0.0f, 0.0f};
     bool dismiss_on_outside_click{true};
     bool is_modal{false};
+    bool center_in_viewport{false};    // true 时每帧随 window_size 自动重新居中（如 ContentDialog 在窗口最大化/缩放时）
     bool allow_hit_passthrough{false}; // true 时若 content->hit_test 返回 false，则放行事件穿透到底层真实控件（如聚光灯镂空区）
     Color barrier_color{Color{0.0f, 0.0f, 0.0f, 0.50f}};
     Fn<void()> on_dismiss{nullptr};
@@ -161,6 +162,17 @@ public:
                 ctx.draw_rect(Rect::from_xywh(0.0f, 0.0f, window_size.x, window_size.y),
                               entry.barrier_color, 0.0f, 0.0f);
                 break;
+            }
+        }
+
+        // 1.5 动态同步需随视口居中的浮层坐标（确保最大化/缩放后绘制与命中测试同步居中）
+        for (auto& entry : m_entries) {
+            if (entry.center_in_viewport && entry.content) {
+                Vec2 sz = (entry.size.x > 0.0f && entry.size.y > 0.0f) ? entry.size : entry.content->size();
+                entry.global_pos = Vec2{
+                    std::max(12.0f, std::round((window_size.x - sz.x) * 0.5f)),
+                    std::max(44.0f, std::round((window_size.y - sz.y) * 0.5f))
+                };
             }
         }
 
