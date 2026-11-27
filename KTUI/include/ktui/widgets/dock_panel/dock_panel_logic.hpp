@@ -281,6 +281,42 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (m_dragging_pane.has_value() || m_dragging_splitter.has_value()) {
+            result.add(this, position);
+            return true;
+        }
+        if (!bounds().contains(position)) return false;
+        for (const auto& sp : m_splitters) {
+            if (touch::expand_hit_rect(sp.hit_rect, touch::kSplitterTargetSize).contains(position)) {
+                result.add(this, position);
+                return true;
+            }
+        }
+        for (size_t z = 0; z < 5; ++z) {
+            Rect zr = m_zone_rects[z];
+            if (!zr.is_empty() && Rect::from_xywh(zr.min_x, zr.min_y, zr.width(), kHeaderHeight).contains(position)) {
+                result.add(this, position);
+                return true;
+            }
+        }
+        for (size_t z = 0; z < 5; ++z) {
+            auto list = panes_in_zone(static_cast<DockZone>(z));
+            if (list.empty()) continue;
+            size_t active_idx = std::min(m_active_tab[z], list.size() - 1);
+            auto& pane = m_panes[list[active_idx]];
+            if (pane.content_box && pane.content_box->parent() == this) {
+                PointF child_pos{position.x - pane.content_box->offset().x, position.y - pane.content_box->offset().y};
+                if (pane.content_box->hit_test_touch(result, child_pos)) {
+                    result.add(this, position);
+                    return true;
+                }
+            }
+        }
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& context) override;
 
 private:

@@ -124,6 +124,22 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (local_position.x < 0.0f || local_position.y < 0.0f ||
+            local_position.x > size().x || local_position.y > size().y) {
+            return false;
+        }
+        if (m_content_box && m_expand_anim > 0.5f && local_position.y >= m_header_h) {
+            PointF cp = local_position - m_content_box->offset();
+            if (m_content_box->hit_test_touch(result, cp)) {
+                result.add(this, local_position);
+                return true;
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         update_animation();
 

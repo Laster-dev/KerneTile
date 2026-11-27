@@ -15,6 +15,61 @@
 
 namespace ktui {
 
+namespace detail {
+
+inline std::vector<std::string> wrap_settings_text(const std::string& text,
+                                                   float font_size,
+                                                   FontWeight weight,
+                                                   float max_width) {
+    std::vector<std::string> lines;
+    if (text.empty()) return lines;
+    if (max_width <= 24.0f) {
+        lines.push_back(text);
+        return lines;
+    }
+    if (TextMeasure::measure_width(text, font_size, weight) <= max_width) {
+        lines.push_back(text);
+        return lines;
+    }
+
+    auto next_utf8 = [&](size_t pos) -> size_t {
+        if (pos >= text.size()) return text.size();
+        size_t i = pos + 1;
+        while (i < text.size() && (static_cast<unsigned char>(text[i]) & 0xC0u) == 0x80u) {
+            ++i;
+        }
+        return i;
+    };
+
+    size_t line_start = 0;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        size_t next = next_utf8(pos);
+        if (text[pos] == '\n' || text[pos] == '\r') {
+            lines.emplace_back(text.substr(line_start, pos - line_start));
+            line_start = next;
+            pos = next;
+            continue;
+        }
+        float w = TextMeasure::measure_width(
+            std::string_view(text).substr(line_start, next - line_start),
+            font_size, weight);
+        if (w > max_width && pos > line_start) {
+            lines.emplace_back(text.substr(line_start, pos - line_start));
+            line_start = pos;
+        } else {
+            pos = next;
+        }
+    }
+    if (line_start < text.size()) {
+        lines.emplace_back(text.substr(line_start));
+    }
+    if (lines.empty()) lines.push_back(text);
+    return lines;
+}
+
+} // namespace detail
+
 
 // ==============================================================================
 // WinUI 3 / Windows 11 设置卡片 (RenderSettingsCard & SettingsCard)
@@ -107,28 +162,70 @@ public:
         w = m_constraints.constrain_width(w);
 
         const float right_arrow_w = m_is_click_enabled ? 24.0f : 0.0f;
+        float tx = m_is_nested ? (kPadX + kIconSize + kIconGap) : kPadX;
+        if (!m_header_icon_svg.empty() && !m_is_nested) {
+            tx += kIconSize + kIconGap;
+        }
+
         float content_w = 0.0f;
         float content_h = 0.0f;
         if (m_content_box) {
-            float max_cw = std::max(40.0f, w * 0.55f);
+            float max_cw = std::max(40.0f, w - tx - kPadX);
             m_content_box->layout(BoxConstraints::loose(Vec2{max_cw, 200.0f}), true);
             content_w = m_content_box->size().x;
             content_h = m_content_box->size().y;
         }
 
-        Vec2 hsz = TextMeasure::measure(m_header, 14.0f, FontWeight::Medium);
-        Vec2 dsz = m_description.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_description, 12.0f);
-        float text_h = hsz.y + (m_description.empty() ? 0.0f : (3.0f + dsz.y));
-        float min_card_h = m_is_nested ? (m_description.empty() ? 48.0f : 56.0f)
-                                       : (m_description.empty() ? 56.0f : 66.0f);
-        float total_h = std::max({min_card_h, text_h + kPadY * 2.0f, content_h + kPadY * 2.0f});
+        const float inline_text_w = (m_content_box ? (w - kPadX - right_arrow_w - content_w - 12.0f)
+                                                   : (w - kPadX - right_arrow_w)) - tx;
+        m_stacked = (m_content_box != nullptr) &&
+                    ((w < 480.0f && content_w > 84.0f) || inline_text_w < 140.0f);
+
+        const float text_avail_w = std::max(
+            60.0f,
+            m_stacked ? (w - kPadX - right_arrow_w - tx) : inline_text_w);
+
+        m_header_lines = detail::wrap_settings_text(m_header, 14.0f, FontWeight::Medium, text_avail_w);
+        m_desc_lines = detail::wrap_settings_text(m_description, 12.0f, FontWeight::Regular, text_avail_w);
+
+        const float h_line_h = TextMeasure::measure("A", 14.0f, FontWeight::Medium).y;
+        const float d_line_h = TextMeasure::measure("A", 12.0f, FontWeight::Regular).y;
+        m_header_line_h = h_line_h;
+        m_desc_line_h = d_line_h;
+
+        float text_h = h_line_h * static_cast<float>(std::max<size_t>(1, m_header_lines.size()));
+        if (!m_desc_lines.empty()) {
+            text_h += 3.0f + d_line_h * static_cast<float>(m_desc_lines.size());
+        }
+        m_text_block_h = text_h;
+
+        float total_h = 0.0f;
+        if (m_stacked) {
+            float row1_h = std::max(kIconSize, text_h);
+            m_row1_h = row1_h;
+            total_h = kPadY + row1_h + 10.0f + content_h + kPadY;
+        } else {
+            float min_card_h = m_is_nested ? (m_description.empty() ? 48.0f : 56.0f)
+                                           : (m_description.empty() ? 56.0f : 66.0f);
+            total_h = std::max({min_card_h, text_h + kPadY * 2.0f, content_h + kPadY * 2.0f});
+            m_row1_h = total_h;
+        }
 
         set_size(m_constraints.constrain(Vec2{w, std::round(total_h)}));
 
         if (m_content_box) {
-            float cx = size().x - kPadX - right_arrow_w - content_w;
-            float cy = (size().y - content_h) * 0.5f;
-            m_content_box->set_offset(Vec2{std::round(cx), std::round(cy)});
+            if (m_stacked) {
+                float cx = tx;
+                if (cx + content_w > size().x - kPadX) {
+                    cx = std::max(kPadX, size().x - kPadX - content_w);
+                }
+                float cy = kPadY + m_row1_h + 10.0f;
+                m_content_box->set_offset(Vec2{std::round(cx), std::round(cy)});
+            } else {
+                float cx = size().x - kPadX - right_arrow_w - content_w;
+                float cy = (size().y - content_h) * 0.5f;
+                m_content_box->set_offset(Vec2{std::round(cx), std::round(cy)});
+            }
         }
     }
 
@@ -137,6 +234,19 @@ public:
         if (m_content_box) {
             PointF cp = local_position - m_content_box->offset();
             if (m_content_box->hit_test(result, cp)) {
+                result.add(this, local_position);
+                return true;
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!bounds().contains(local_position)) return false;
+        if (m_content_box) {
+            PointF cp = local_position - m_content_box->offset();
+            if (m_content_box->hit_test_touch(result, cp)) {
                 result.add(this, local_position);
                 return true;
             }
@@ -206,24 +316,39 @@ public:
 
         // 左侧图标与标题/描述文本
         float tx = m_is_nested ? (kPadX + kIconSize + kIconGap) : kPadX;
+        const float row1_center_y = m_stacked ? (kPadY + m_row1_h * 0.5f) : (h * 0.5f);
         if (!m_header_icon_svg.empty()) {
             float ix = m_is_nested ? (kPadX + 2.0f) : kPadX;
-            Rect ir = Rect::from_xywh(ix, std::round((h - kIconSize) * 0.5f), kIconSize, kIconSize);
+            Rect ir = Rect::from_xywh(ix, std::round(row1_center_y - kIconSize * 0.5f), kIconSize, kIconSize);
             SvgEngine::draw_svg_path(ctx, m_header_icon_svg, 24.0f, 24.0f, ir, icon_col);
             if (!m_is_nested) tx += kIconSize + kIconGap;
         }
 
-        Vec2 hsz = TextMeasure::measure(m_header, 14.0f, FontWeight::Medium);
-        Vec2 dsz = m_description.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_description, 12.0f);
-        float block_h = hsz.y + (m_description.empty() ? 0.0f : (3.0f + dsz.y));
-        float ty = std::round((h - block_h) * 0.5f);
+        float ty = m_stacked
+            ? std::round(kPadY + (m_row1_h - m_text_block_h) * 0.5f)
+            : std::round((h - m_text_block_h) * 0.5f);
 
-        float right_limit = m_content_box ? (m_content_box->offset().x - 12.0f) : (w - kPadX - (m_is_click_enabled ? 24.0f : 0.0f));
+        float right_limit = (!m_stacked && m_content_box)
+            ? (m_content_box->offset().x - 12.0f)
+            : (w - kPadX - (m_is_click_enabled ? 24.0f : 0.0f));
         float text_clip_w = std::max(20.0f, right_limit - tx);
         ctx.push_clip(Rect::from_xywh(tx, 0.0f, text_clip_w, h), 0.0f);
-        ctx.draw_text(m_header, PointF{tx, ty}, 14.0f, title_col, FontWeight::Medium);
-        if (!m_description.empty()) {
-            ctx.draw_text(m_description, PointF{tx, ty + hsz.y + 3.0f}, 12.0f, desc_col);
+        float cur_y = ty;
+        if (m_header_lines.empty()) {
+            ctx.draw_text(m_header, PointF{tx, cur_y}, 14.0f, title_col, FontWeight::Medium);
+            cur_y += m_header_line_h;
+        } else {
+            for (const auto& line : m_header_lines) {
+                ctx.draw_text(line, PointF{tx, cur_y}, 14.0f, title_col, FontWeight::Medium);
+                cur_y += m_header_line_h;
+            }
+        }
+        if (!m_desc_lines.empty()) {
+            cur_y += 3.0f;
+            for (const auto& line : m_desc_lines) {
+                ctx.draw_text(line, PointF{tx, cur_y}, 12.0f, desc_col);
+                cur_y += m_desc_line_h;
+            }
         }
         ctx.pop_clip();
 
@@ -318,6 +443,13 @@ private:
     PointF m_reveal_pos{0.0f, 0.0f};
     Fn<void()> m_on_click;
     std::shared_ptr<RenderBox> m_content_box;
+    bool m_stacked{false};
+    float m_row1_h{56.0f};
+    float m_text_block_h{18.0f};
+    float m_header_line_h{18.0f};
+    float m_desc_line_h{16.0f};
+    std::vector<std::string> m_header_lines;
+    std::vector<std::string> m_desc_lines;
 
 public:
     [[nodiscard]] float surface_corner_radius() const noexcept override {
@@ -481,22 +613,58 @@ public:
         float w = std::isfinite(m_constraints.max_width) ? m_constraints.max_width : 520.0f;
         w = m_constraints.constrain_width(w);
 
+        float tx = kPadX;
+        if (!m_header_icon_svg.empty()) {
+            tx += kIconSize + kIconGap;
+        }
+
         float hc_w = 0.0f, hc_h = 0.0f;
         if (m_header_content_box) {
-            m_header_content_box->layout(BoxConstraints::loose(Vec2{std::max(40.0f, w * 0.45f), 120.0f}), true);
+            float max_hcw = std::max(40.0f, w - tx - kPadX);
+            m_header_content_box->layout(BoxConstraints::loose(Vec2{max_hcw, 120.0f}), true);
             hc_w = m_header_content_box->size().x;
             hc_h = m_header_content_box->size().y;
         }
 
-        Vec2 hsz = TextMeasure::measure(m_header, 14.0f, FontWeight::Medium);
-        Vec2 dsz = m_description.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_description, 12.0f);
-        float text_h = hsz.y + (m_description.empty() ? 0.0f : (3.0f + dsz.y));
-        m_header_h = std::round(std::max({m_description.empty() ? 56.0f : 66.0f, text_h + kPadY * 2.0f, hc_h + kPadY * 2.0f}));
+        const float inline_text_w = (m_header_content_box ? (w - kPadX - 32.0f - hc_w - 12.0f)
+                                                          : (w - kPadX - 32.0f)) - tx;
+        m_header_stacked = (m_header_content_box != nullptr) &&
+                           ((w < 480.0f && hc_w > 84.0f) || inline_text_w < 140.0f);
 
-        if (m_header_content_box) {
-            float hx = w - kPadX - 32.0f - hc_w;
-            float hy = (m_header_h - hc_h) * 0.5f;
-            m_header_content_box->set_offset(Vec2{std::round(hx), std::round(hy)});
+        const float text_avail_w = std::max(
+            60.0f,
+            m_header_stacked ? (w - kPadX - 32.0f - tx) : inline_text_w);
+
+        m_header_lines = detail::wrap_settings_text(m_header, 14.0f, FontWeight::Medium, text_avail_w);
+        m_desc_lines = detail::wrap_settings_text(m_description, 12.0f, FontWeight::Regular, text_avail_w);
+        m_header_line_h = TextMeasure::measure("A", 14.0f, FontWeight::Medium).y;
+        m_desc_line_h = TextMeasure::measure("A", 12.0f, FontWeight::Regular).y;
+
+        float text_h = m_header_line_h * static_cast<float>(std::max<size_t>(1, m_header_lines.size()));
+        if (!m_desc_lines.empty()) {
+            text_h += 3.0f + m_desc_line_h * static_cast<float>(m_desc_lines.size());
+        }
+        m_text_block_h = text_h;
+
+        if (m_header_stacked) {
+            m_header_row1_h = std::max(kIconSize, text_h);
+            m_header_h = std::round(kPadY + m_header_row1_h + 10.0f + hc_h + kPadY);
+            if (m_header_content_box) {
+                float hx = tx;
+                if (hx + hc_w > w - kPadX) {
+                    hx = std::max(kPadX, w - kPadX - hc_w);
+                }
+                float hy = kPadY + m_header_row1_h + 10.0f;
+                m_header_content_box->set_offset(Vec2{std::round(hx), std::round(hy)});
+            }
+        } else {
+            m_header_h = std::round(std::max({m_description.empty() ? 56.0f : 66.0f, text_h + kPadY * 2.0f, hc_h + kPadY * 2.0f}));
+            m_header_row1_h = m_header_h;
+            if (m_header_content_box) {
+                float hx = w - kPadX - 32.0f - hc_w;
+                float hy = (m_header_h - hc_h) * 0.5f;
+                m_header_content_box->set_offset(Vec2{std::round(hx), std::round(hy)});
+            }
         }
 
         float y = m_header_h;
@@ -526,6 +694,28 @@ public:
                 if (!it) continue;
                 PointF cp = local_position - it->offset();
                 if (it->hit_test(result, cp)) {
+                    result.add(this, local_position);
+                    return true;
+                }
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!bounds().contains(local_position)) return false;
+        if (m_header_content_box && local_position.y < m_header_h) {
+            PointF cp = local_position - m_header_content_box->offset();
+            if (m_header_content_box->hit_test_touch(result, cp)) {
+                return true;
+            }
+        }
+        if (m_expand_anim > 0.5f && local_position.y >= m_header_h) {
+            for (auto& it : m_item_boxes) {
+                if (!it) continue;
+                PointF cp = local_position - it->offset();
+                if (it->hit_test_touch(result, cp)) {
                     result.add(this, local_position);
                     return true;
                 }
@@ -582,20 +772,35 @@ public:
 
         // 2. 头部图标与标题/副标题
         float tx = kPadX;
+        const float row1_center_y = m_header_stacked ? (kPadY + m_header_row1_h * 0.5f) : (m_header_h * 0.5f);
         if (!m_header_icon_svg.empty()) {
-            Rect ir = Rect::from_xywh(kPadX, std::round((m_header_h - kIconSize) * 0.5f), kIconSize, kIconSize);
+            Rect ir = Rect::from_xywh(kPadX, std::round(row1_center_y - kIconSize * 0.5f), kIconSize, kIconSize);
             SvgEngine::draw_svg_path(ctx, m_header_icon_svg, 24.0f, 24.0f, ir, icon_col);
             tx += kIconSize + kIconGap;
         }
-        Vec2 hsz = TextMeasure::measure(m_header, 14.0f, FontWeight::Medium);
-        Vec2 dsz = m_description.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_description, 12.0f);
-        float block_h = hsz.y + (m_description.empty() ? 0.0f : (3.0f + dsz.y));
-        float ty = std::round((m_header_h - block_h) * 0.5f);
-        float right_lim = m_header_content_box ? (m_header_content_box->offset().x - 12.0f) : (w - kPadX - 32.0f);
+        float ty = m_header_stacked
+            ? std::round(kPadY + (m_header_row1_h - m_text_block_h) * 0.5f)
+            : std::round((m_header_h - m_text_block_h) * 0.5f);
+        float right_lim = (!m_header_stacked && m_header_content_box)
+            ? (m_header_content_box->offset().x - 12.0f)
+            : (w - kPadX - 32.0f);
         ctx.push_clip(Rect::from_xywh(tx, 0.0f, std::max(20.0f, right_lim - tx), m_header_h), 0.0f);
-        ctx.draw_text(m_header, PointF{tx, ty}, 14.0f, title_col, FontWeight::Medium);
-        if (!m_description.empty()) {
-            ctx.draw_text(m_description, PointF{tx, ty + hsz.y + 3.0f}, 12.0f, desc_col);
+        float cur_y = ty;
+        if (m_header_lines.empty()) {
+            ctx.draw_text(m_header, PointF{tx, cur_y}, 14.0f, title_col, FontWeight::Medium);
+            cur_y += m_header_line_h;
+        } else {
+            for (const auto& line : m_header_lines) {
+                ctx.draw_text(line, PointF{tx, cur_y}, 14.0f, title_col, FontWeight::Medium);
+                cur_y += m_header_line_h;
+            }
+        }
+        if (!m_desc_lines.empty()) {
+            cur_y += 3.0f;
+            for (const auto& line : m_desc_lines) {
+                ctx.draw_text(line, PointF{tx, cur_y}, 12.0f, desc_col);
+                cur_y += m_desc_line_h;
+            }
         }
         ctx.pop_clip();
 
@@ -606,7 +811,10 @@ public:
         }
 
         // 4. 右侧展开/收起箭头
-        Rect chev_r = Rect::from_xywh(w - kPadX - 20.0f, 0.0f, 20.0f, m_header_h);
+        Rect chev_r = Rect::from_xywh(w - kPadX - 20.0f,
+                                      m_header_stacked ? kPadY : 0.0f,
+                                      20.0f,
+                                      m_header_stacked ? m_header_row1_h : m_header_h);
         fluent_icons::draw_centered(ctx, m_expanded ? fluent_icons::kChevronUp : fluent_icons::kChevronDown,
                                     chev_r, 11.0f, desc_col);
 
@@ -715,6 +923,13 @@ private:
     Fn<void(bool)> m_on_expanded_changed;
     std::shared_ptr<RenderBox> m_header_content_box;
     std::vector<std::shared_ptr<RenderBox>> m_item_boxes;
+    bool m_header_stacked{false};
+    float m_header_row1_h{66.0f};
+    float m_text_block_h{18.0f};
+    float m_header_line_h{18.0f};
+    float m_desc_line_h{16.0f};
+    std::vector<std::string> m_header_lines;
+    std::vector<std::string> m_desc_lines;
 };
 
 struct SettingsExpander : BindableMixin<SettingsExpander, RenderSettingsExpander> {

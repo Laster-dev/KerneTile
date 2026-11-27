@@ -163,6 +163,28 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!bounds().contains(local_position)) return false;
+        for (size_t i = 0; i < m_custom_boxes.size(); ++i) {
+            if (m_custom_boxes[i]) {
+                PointF cp = local_position - m_custom_boxes[i]->offset();
+                if (m_custom_boxes[i]->hit_test_touch(result, cp)) {
+                    result.add(this, local_position);
+                    return true;
+                }
+            }
+            if (m_trailing_boxes[i]) {
+                PointF cp = local_position - m_trailing_boxes[i]->offset();
+                if (m_trailing_boxes[i]->hit_test_touch(result, cp)) {
+                    result.add(this, local_position);
+                    return true;
+                }
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         auto st = m_surface.tick();
         if (st.animating) mark_needs_paint();

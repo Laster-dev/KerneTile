@@ -95,6 +95,85 @@ public:
             }
         }
 
+        // 窄屏响应式防溢出自动折行 (Mobile Auto-Reflow):
+        // 当水平 Row 在窄屏容器 (< 560px) 中非弹性子项固有总宽超出可用宽度时，
+        // 优先自动退化为流式多行排布，避免默认 flex_shrink=1 把按钮/控件强行压扁截断，
+        // 同时避免把 Expanded 子项压成 0px。
+        // 桌面宽屏 (>= 560px) 完全不触发，保持 100% 标准 Flexbox 行为。
+        if (is_horizontal && params.direction == FlexDirection::Row &&
+            main_bounded && max_main_constraint < 560.0f &&
+            fixed_main_used > max_main_constraint + 1.0f) {
+            // 先为 flex_grow 子项提供有限宽松宽度进行真实测量，避免被挤压为 0px
+            for (size_t i = 0; i < N; ++i) {
+                RenderBox* child = children[i];
+                const auto& flex = child->flex_data();
+                if (flex.flex_grow > 0.0f) {
+                    BoxConstraints loose_c(0.0f, max_main_constraint, 0.0f, max_cross_constraint);
+                    child->layout(loose_c, true);
+                }
+            }
+
+            struct FlowItem { RenderBox* box; float x; float w; float h; };
+            std::vector<FlowItem> line;
+            line.reserve(N);
+            const float run_gap = std::max(8.0f, params.gap);
+            float cursor_x = 0.0f;
+            float cursor_y = 0.0f;
+            float line_h = 0.0f;
+            float max_line_w = 0.0f;
+
+            auto flush_line = [&]() {
+                if (line.empty()) return;
+                for (const auto& it : line) {
+                    AlignItems align = it.box->flex_data().align_self.value_or(params.align_items);
+                    float dy = 0.0f;
+                    if (align == AlignItems::Center) {
+                        dy = (line_h - it.h) * 0.5f;
+                    } else if (align == AlignItems::FlexEnd) {
+                        dy = line_h - it.h;
+                    } else if (align == AlignItems::Stretch && it.h + 0.5f < line_h) {
+                        it.box->layout(BoxConstraints::tight(Vec2{it.w, line_h}), true);
+                    }
+                    it.box->set_offset(Vec2{std::round(it.x), std::round(cursor_y + dy)});
+                }
+                max_line_w = std::max(max_line_w, cursor_x);
+                cursor_y += line_h + run_gap;
+                cursor_x = 0.0f;
+                line_h = 0.0f;
+                line.clear();
+            };
+
+            for (size_t i = 0; i < N; ++i) {
+                RenderBox* child = children[i];
+                const auto& flex = child->flex_data();
+                Vec2 csz = child->size();
+                // 折行时忽略纯 Spacer (flex_grow > 0 且无内容尺寸)
+                if (flex.flex_grow > 0.0f && csz.x <= 0.5f && csz.y <= 0.5f) {
+                    child->set_offset(Vec2{0.0f, cursor_y});
+                    continue;
+                }
+                if (csz.x > max_main_constraint) {
+                    child->layout(BoxConstraints(0.0f, max_main_constraint, 0.0f, max_cross_constraint), true);
+                    csz = child->size();
+                }
+                float next_x = line.empty() ? 0.0f : (cursor_x + params.gap);
+                if (!line.empty() && next_x + csz.x > max_main_constraint + 0.5f) {
+                    flush_line();
+                    next_x = 0.0f;
+                }
+                line.push_back(FlowItem{child, next_x, csz.x, csz.y});
+                cursor_x = next_x + csz.x;
+                line_h = std::max(line_h, csz.y);
+            }
+            flush_line();
+
+            float total_h = (cursor_y > run_gap) ? (cursor_y - run_gap) : 0.0f;
+            float final_w = std::clamp(std::max(max_line_w, min_main_constraint), min_main_constraint, max_main_constraint);
+            float final_h = std::clamp(total_h, min_cross_constraint, max_cross_constraint);
+            container->set_size(Vec2{final_w, final_h});
+            return;
+        }
+
         // 若固定子项总和超出主轴上限，按 flex_shrink * base_main 比例执行弹性收缩
         if (main_bounded && fixed_main_used > max_main_constraint) {
             const float overflow = fixed_main_used - max_main_constraint;

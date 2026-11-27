@@ -61,17 +61,19 @@ public:
 
     void perform_layout() override {
         float w = m_constraints.has_bounded_width() ? m_constraints.max_width : 640.0f;
-        m_size = m_constraints.constrain(Vec2{w, 224.0f});
+        const bool stacked = (w < 540.0f);
+        m_size = m_constraints.constrain(Vec2{w, stacked ? (224.0f * 2.0f + 12.0f) : 224.0f});
     }
 
     void paint(PaintContext& ctx) override {
         const float w = m_size.x;
-        const float h = m_size.y;
-        const float gap = 14.0f;
-        const float col_w = std::max(140.0f, (w - gap) * 0.5f);
+        const bool stacked = (w < 540.0f);
+        const float gap = stacked ? 12.0f : 14.0f;
+        const float col_w = stacked ? w : std::max(140.0f, (w - gap) * 0.5f);
+        const float h = stacked ? 224.0f : m_size.y;
 
-        auto draw_half = [&](float x0, bool dark_panel) {
-            const Rect panel = Rect::from_xywh(x0, 0.0f, col_w, h);
+        auto draw_half = [&](float x0, float y0, bool dark_panel) {
+            const Rect panel = Rect::from_xywh(x0, y0, col_w, h);
             const Color bg = dark_panel
                 ? Color{0.075f, 0.090f, 0.125f, 1.0f}
                 : Color{0.965f, 0.975f, 0.992f, 1.0f};
@@ -103,34 +105,34 @@ public:
             std::snprintf(header_buf, sizeof(header_buf),
                           dark_panel ? "深底浅字 (@%.0fpx γ = %.2f 抑制光渗)" : "浅底深字 (@%.0fpx γ = %.2f 加粗防发虚)",
                           m_sample_size, gamma);
-            ctx.draw_text(header_buf, PointF{x0 + 14.0f, 12.0f}, 12.0f, badge_fg, FontWeight::SemiBold);
+            ctx.draw_text(header_buf, PointF{x0 + 14.0f, y0 + 12.0f}, 12.0f, badge_fg, FontWeight::SemiBold);
 
             // Row 1: 关闭光渗补偿 (Raw DirectWrite Coverage)
             ctx.draw_text("Raw 未补偿（直接覆盖率线性混合）",
-                          PointF{x0 + 14.0f, 38.0f}, 11.0f, muted, FontWeight::Regular, false, "", false, false);
+                          PointF{x0 + 14.0f, y0 + 38.0f}, 11.0f, muted, FontWeight::Regular, false, "", false, false);
             ctx.draw_text("KerneTile 锐利中英混排 Crisp Glyphs 0123456789",
-                          PointF{x0 + 14.0f, 58.0f}, m_sample_size, fg, FontWeight::Regular, false, "", false, false);
+                          PointF{x0 + 14.0f, y0 + 58.0f}, m_sample_size, fg, FontWeight::Regular, false, "", false, false);
             ctx.draw_text("极细横竖笔画对比：天地玄黄 宇宙洪荒 ABCabc ()[]{}",
-                          PointF{x0 + 14.0f, 86.0f}, std::max(10.0f, m_sample_size - 1.0f), fg, FontWeight::Regular, false, "", false, false);
+                          PointF{x0 + 14.0f, y0 + 86.0f}, std::max(10.0f, m_sample_size - 1.0f), fg, FontWeight::Regular, false, "", false, false);
 
             // 分隔线
-            ctx.draw_rect(Rect::from_xywh(x0 + 14.0f, 118.0f, col_w - 28.0f, 1.0f), bd, 0.0f, 0.0f);
+            ctx.draw_rect(Rect::from_xywh(x0 + 14.0f, y0 + 118.0f, col_w - 28.0f, 1.0f), bd, 0.0f, 0.0f);
 
             // Row 2: 开启光渗补偿 (Irradiation Compensated)
-            const Rect pill = Rect::from_xywh(x0 + 14.0f, 127.0f, col_w - 28.0f, 84.0f);
+            const Rect pill = Rect::from_xywh(x0 + 14.0f, y0 + 127.0f, col_w - 28.0f, 84.0f);
             ctx.draw_rect(pill, badge_bg, 6.0f, 0.0f);
             ctx.draw_text(m_global_enabled ? "Font Gamma 已补偿（深浅主题笔画粗细一致）" : "Font Gamma 局部对比示例（全局开关当前已关闭）",
-                          PointF{x0 + 22.0f, 134.0f}, 11.0f, badge_fg, FontWeight::Medium, false, "", false, true);
+                          PointF{x0 + 22.0f, y0 + 134.0f}, 11.0f, badge_fg, FontWeight::Medium, false, "", false, true);
             ctx.draw_text("KerneTile 锐利中英混排 Crisp Glyphs 0123456789",
-                          PointF{x0 + 22.0f, 154.0f}, m_sample_size, fg, FontWeight::Regular, false, "", false, true);
+                          PointF{x0 + 22.0f, y0 + 154.0f}, m_sample_size, fg, FontWeight::Regular, false, "", false, true);
             ctx.draw_text("极细横竖笔画对比：天地玄黄 宇宙洪荒 ABCabc ()[]{}",
-                          PointF{x0 + 22.0f, 182.0f}, std::max(10.0f, m_sample_size - 1.0f), fg, FontWeight::Regular, false, "", false, true);
+                          PointF{x0 + 22.0f, y0 + 182.0f}, std::max(10.0f, m_sample_size - 1.0f), fg, FontWeight::Regular, false, "", false, true);
 
             ctx.pop_clip();
         };
 
-        draw_half(0.0f, true);
-        draw_half(col_w + gap, false);
+        draw_half(0.0f, 0.0f, true);
+        draw_half(stacked ? 0.0f : (col_w + gap), stacked ? (h + gap) : 0.0f, false);
     }
 
 private:
@@ -171,18 +173,21 @@ class RenderFontGammaLadder final : public RenderBox {
 public:
     void perform_layout() override {
         float w = m_constraints.has_bounded_width() ? m_constraints.max_width : 640.0f;
-        m_size = m_constraints.constrain(Vec2{w, 168.0f});
+        const bool stacked = (w < 540.0f);
+        m_size = m_constraints.constrain(Vec2{w, stacked ? (168.0f * 2.0f + 12.0f) : 168.0f});
     }
 
     void paint(PaintContext& ctx) override {
         const Theme& t = ThemeContext::current();
         const float w = m_size.x;
-        const float h = m_size.y;
-        const float col_w = std::max(140.0f, (w - 14.0f) * 0.5f);
+        const bool stacked = (w < 540.0f);
+        const float gap = stacked ? 12.0f : 14.0f;
+        const float col_w = stacked ? w : std::max(140.0f, (w - gap) * 0.5f);
+        const float h = stacked ? 168.0f : m_size.y;
 
         static constexpr float kSizes[5] = {10.0f, 11.0f, 12.0f, 14.0f, 17.0f};
-        auto draw_col = [&](float x0, bool compensated) {
-            const Rect r = Rect::from_xywh(x0, 0.0f, col_w, h);
+        auto draw_col = [&](float x0, float y0, bool compensated) {
+            const Rect r = Rect::from_xywh(x0, y0, col_w, h);
             const Color bg = t.is_dark ? Color{0.08f, 0.095f, 0.13f, 1.0f} : Color{0.97f, 0.98f, 1.0f, 1.0f};
             const Color fg = t.is_dark ? Color{0.96f, 0.97f, 1.0f, 1.0f} : Color{0.06f, 0.08f, 0.12f, 1.0f};
             const Color accent = t.is_dark ? Color{0.48f, 0.82f, 1.0f, 1.0f} : Color{0.05f, 0.38f, 0.78f, 1.0f};
@@ -190,12 +195,12 @@ public:
             ctx.push_clip(r, 8.0f);
 
             ctx.draw_text(compensated ? "字号自适应 Gamma 阶梯 (Font Gamma = ON)" : "原始覆盖率对比 (Font Gamma = OFF)",
-                          PointF{x0 + 14.0f, 10.0f}, 11.5f, compensated ? accent : t.colors.text_secondary, FontWeight::SemiBold);
+                          PointF{x0 + 14.0f, y0 + 10.0f}, 11.5f, compensated ? accent : t.colors.text_secondary, FontWeight::SemiBold);
 
             const float fg_l = 0.2126f * fg.r + 0.7152f * fg.g + 0.0722f * fg.b;
             const float bg_l = 0.2126f * bg.r + 0.7152f * bg.g + 0.0722f * bg.b;
 
-            float y = 36.0f;
+            float y = y0 + 36.0f;
             for (float sz : kSizes) {
                 const float g = compensated
                     ? kernetile::text::StemDarkener::compute_irradiation_gamma(sz, fg_l, bg_l, 1.0f)
@@ -208,8 +213,8 @@ public:
             ctx.pop_clip();
         };
 
-        draw_col(0.0f, false);
-        draw_col(col_w + 14.0f, true);
+        draw_col(0.0f, 0.0f, false);
+        draw_col(stacked ? 0.0f : (col_w + gap), stacked ? (h + gap) : 0.0f, true);
     }
 };
 

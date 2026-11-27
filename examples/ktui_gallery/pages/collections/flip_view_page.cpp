@@ -13,8 +13,8 @@ WidgetPtr build_flip_view_page(GalleryApp& app) {
                 .align_items = AlignItems::Center,
                 .spacing = 8.0f,
                 .content = {
-                    Text { .text = title, .font_size = 20.0f, .color = Color{1.0f, 1.0f, 1.0f, 0.96f} },
-                    Text { .text = desc, .font_size = 13.0f, .color = Color{1.0f, 1.0f, 1.0f, 0.80f} }
+                    Text { .text = title, .font_size = 18.0f, .color = Color{1.0f, 1.0f, 1.0f, 0.96f}, .overflow = TextOverflow::Wrap },
+                    Text { .text = desc, .font_size = 12.5f, .color = Color{1.0f, 1.0f, 1.0f, 0.80f}, .overflow = TextOverflow::Wrap }
                 }
             }
         };
@@ -27,7 +27,7 @@ WidgetPtr build_flip_view_page(GalleryApp& app) {
             app.make_page_title("FlipView", 22.0f),
             app.make_muted("WinUI 3 轮播视图，支持悬停左右翻页按钮、触控滑动切页与平滑位移过渡，下方与 PipsPager 双向绑定联动。", 12.5f),
             app.make_card(VStack {
-                .align_items = AlignItems::Center,
+                .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
                 .content = {
                     FlipView {
@@ -37,12 +37,15 @@ WidgetPtr build_flip_view_page(GalleryApp& app) {
                             make_slide("03 · 全平台原生与 WebOS Desktop", "Windows / Linux / Android / Emscripten WASM 桌面多开", Color{0.38f, 0.22f, 0.58f, 0.85f}),
                             make_slide("04 · 100,000 行虚拟化 120 FPS", "VirtualList & DataGrid 恒定 O(1) 视口开销", Color{0.62f, 0.24f, 0.32f, 0.85f})
                         },
-                        .width = 520.0f,
+                        .width = 0.0f,
                         .height = 170.0f
                     }.bind_two_way(app.flip_page),
-                    PipsPager {
-                        .number_of_pages = 4
-                    }.bind_two_way(app.flip_page)
+                    Align {
+                        .alignment = Alignment::center(),
+                        .child = PipsPager {
+                            .number_of_pages = 4
+                        }.bind_two_way(app.flip_page)
+                    }
                 }
             })
         }

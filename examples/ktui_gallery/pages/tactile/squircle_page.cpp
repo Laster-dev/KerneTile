@@ -32,7 +32,8 @@ public:
 
     void perform_layout() override {
         float w = m_constraints.has_bounded_width() ? m_constraints.max_width : 640.0f;
-        m_size = m_constraints.constrain(Vec2{w, 224.0f});
+        const bool stacked = (w < 540.0f);
+        m_size = m_constraints.constrain(Vec2{w, stacked ? (224.0f * 2.0f + 12.0f) : 224.0f});
     }
 
     void paint(PaintContext& ctx) override {
@@ -44,13 +45,15 @@ public:
         const Color text_col = t.colors.text_primary;
         const Color muted_col = t.colors.text_secondary;
 
-        const float gap = 14.0f;
-        const float half_w = std::max(140.0f, (m_size.x - gap) * 0.5f);
-        const float h = m_size.y;
+        const bool stacked = (m_size.x < 540.0f);
+        const float gap = stacked ? 12.0f : 14.0f;
+        const float half_w = stacked ? m_size.x : std::max(140.0f, (m_size.x - gap) * 0.5f);
+        const float h = stacked ? 224.0f : m_size.y;
 
-        // ==================== 左侧：局部拐角放大重叠对比 ====================
+        // ==================== 面板 1：局部拐角放大重叠对比 ====================
         Rect left_rect = Rect::from_xywh(0.0f, 0.0f, half_w, h);
         ctx.draw_box(left_rect, panel_bg, border_col, 10.0f, 1.0f);
+        ctx.push_clip(left_rect, 10.0f);
 
         // 背景细网格
         for (float gx = 20.0f; gx < half_w - 8.0f; gx += 20.0f) {
@@ -118,25 +121,35 @@ public:
         ctx.draw_rect(Rect::from_xywh(ox + r_eff - 3.5f, oy - 3.5f, 7.0f, 7.0f), sq_col, 3.5f);
         ctx.draw_rect(Rect::from_xywh(ox - 3.5f, oy + r_eff - 3.5f, 7.0f, 7.0f), sq_col, 3.5f);
 
-        // 底部图例
-        ctx.draw_rect(Rect::from_xywh(14.0f, h - 22.0f, 14.0f, 3.0f), sq_col, 1.5f);
-        ctx.draw_text("Apple G2 超椭圆 (1.35r 平滑切入)", PointF{33.0f, h - 27.0f}, 11.0f, text_col);
-        if (m_show_circle_ref) {
-            ctx.draw_rect(Rect::from_xywh(half_w - 146.0f, h - 22.0f, 14.0f, 3.0f), cir_col, 1.5f);
-            ctx.draw_text("传统 G1 圆角 (r 处折痕)", PointF{half_w - 127.0f, h - 27.0f}, 11.0f, muted_col);
+        // 底部图例（窄屏自动上下分两行避免文字重叠）
+        if (half_w < 330.0f && m_show_circle_ref) {
+            ctx.draw_rect(Rect::from_xywh(14.0f, h - 34.0f, 12.0f, 3.0f), sq_col, 1.5f);
+            ctx.draw_text("Apple G2 超椭圆 (1.35r)", PointF{31.0f, h - 39.0f}, 10.5f, text_col);
+            ctx.draw_rect(Rect::from_xywh(14.0f, h - 18.0f, 12.0f, 3.0f), cir_col, 1.5f);
+            ctx.draw_text("传统 G1 圆角 (r 处折痕)", PointF{31.0f, h - 23.0f}, 10.5f, muted_col);
+        } else {
+            ctx.draw_rect(Rect::from_xywh(14.0f, h - 22.0f, 14.0f, 3.0f), sq_col, 1.5f);
+            ctx.draw_text("Apple G2 超椭圆 (1.35r 平滑切入)", PointF{33.0f, h - 27.0f}, 11.0f, text_col);
+            if (m_show_circle_ref) {
+                ctx.draw_rect(Rect::from_xywh(half_w - 146.0f, h - 22.0f, 14.0f, 3.0f), cir_col, 1.5f);
+                ctx.draw_text("传统 G1 圆角 (r 处折痕)", PointF{half_w - 127.0f, h - 27.0f}, 11.0f, muted_col);
+            }
         }
+        ctx.pop_clip();
 
-        // ==================== 右侧：曲率分布曲线 κ(s) ====================
-        const float rx = half_w + gap;
-        Rect right_rect = Rect::from_xywh(rx, 0.0f, half_w, h);
+        // ==================== 面板 2：曲率分布曲线 κ(s) ====================
+        const float rx = stacked ? 0.0f : (half_w + gap);
+        const float ry = stacked ? (h + gap) : 0.0f;
+        Rect right_rect = Rect::from_xywh(rx, ry, half_w, h);
         ctx.draw_box(right_rect, panel_bg, border_col, 10.0f, 1.0f);
+        ctx.push_clip(right_rect, 10.0f);
 
-        ctx.draw_text("曲率变化曲线 κ(s)（折痕的数学根源）", PointF{rx + 12.0f, 8.0f}, 12.0f, text_col, FontWeight::SemiBold);
+        ctx.draw_text("曲率变化曲线 κ(s)（折痕的数学根源）", PointF{rx + 12.0f, ry + 8.0f}, 12.0f, text_col, FontWeight::SemiBold);
 
         const float px0 = rx + 26.0f;
         const float px1 = rx + half_w - 18.0f;
-        const float py0 = 42.0f;
-        const float py1 = h - 42.0f;
+        const float py0 = ry + 42.0f;
+        const float py1 = ry + h - 42.0f;
         const float pw = std::max(40.0f, px1 - px0);
         const float ph = std::max(40.0f, py1 - py0);
 
@@ -179,6 +192,7 @@ public:
             prev_k = cur;
         }
         ctx.draw_text("G2 零曲率平滑起落", PointF{px0 + pw * 0.5f - 48.0f, py0 + 2.0f}, 10.5f, sq_col, FontWeight::SemiBold);
+        ctx.pop_clip();
     }
 
 private:
@@ -245,12 +259,11 @@ WidgetPtr build_squircle_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 12.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Text { .text = "为什么普通圆角会有“折痕”？", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
-                            Spacer {},
                             ToggleSwitch {
                                 .checked = true,
                                 .label = "叠加传统 G¹ 圆角参考线",
@@ -273,50 +286,48 @@ WidgetPtr build_squircle_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 12.0f,
                 .content = {
-                    Text { .text = "实时 SDF 渲染演练场（拖动滑块直观看拐角顺滑度与等宽描边）", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
-                    HStack {
-                        .align_items = AlignItems::Center,
-                        .spacing = 16.0f,
+                    Text { .text = "实时 SDF 渲染演练场（拖动滑块直观看拐角顺滑度与等宽描边）", .font_size = 14.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
+                    Grid {
+                        .min_item_width = 230.0f,
+                        .column_spacing = 16.0f,
+                        .row_spacing = 10.0f,
                         .content = {
-                            Expanded {
-                                .child = VStack {
-                                    .spacing = 4.0f,
-                                    .content = {
-                                        Text { .font_size = 12.0f }.bind(&RenderText::set_text, *radius_label),
-                                        Slider {
-                                            .min_value = 4.0f,
-                                            .max_value = 46.0f,
-                                            .step = 1.0f,
-                                            .on_change = [radius_prop, radius_label](float v) {
-                                                char buf[96];
-                                                std::snprintf(buf, sizeof(buf),
-                                                              "当前圆角半径: %.0f px  (延伸过渡区 1.35r ≈ %.0f px)",
-                                                              static_cast<double>(v), static_cast<double>(v * 1.35f));
-                                                radius_label->set(buf);
-                                                (void)radius_prop;
-                                            }
-                                        }.bind_two_way(*radius_prop)
-                                    }
+                            VStack {
+                                .align_items = AlignItems::Stretch,
+                                .spacing = 4.0f,
+                                .content = {
+                                    Text { .font_size = 12.0f, .overflow = TextOverflow::Wrap }.bind(&RenderText::set_text, *radius_label),
+                                    Slider {
+                                        .min_value = 4.0f,
+                                        .max_value = 46.0f,
+                                        .step = 1.0f,
+                                        .on_change = [radius_prop, radius_label](float v) {
+                                            char buf[96];
+                                            std::snprintf(buf, sizeof(buf),
+                                                          "当前圆角半径: %.0f px  (延伸过渡区 1.35r ≈ %.0f px)",
+                                                          static_cast<double>(v), static_cast<double>(v * 1.35f));
+                                            radius_label->set(buf);
+                                            (void)radius_prop;
+                                        }
+                                    }.bind_two_way(*radius_prop)
                                 }
                             },
-                            Box {
-                                .width = 210.0f,
-                                .child = VStack {
-                                    .spacing = 4.0f,
-                                    .content = {
-                                        Text { .font_size = 12.0f }.bind(&RenderText::set_text, *border_label),
-                                        Slider {
-                                            .min_value = 0.0f,
-                                            .max_value = 6.0f,
-                                            .step = 0.5f,
-                                            .on_change = [border_prop, border_label](float v) {
-                                                char buf[64];
-                                                std::snprintf(buf, sizeof(buf), "等宽描边: %.1f px", static_cast<double>(v));
-                                                border_label->set(buf);
-                                                (void)border_prop;
-                                            }
-                                        }.bind_two_way(*border_prop)
-                                    }
+                            VStack {
+                                .align_items = AlignItems::Stretch,
+                                .spacing = 4.0f,
+                                .content = {
+                                    Text { .font_size = 12.0f, .overflow = TextOverflow::Wrap }.bind(&RenderText::set_text, *border_label),
+                                    Slider {
+                                        .min_value = 0.0f,
+                                        .max_value = 6.0f,
+                                        .step = 0.5f,
+                                        .on_change = [border_prop, border_label](float v) {
+                                            char buf[64];
+                                            std::snprintf(buf, sizeof(buf), "等宽描边: %.1f px", static_cast<double>(v));
+                                            border_label->set(buf);
+                                            (void)border_prop;
+                                        }
+                                    }.bind_two_way(*border_prop)
                                 }
                             }
                         }

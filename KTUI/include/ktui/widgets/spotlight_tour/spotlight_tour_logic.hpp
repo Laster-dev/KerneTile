@@ -107,6 +107,15 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!bounds().contains(position)) return false;
+        if (m_hole_init && m_anim_hole.contains(position)) {
+            return false;
+        }
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& context) override {
         if (m_steps.empty() || m_step >= m_steps.size()) return;
 

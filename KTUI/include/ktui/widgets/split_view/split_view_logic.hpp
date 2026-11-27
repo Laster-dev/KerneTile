@@ -130,6 +130,15 @@ public:
         return RenderBox::hit_test(result, position);
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!bounds().contains(position)) return false;
+        if (m_dragging || touch::expand_hit_rect(m_splitter_rect, touch::kSplitterTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return RenderBox::hit_test_touch(result, position);
+    }
+
     // 公共可复用 Fluent 2 分隔条绘制（供 SplitView 与 DockPanel 统一复用）
     static void paint_splitter(PaintContext& context,
                                Rect splitter_rect,

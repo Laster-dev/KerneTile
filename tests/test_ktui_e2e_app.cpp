@@ -1148,6 +1148,131 @@ void test_comprehensive_touch_adaptation() {
     std::cout << "  -> 全控件触控适配验收（44px 热区、PointerCancel、ToggleSwitch/Rating/Ghost/SplitView/PipsPager）全部通过！" << std::endl;
 }
 
+void test_mobile_touch_passthrough_and_responsive_layout() {
+    std::cout << "[Test 13] 移动端触控防穿透 (NavigationView 浮层/Expander) 与窄屏响应式布局 (SettingsCard)..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    auto make_touch = [](PlatformEventType t, Vec2 pos) {
+        PlatformEvent ev;
+        ev.type = t;
+        ev.button = PointerButton::Primary;
+        ev.device_kind = PointerDeviceKind::Touch;
+        ev.position = pos;
+        return ev;
+    };
+
+    // 1. NavigationView LeftMinimal 窄屏抽屉展开时，触控点击侧边栏项绝不穿透到底层内容按钮
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{390.0f, 700.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        std::string selected_nav = "home";
+        int underlying_clicks = 0;
+
+        win->set_content(NavigationView{
+            .menu_items = {
+                NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
+                NavigationViewItem{ .id = "buttons", .label = "按钮控件", .icon = NavigationIcon::Home },
+                NavigationViewItem{ .id = "settings_demo", .label = "外观设置", .icon = NavigationIcon::Settings }
+            },
+            .selected_id = "home",
+            .pane_display_mode = NavigationPaneDisplayMode::LeftMinimal,
+            .is_pane_open = true,
+            .is_search_box_visible = false,
+            .content = Button{
+                .text = "底层全屏巨型按钮",
+                .on_click = [&]() { underlying_clicks++; }
+            },
+            .on_selection_changed = [&](const std::string& id) { selected_nav = id; }
+        });
+        // 推进抽屉展开动画至完全打开 (m_pane_open_anim -> 1.0，NavigationView 使用 steady_clock)
+        for (int i = 0; i < 20; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            win->render_frame();
+        }
+
+        // 点在侧边栏第二个菜单项 ("按钮控件") 区域，同时也是底层大按钮的坐标范围内
+        // Top chrome row = 44px, Row 0 (home) = [48, 84], Row 1 (buttons) = [84, 120]
+        const float tb_h = win->titlebar_height();
+        const Vec2 tap_pt{120.0f, tb_h + 102.0f};
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, tap_pt));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, tap_pt));
+
+        require(selected_nav == "buttons", "Touch on open NavigationView overlay pane must select sidebar item");
+        require(underlying_clicks == 0, "Touch on open NavigationView overlay pane must NOT penetrate to underlying content button");
+
+        // 侧边栏关闭动画完成后，再点相同位置应正常命中底层按钮
+        for (int i = 0; i < 25; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            win->render_frame();
+        }
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, tap_pt));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, tap_pt));
+        require(underlying_clicks == 1, "After overlay pane closes, touch hits underlying content button normally");
+    }
+
+    // 2. SettingsCard 窄屏 (360px) 携带宽 ComboBox 自动上下双行堆叠，不挤压标题
+    {
+        WidgetPtr card_w = SettingsCard{
+            .header = "窗口背景材质 (Backdrop)",
+            .description = "实时切换云母材质或在移动端自动双行堆叠展示长描述文本",
+            .content = ComboBox{
+                .items = {"无材质 (None)", "云母 (Mica)", "深层云母 (Mica Alt)"},
+                .selected_index = 1,
+                .width = 180.0f
+            }
+        };
+        auto card = std::static_pointer_cast<RenderSettingsCard>(card_w->create_render_node());
+
+        // 窄屏 360px -> 应触发上下堆叠，高度 > 100px
+        card->layout(BoxConstraints{360.0f, 360.0f, 0.0f, BoxConstraints::kInfinity});
+        float narrow_h = card->size().y;
+        require(narrow_h > 100.0f, "SettingsCard on narrow 360px screen stacks ComboBox vertically and expands height");
+
+        // 宽屏 720px -> 保持桌面单行紧凑布局，高度 <= 80px
+        card->layout(BoxConstraints{720.0f, 720.0f, 0.0f, BoxConstraints::kInfinity});
+        float wide_h = card->size().y;
+        require(wide_h <= 80.0f, "SettingsCard on wide 720px desktop stays compact single-row");
+    }
+
+    // 3. FlexEngine 窄屏 (<560px) HStack 自动防溢出折行 vs 宽屏单行保持不变
+    {
+        WidgetPtr row_w = HStack{
+            .spacing = 10.0f,
+            .content = {
+                Button{ .text = "操作按钮一 (110px)" },
+                Button{ .text = "操作按钮二 (110px)" },
+                Button{ .text = "操作按钮三 (110px)" },
+                Button{ .text = "操作按钮四 (110px)" }
+            }
+        };
+        auto row = row_w->create_render_node();
+
+        // 窄屏 340px -> 必须自动折行，且所有子项严格在 340px 边界内不溢出
+        row->layout(BoxConstraints{340.0f, 340.0f, 0.0f, BoxConstraints::kInfinity});
+        require(row->size().y > 56.0f, "Narrow HStack auto-reflows overflowing buttons onto multiple lines");
+        for (RenderNode* c = row->first_child(); c != nullptr; c = c->next_sibling()) {
+            if (auto* b = c->as_render_box()) {
+                require(b->offset().x + b->size().x <= 340.5f, "Auto-reflowed HStack child stays inside narrow viewport");
+            }
+        }
+
+        // 宽屏 760px -> 保持桌面单行排布
+        row->layout(BoxConstraints{760.0f, 760.0f, 0.0f, BoxConstraints::kInfinity});
+        require(row->size().y <= 42.0f, "Wide desktop HStack stays single-row");
+    }
+
+    std::cout << "  -> 移动端触控防穿透（NavigationView 浮层抽屉）、SettingsCard 堆叠与 FlexEngine 窄屏自动折行验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -1165,6 +1290,7 @@ int main() {
     test_mobile_touch_scroll_inertia_and_overscroll_bounce();
     test_touch_long_press_synthesizes_secondary_click();
     test_comprehensive_touch_adaptation();
+    test_mobile_touch_passthrough_and_responsive_layout();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

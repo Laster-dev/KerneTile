@@ -168,6 +168,34 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (local_position.x < 0.0f || local_position.y < 0.0f ||
+            local_position.x > size().x || local_position.y > size().y) {
+            return false;
+        }
+        if (m_sticky && local_position.y <= m_sticky_h) {
+            m_sticky->hit_test_touch(result, local_position);
+            result.add(this, local_position);
+            return true;
+        }
+        const Rect scroll_vp = Rect::from_xywh(0.0f, m_sticky_h, size().x, std::max(0.0f, size().y - m_sticky_h));
+        auto m = m_scrollbar.compute_metrics(scroll_vp, m_content_height, m_physics.offset());
+        if (m_scrollbar.hit_test(local_position, m, PointerDeviceKind::Touch) != WinUIScrollBar::HitPart::None) {
+            result.add(this, local_position);
+            return true;
+        }
+        if (m_body && m_body->hit_test_touch(result, local_position - m_body->offset())) {
+            result.add(this, local_position);
+            return true;
+        }
+        if (m_banner && m_banner->hit_test_touch(result, local_position - m_banner->offset())) {
+            result.add(this, local_position);
+            return true;
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         bool anim_s = m_physics.update();
         bool anim_b = m_scrollbar.update_animations(m_viewport_hovered);

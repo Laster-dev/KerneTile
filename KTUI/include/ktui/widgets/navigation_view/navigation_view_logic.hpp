@@ -320,6 +320,50 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (local_position.x < 0.0f || local_position.y < 0.0f ||
+            local_position.x > size().x || local_position.y > size().y) {
+            return false;
+        }
+
+        const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);
+        const bool overlay_active = is_overlay_pane(eff) && m_pane_open_anim > 0.05f;
+        const float pane_w = current_pane_width(eff);
+
+        if (eff == NavigationPaneDisplayMode::Top) {
+            if (local_position.y <= 44.0f) {
+                result.add(this, local_position);
+                return true;
+            }
+        } else {
+            if (m_search_box && m_data.is_search_box_visible && m_pane_open_anim > 0.5f && local_position.x <= pane_w) {
+                Vec2 soff = m_search_box->offset();
+                PointF spos{local_position.x - soff.x, local_position.y - soff.y};
+                if (m_search_box->hit_test_touch(result, spos)) {
+                    return true;
+                }
+            }
+            if (local_position.x <= pane_w || overlay_active) {
+                result.add(this, local_position);
+                return true;
+            }
+            if (eff == NavigationPaneDisplayMode::LeftMinimal && local_position.x <= 88.0f && local_position.y <= 44.0f) {
+                result.add(this, local_position);
+                return true;
+            }
+        }
+
+        if (m_content_box) {
+            Vec2 off = m_content_box->offset();
+            PointF child_pos{local_position.x - off.x, local_position.y - off.y};
+            if (m_content_box->hit_test_touch(result, child_pos)) {
+                return true;
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override;
 
 private:
@@ -381,7 +425,11 @@ private:
     [[nodiscard]] float current_pane_width(NavigationPaneDisplayMode eff) const noexcept {
         if (eff == NavigationPaneDisplayMode::Top) return 0.0f;
         float closed_w = (eff == NavigationPaneDisplayMode::LeftMinimal) ? 0.0f : m_data.compact_pane_length;
-        return closed_w + (m_data.open_pane_length - closed_w) * m_pane_open_anim;
+        float open_w = m_data.open_pane_length;
+        if (is_overlay_pane(eff) && size().x > 1.0f) {
+            open_w = std::min(open_w, std::max(220.0f, std::round(size().x * 0.78f)));
+        }
+        return closed_w + (open_w - closed_w) * m_pane_open_anim;
     }
 
     [[nodiscard]] float inline_reserved_left(NavigationPaneDisplayMode eff) const noexcept {

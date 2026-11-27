@@ -13,7 +13,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .spacing = 4.0f,
         .content = {
             app.make_page_title(title, 22.0f),
-            Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+            Text { .text = subtitle, .font_size = 12.5f, .overflow = TextOverflow::Wrap }.bind(&RenderText::set_color, app.muted_text)
         }
     };
 }
@@ -41,7 +41,7 @@ WidgetPtr build_slider_page(GalleryApp& app) {
                         .min_value = 0.0f,
                         .max_value = 100.0f,
                         .step = 1.0f,
-                        .width = 320.0f,
+                        .width = 280.0f,
                         .on_change = [&app](float v) {
                             app.slider_val.set(v);
                             app.slider_text.set("调节数值 (滑块): " + std::to_string(static_cast<int>(std::round(v))) + "%");
@@ -61,7 +61,7 @@ WidgetPtr build_slider_page(GalleryApp& app) {
                         .min_value = 0.0f,
                         .max_value = 100.0f,
                         .step = 10.0f,
-                        .width = 320.0f,
+                        .width = 280.0f,
                         .on_change = [tick_val_text](float v) {
                             tick_val_text->set("带刻度步进滑块 (Step=10): " + std::to_string(static_cast<int>(std::round(v))));
                         },
@@ -81,7 +81,7 @@ WidgetPtr build_slider_page(GalleryApp& app) {
                         .min_value = 0.0f,
                         .max_value = 100.0f,
                         .step = 1.0f,
-                        .width = 320.0f,
+                        .width = 280.0f,
                         .tick_frequency = 20.0f,
                         .show_ticks = true,
                         .range_mode = true,

@@ -169,6 +169,37 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!bounds().contains(position)) return false;
+        if (is_on_divider(position.x, true)) {
+            result.add(this, position);
+            return true;
+        }
+        if (m_editing_row >= 0) {
+            RenderBox* ed = m_editing_is_num ? static_cast<RenderBox*>(m_num_editor.get())
+                                             : static_cast<RenderBox*>(m_text_editor.get());
+            if (ed) {
+                PointF cp{position.x - ed->offset().x, position.y - ed->offset().y};
+                if (ed->hit_test_touch(result, cp)) {
+                    result.add(this, position);
+                    return true;
+                }
+            }
+        }
+        for (const auto& entry : m_bool_boxes) {
+            if (!entry.box) continue;
+            PointF cp{position.x - entry.box->offset().x, position.y - entry.box->offset().y};
+            if (cp.x >= -10.0f && cp.y >= -10.0f && cp.x <= entry.box->size().x + 10.0f && cp.y <= entry.box->size().y + 10.0f) {
+                if (entry.box->hit_test_touch(result, cp)) {
+                    result.add(this, position);
+                    return true;
+                }
+            }
+        }
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& context) override {
         auto now = std::chrono::steady_clock::now();
         float dt = (m_last_anim.time_since_epoch().count() == 0)

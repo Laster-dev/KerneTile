@@ -37,7 +37,11 @@ public:
     }
 
     bool hit_test(HitTestResult&, PointF) override {
-        // ToolTip 绝不拦截鼠标事件
+        // ToolTip 绝不拦截鼠标或触控事件
+        return false;
+    }
+
+    bool hit_test_touch(HitTestResult&, PointF) override {
         return false;
     }
 

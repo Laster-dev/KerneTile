@@ -116,6 +116,23 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!bounds().contains(position)) return false;
+        if (position.y < kBarHeight) {
+            result.add(this, position);
+            return true;
+        }
+        if (m_content) {
+            PointF cp{position.x - m_content->offset().x, position.y - m_content->offset().y};
+            if (m_content->hit_test_touch(result, cp)) {
+                result.add(this, position);
+                return true;
+            }
+        }
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& context) override {
         const Theme& t = ThemeContext::current();
         const auto resolved_style = DockPanelStyleResolver::resolve(t);

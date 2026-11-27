@@ -332,6 +332,18 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!bounds().contains(local_position)) return false;
+        if (m_find_open && m_find_bar_node) {
+            PointF cp = local_position - m_find_bar_node->offset();
+            if (m_find_bar_node->hit_test_touch(result, cp)) {
+                return true;
+            }
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     // ==================== 渲染 (对齐 Windows Terminal Atlas 视觉风格) ====================
     void paint(PaintContext& ctx) override;
 

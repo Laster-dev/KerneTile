@@ -486,7 +486,7 @@ WidgetPtr build_image_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "壁纸铺底演示（ZStack + ImageStretch::UniformToFill，实时同步当前加载的图片/壁纸/GIF）", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Text { .text = "壁纸铺底演示（ZStack + ImageStretch::UniformToFill，实时同步当前加载的图片/壁纸/GIF）", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                     Box {
                         .height = 156.0f,
                         .corner_radius = 10.0f,

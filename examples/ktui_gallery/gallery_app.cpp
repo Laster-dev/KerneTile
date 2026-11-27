@@ -1,5 +1,8 @@
 #include "gallery_app.hpp"
 #include "pages/gallery_pages.hpp"
+#if defined(__ANDROID__)
+#include "mobile_shell.hpp"
+#endif
 
 using namespace ktui;
 
@@ -11,13 +14,93 @@ void GalleryApp::refresh_count() {
                    (locked.get() ? "  [已锁定]" : ""));
 }
 
+namespace {
+
+// 响应式内边距包装器：宽屏保持桌面留白，窄屏 (< breakpoint) 自动收缩为紧凑移动端边距
+class RenderResponsivePadding : public RenderBox {
+public:
+    RenderResponsivePadding(EdgeInsets wide_pad, EdgeInsets narrow_pad, float breakpoint) noexcept
+        : m_wide(wide_pad), m_narrow(narrow_pad), m_breakpoint(breakpoint) {}
+
+    void set_child_box(std::shared_ptr<RenderBox> child) {
+        if (m_child == child) return;
+        if (m_child) remove_child(m_child.get());
+        m_child = std::move(child);
+        if (m_child) append_child(m_child.get());
+        mark_needs_layout();
+    }
+
+    void perform_layout() override {
+        const bool is_narrow = m_constraints.has_bounded_width() && (m_constraints.max_width < m_breakpoint);
+        const EdgeInsets pad = is_narrow ? m_narrow : m_wide;
+        if (!m_child) {
+            m_size = m_constraints.constrain(Vec2{pad.horizontal(), pad.vertical()});
+            return;
+        }
+        BoxConstraints inner = m_constraints.deflate(pad);
+        m_child->layout(inner, true);
+        m_child->set_offset(Vec2{pad.left, pad.top});
+        m_size = m_constraints.constrain(Vec2{
+            m_child->size().x + pad.horizontal(),
+            m_child->size().y + pad.vertical()
+        });
+    }
+
+private:
+    EdgeInsets m_wide;
+    EdgeInsets m_narrow;
+    float m_breakpoint{540.0f};
+    std::shared_ptr<RenderBox> m_child;
+};
+
+class ResponsivePaddingWidget : public Widget {
+public:
+    ResponsivePaddingWidget(EdgeInsets wide_pad, EdgeInsets narrow_pad, float breakpoint, WidgetPtr child)
+        : m_wide(wide_pad), m_narrow(narrow_pad), m_breakpoint(breakpoint), m_child(std::move(child)) {}
+
+    std::shared_ptr<RenderBox> create_render_node() override {
+        auto node = make_render_node<RenderResponsivePadding>(m_wide, m_narrow, m_breakpoint);
+        m_child_box = m_child ? m_child->create_render_node() : nullptr;
+        if (m_child && m_child_box) m_child->set_render_node(m_child_box);
+        node->set_child_box(m_child_box);
+        return node;
+    }
+
+    void update_render_node(std::shared_ptr<RenderBox> node) override {
+        if (auto rp = std::static_pointer_cast<RenderResponsivePadding>(node)) {
+            if (m_child) {
+                if (!m_child_box) {
+                    m_child_box = m_child->create_render_node();
+                    m_child->set_render_node(m_child_box);
+                    rp->set_child_box(m_child_box);
+                } else {
+                    m_child->update_render_node(m_child_box);
+                }
+            } else if (m_child_box) {
+                m_child_box = nullptr;
+                rp->set_child_box(nullptr);
+            }
+        }
+    }
+
+private:
+    EdgeInsets m_wide;
+    EdgeInsets m_narrow;
+    float m_breakpoint;
+    WidgetPtr m_child;
+    std::shared_ptr<RenderBox> m_child_box;
+};
+
+} // namespace
+
 WidgetPtr GalleryApp::make_card(WidgetPtr child) {
     return Box {
         .border_width = 1.0f,
         .corner_radius = 6.0f,
-        .padding = EdgeInsets(12.0f, 14.0f),
+        .padding = EdgeInsets::zero(),
         .theme_card = true,
-        .child = std::move(child)
+        .child = make_widget<ResponsivePaddingWidget>(
+            EdgeInsets(12.0f, 14.0f), EdgeInsets(10.0f, 10.0f), 540.0f, std::move(child))
     };
 }
 
@@ -108,11 +191,21 @@ private:
 } // namespace
 
 WidgetPtr GalleryApp::make_page_title(const std::string& title, float font_size) {
+#if defined(__ANDROID__)
+    font_size = std::min(font_size, 19.0f);
+#endif
     return HStack {
         .align_items = AlignItems::Center,
         .spacing = 8.0f,
         .content = {
-            Text { .text = title, .font_size = font_size, .font_weight = FontWeight::SemiBold },
+            Flexible {
+                .child = Text {
+                    .text = title,
+                    .font_size = font_size,
+                    .font_weight = FontWeight::SemiBold,
+                    .overflow = TextOverflow::Wrap
+                }
+            },
             make_widget<CopyIconButtonWidget>(title)
         }
     };
@@ -120,28 +213,23 @@ WidgetPtr GalleryApp::make_page_title(const std::string& title, float font_size)
 
 WidgetPtr GalleryApp::make_scroll_page(WidgetPtr body) {
     return ScrollView {
-        .child = Box {
-            .background_color = Color::transparent(),
-            .padding = EdgeInsets(16.0f, 22.0f),
-            .child = std::move(body)
-        }
+        .child = make_widget<ResponsivePaddingWidget>(
+            EdgeInsets(16.0f, 22.0f), EdgeInsets(12.0f, 12.0f), 540.0f, std::move(body))
     };
 }
 
 WidgetPtr GalleryApp::make_full_page(WidgetPtr body) {
-    return Box {
-        .background_color = Color::transparent(),
-        .padding = EdgeInsets(16.0f, 22.0f),
-        .child = std::move(body)
-    };
+    return make_widget<ResponsivePaddingWidget>(
+        EdgeInsets(16.0f, 22.0f), EdgeInsets(12.0f, 12.0f), 540.0f, std::move(body));
 }
 
 WidgetPtr GalleryApp::make_muted(const char* text, float font_size) {
-    return Text { .text = text, .font_size = font_size }.bind(&RenderText::set_color, muted_text);
+    return Text { .text = text, .font_size = font_size, .overflow = TextOverflow::Wrap }
+        .bind(&RenderText::set_color, muted_text);
 }
 
 WidgetPtr GalleryApp::make_accent(Property<std::string>& prop, float font_size, FontWeight weight) {
-    return Text { .font_size = font_size, .font_weight = weight }
+    return Text { .font_size = font_size, .font_weight = weight, .overflow = TextOverflow::Wrap }
         .bind(&RenderText::set_text, prop)
         .bind(&RenderText::set_color, accent_text);
 }
@@ -286,6 +374,102 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         });
     });
 
+    auto build_page_by_id = [this](const std::string& page_id) -> WidgetPtr {
+        struct Route { const char* id; WidgetPtr(*fn)(GalleryApp&); };
+        static constexpr Route kRoutes[] = {
+            {"geek_inspector_grid",  pages::build_inspector_grid_page},
+            {"geek_hex_viewer",      pages::build_hex_viewer_page},
+            {"geek_terminal",        pages::build_terminal_page},
+            {"geek_syntax_filter",   pages::build_syntax_filter_page},
+            {"geek_status_bar",      pages::build_status_bar_page},
+            {"pro_query_filter",     pages::build_query_filter_page},
+            {"pro_scrub_number",     pages::build_scrub_number_box_page},
+            {"pro_hold_confirm",     pages::build_hold_confirm_button_page},
+            {"pro_ghost_text",       pages::build_ghost_text_box_page},
+            {"pro_minimap_time",     pages::build_minimap_timeline_page},
+            {"pro_ip_port",          pages::build_ip_port_input_page},
+            {"pro_spotlight_tour",   pages::build_spotlight_tour_page},
+            {"layout_flex",          pages::build_layout_flex_page},
+            {"layout_wrap",          pages::build_layout_wrap_page},
+            {"layout_grid",          pages::build_layout_grid_page},
+            {"layout_zstack",        pages::build_layout_zstack_page},
+            {"layout_align",         pages::build_layout_align_page},
+            {"layout_split_view",    pages::build_layout_split_view_page},
+            {"layout_dock_panel",    pages::build_layout_dock_panel_page},
+            {"layout_visibility",    pages::build_layout_visibility_page},
+            {"button",               pages::build_button_page},
+            {"toggle_button",        pages::build_toggle_button_page},
+            {"segmented_control",    pages::build_segmented_control_page},
+            {"dropdown_button",      pages::build_dropdown_button_page},
+            {"checkbox",             pages::build_checkbox_page},
+            {"toggle_switch",        pages::build_toggle_switch_page},
+            {"radio_button",         pages::build_radio_button_page},
+            {"radio_card",           pages::build_radio_card_page},
+            {"combobox",             pages::build_combobox_page},
+            {"slider",               pages::build_slider_page},
+            {"calendar_date_picker", pages::build_calendar_date_picker_page},
+            {"time_picker",          pages::build_time_picker_page},
+            {"color_picker",         pages::build_color_picker_page},
+            {"rating_control",       pages::build_rating_control_page},
+            {"label",                pages::build_label_page},
+            {"rich_text_block",      pages::build_rich_text_block_page},
+            {"textbox",              pages::build_textbox_page},
+            {"text_area",            pages::build_text_area_page},
+            {"auto_suggest_box",     pages::build_auto_suggest_box_page},
+            {"password_box",         pages::build_password_box_page},
+            {"number_box",           pages::build_number_box_page},
+            {"navigation_view",      pages::build_navigation_view_page},
+            {"tab_view",             pages::build_tab_view_page},
+            {"breadcrumb_bar",       pages::build_breadcrumb_bar_page},
+            {"expander",             pages::build_expander_page},
+            {"settings_card",        pages::build_settings_card_page},
+            {"tree_view",            pages::build_tree_view_page},
+            {"virtual_list",         pages::build_virtual_list_page},
+            {"data_grid",            pages::build_data_grid_page},
+            {"flip_view",            pages::build_flip_view_page},
+            {"pips_pager",           pages::build_pips_pager_page},
+            {"command_bar",          pages::build_command_bar_page},
+            {"menu_flyout",          pages::build_menu_flyout_page},
+            {"content_dialog",       pages::build_content_dialog_page},
+            {"teaching_tip",         pages::build_teaching_tip_page},
+            {"tooltip",              pages::build_tooltip_page},
+            {"info_bar",             pages::build_info_bar_page},
+            {"info_badge",           pages::build_info_badge_page},
+            {"person_picture",       pages::build_person_picture_page},
+            {"toast",                pages::build_toast_page},
+            {"progress_bar",         pages::build_progress_bar_page},
+            {"progress_ring",        pages::build_progress_ring_page},
+            {"tactile_font_gamma",      pages::build_tactile_font_gamma_page},
+            {"tactile_directional_rim", pages::build_tactile_directional_rim_page},
+            {"tactile_oklab",           pages::build_tactile_oklab_page},
+            {"tactile_acrylic_grain",   pages::build_tactile_acrylic_grain_page},
+            {"tactile_inset_shadow",    pages::build_tactile_inset_shadow_page},
+            {"tactile_metaballs",       pages::build_tactile_metaballs_page},
+            {"tactile_scroll_feather",    pages::build_tactile_scroll_feather_page},
+            {"tactile_hero_transition",   pages::build_tactile_hero_transition_page},
+            {"tactile_micro_tilt",        pages::build_tactile_micro_tilt_page},
+            {"tactile_spring_caret",      pages::build_tactile_spring_caret_page},
+            {"tactile_scroll_parallax",   pages::build_tactile_scroll_parallax_page},
+            {"tactile_rolling_counter",   pages::build_tactile_rolling_counter_page},
+            {"tactile_concentric_radius", pages::build_tactile_concentric_radius_page},
+            {"polish_showcase",         pages::build_polish_showcase_page},
+            {"squircle",             pages::build_squircle_page},
+            {"image",                pages::build_image_page},
+            {"file_dialog",          pages::build_file_dialog_page},
+            {"drag_drop",            pages::build_drag_drop_page},
+            {"svg",                  pages::build_svg_page},
+            {"__settings__",         pages::build_settings_page},
+            {"about",                pages::build_about_page}
+        };
+        for (const auto& r : kRoutes) {
+            if (page_id == r.id) return r.fn(*this);
+        }
+        return pages::build_home_page(*this);
+    };
+
+#if defined(__ANDROID__)
+    window->set_content(mobile::build_mobile_shell(*this, std::move(build_page_by_id)));
+#else
     struct NavEntry { const char* id; const char* label; const char* badge; };
     auto make_cat = [](const char* id, const char* label, NavigationIcon icon, bool expanded, std::initializer_list<NavEntry> list) {
         NavigationViewItem cat;
@@ -421,100 +605,10 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .is_search_box_visible = true,
         .search_placeholder = "搜索控件",
         .open_pane_length = 236.0f,
-        .page_builder = [this](const std::string& page_id) -> WidgetPtr {
-            struct Route { const char* id; WidgetPtr(*fn)(GalleryApp&); };
-            static constexpr Route kRoutes[] = {
-                {"geek_inspector_grid",  pages::build_inspector_grid_page},
-                {"geek_hex_viewer",      pages::build_hex_viewer_page},
-                {"geek_terminal",        pages::build_terminal_page},
-                {"geek_syntax_filter",   pages::build_syntax_filter_page},
-                {"geek_status_bar",      pages::build_status_bar_page},
-                {"pro_query_filter",     pages::build_query_filter_page},
-                {"pro_scrub_number",     pages::build_scrub_number_box_page},
-                {"pro_hold_confirm",     pages::build_hold_confirm_button_page},
-                {"pro_ghost_text",       pages::build_ghost_text_box_page},
-                {"pro_minimap_time",     pages::build_minimap_timeline_page},
-                {"pro_ip_port",          pages::build_ip_port_input_page},
-                {"pro_spotlight_tour",   pages::build_spotlight_tour_page},
-                {"layout_flex",          pages::build_layout_flex_page},
-                {"layout_wrap",          pages::build_layout_wrap_page},
-                {"layout_grid",          pages::build_layout_grid_page},
-                {"layout_zstack",        pages::build_layout_zstack_page},
-                {"layout_align",         pages::build_layout_align_page},
-                {"layout_split_view",    pages::build_layout_split_view_page},
-                {"layout_dock_panel",    pages::build_layout_dock_panel_page},
-                {"layout_visibility",    pages::build_layout_visibility_page},
-                {"button",               pages::build_button_page},
-                {"toggle_button",        pages::build_toggle_button_page},
-                {"segmented_control",    pages::build_segmented_control_page},
-                {"dropdown_button",      pages::build_dropdown_button_page},
-                {"checkbox",             pages::build_checkbox_page},
-                {"toggle_switch",        pages::build_toggle_switch_page},
-                {"radio_button",         pages::build_radio_button_page},
-                {"radio_card",           pages::build_radio_card_page},
-                {"combobox",             pages::build_combobox_page},
-                {"slider",               pages::build_slider_page},
-                {"calendar_date_picker", pages::build_calendar_date_picker_page},
-                {"time_picker",          pages::build_time_picker_page},
-                {"color_picker",         pages::build_color_picker_page},
-                {"rating_control",       pages::build_rating_control_page},
-                {"label",                pages::build_label_page},
-                {"rich_text_block",      pages::build_rich_text_block_page},
-                {"textbox",              pages::build_textbox_page},
-                {"text_area",            pages::build_text_area_page},
-                {"auto_suggest_box",     pages::build_auto_suggest_box_page},
-                {"password_box",         pages::build_password_box_page},
-                {"number_box",           pages::build_number_box_page},
-                {"navigation_view",      pages::build_navigation_view_page},
-                {"tab_view",             pages::build_tab_view_page},
-                {"breadcrumb_bar",       pages::build_breadcrumb_bar_page},
-                {"expander",             pages::build_expander_page},
-                {"settings_card",        pages::build_settings_card_page},
-                {"tree_view",            pages::build_tree_view_page},
-                {"virtual_list",         pages::build_virtual_list_page},
-                {"data_grid",            pages::build_data_grid_page},
-                {"flip_view",            pages::build_flip_view_page},
-                {"pips_pager",           pages::build_pips_pager_page},
-                {"command_bar",          pages::build_command_bar_page},
-                {"menu_flyout",          pages::build_menu_flyout_page},
-                {"content_dialog",       pages::build_content_dialog_page},
-                {"teaching_tip",         pages::build_teaching_tip_page},
-                {"tooltip",              pages::build_tooltip_page},
-                {"info_bar",             pages::build_info_bar_page},
-                {"info_badge",           pages::build_info_badge_page},
-                {"person_picture",       pages::build_person_picture_page},
-                {"toast",                pages::build_toast_page},
-                {"progress_bar",         pages::build_progress_bar_page},
-                {"progress_ring",        pages::build_progress_ring_page},
-                {"tactile_font_gamma",      pages::build_tactile_font_gamma_page},
-                {"tactile_directional_rim", pages::build_tactile_directional_rim_page},
-                {"tactile_oklab",           pages::build_tactile_oklab_page},
-                {"tactile_acrylic_grain",   pages::build_tactile_acrylic_grain_page},
-                {"tactile_inset_shadow",    pages::build_tactile_inset_shadow_page},
-                {"tactile_metaballs",       pages::build_tactile_metaballs_page},
-                {"tactile_scroll_feather",    pages::build_tactile_scroll_feather_page},
-                {"tactile_hero_transition",   pages::build_tactile_hero_transition_page},
-                {"tactile_micro_tilt",        pages::build_tactile_micro_tilt_page},
-                {"tactile_spring_caret",      pages::build_tactile_spring_caret_page},
-                {"tactile_scroll_parallax",   pages::build_tactile_scroll_parallax_page},
-                {"tactile_rolling_counter",   pages::build_tactile_rolling_counter_page},
-                {"tactile_concentric_radius", pages::build_tactile_concentric_radius_page},
-                {"polish_showcase",         pages::build_polish_showcase_page},
-                {"squircle",             pages::build_squircle_page},
-                {"image",                pages::build_image_page},
-                {"file_dialog",          pages::build_file_dialog_page},
-                {"drag_drop",            pages::build_drag_drop_page},
-                {"svg",                  pages::build_svg_page},
-                {"__settings__",         pages::build_settings_page},
-                {"about",                pages::build_about_page}
-            };
-            for (const auto& r : kRoutes) {
-                if (page_id == r.id) return r.fn(*this);
-            }
-            return pages::build_home_page(*this);
-        }
+        .page_builder = std::move(build_page_by_id)
     }.bind_two_way(nav_selected)
      .bind(&RenderNavigationView::set_pane_display_mode, nav_mode));
+#endif
 }
 
 } // namespace gallery

@@ -361,8 +361,14 @@ struct ContentDialog {
         auto result_fired = std::make_shared<bool>(false);
         auto dialog_weak = std::make_shared<std::weak_ptr<RenderContentDialog>>();
 
+        Vec2 win_sz = win->size();
+        ContentDialogDesc clamped_desc = desc;
+        if (win_sz.x > 1.0f) {
+            clamped_desc.width = std::min(clamped_desc.width, std::max(240.0f, win_sz.x - 24.0f));
+        }
+
         auto dialog = make_render_node<RenderContentDialog>(
-            desc,
+            clamped_desc,
             [overlay_id, on_result, result_fired, dialog_weak](ContentDialogResult res) {
                 if (*result_fired) return;
                 *result_fired = true;
@@ -384,7 +390,6 @@ struct ContentDialog {
         *dialog_weak = dialog;
 
         Vec2 dlg_sz = dialog->compute_size();
-        Vec2 win_sz = win->size();
         float gx = std::max(12.0f, std::round((win_sz.x - dlg_sz.x) * 0.5f));
         float gy = std::max(win->titlebar_height() + 12.0f, std::round((win_sz.y - dlg_sz.y) * 0.5f));
         dialog->set_smoke_backdrop_bounds(Vec2{gx, gy}, win_sz);

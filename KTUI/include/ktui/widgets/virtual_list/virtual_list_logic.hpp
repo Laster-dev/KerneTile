@@ -128,6 +128,28 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!bounds().contains(position)) return false;
+        Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
+        float total_h = static_cast<float>(m_item_count) * m_item_height;
+        auto m = m_scrollbar.compute_metrics(vp, total_h, m_physics.offset());
+        if (m_scrollbar.hit_test(position, m, PointerDeviceKind::Touch) != WinUIScrollBar::HitPart::None) {
+            result.add(this, position);
+            return true;
+        }
+        for (const auto& kv : m_pool) {
+            const auto& child = kv.second;
+            if (!child) continue;
+            PointF local{position.x - child->offset().x, position.y - child->offset().y};
+            if (child->hit_test_touch(result, local)) {
+                result.add(this, position);
+                return true;
+            }
+        }
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         float prev_offset = m_physics.offset();
         bool anim_scroll = m_physics.update();

@@ -1065,10 +1065,10 @@ private:
                 });
             }
             root_widget = Box {
-                .padding = EdgeInsets(12.0f, 20.0f),
-                .child = HStack {
-                    .align_items = AlignItems::Center,
-                    .spacing = 14.0f,
+                .padding = EdgeInsets(10.0f, 8.0f),
+                .child = Wrap {
+                    .spacing = 12.0f,
+                    .run_spacing = 12.0f,
                     .content = std::move(cards)
                 }
             };
@@ -1077,7 +1077,7 @@ private:
             const auto& s = spec(cur);
             const int next_idx = (cur + 1) % 3;
             root_widget = Box {
-                .padding = EdgeInsets(16.0f, 16.0f),
+                .padding = EdgeInsets(10.0f, 8.0f),
                 .child = Hero {
                     .tag = s.tag,
                     .corner_radius = 24.0f,
@@ -1088,16 +1088,14 @@ private:
                     .spring_stiffness = m_stiffness,
                     .spring_damping = m_damping,
                     .child = Box {
-                        .width = 640.0f,
-                        .height = 260.0f,
-                        .padding = EdgeInsets(24.0f, 20.0f),
+                        .padding = EdgeInsets(16.0f, 16.0f),
                         .child = VStack {
                             .align_items = AlignItems::Stretch,
                             .spacing = 12.0f,
                             .content = {
-                                HStack {
-                                    .align_items = AlignItems::Center,
+                                Wrap {
                                     .spacing = 12.0f,
+                                    .run_spacing = 10.0f,
                                     .content = {
                                         Box {
                                             .width = 44.0f,
@@ -1109,11 +1107,10 @@ private:
                                             .align_items = AlignItems::Stretch,
                                             .spacing = 3.0f,
                                             .content = {
-                                                Text { .text = std::string(s.title) + "  (已连接展开)", .font_size = 18.0f, .font_weight = FontWeight::Bold },
-                                                Text { .text = "SpringSolver 正沿用离场瞬时几何边界、G2 圆角与 OkLab 色域执行连续飞行", .font_size = 12.0f }
+                                                Text { .text = std::string(s.title) + "  (已连接展开)", .font_size = 18.0f, .font_weight = FontWeight::Bold, .overflow = TextOverflow::Wrap },
+                                                Text { .text = "SpringSolver 正沿用离场瞬时几何边界、G2 圆角与 OkLab 色域执行连续飞行", .font_size = 12.0f, .overflow = TextOverflow::Wrap }
                                             }
                                         },
-                                        Spacer {},
                                         Button {
                                             .text = "返回网格卡片",
                                             .variant = ButtonVariant::Standard,
@@ -1124,12 +1121,12 @@ private:
                                 },
                                 Text {
                                     .text = "共享标签 tag = \"" + std::string(s.tag) + "\"  |  圆角 12px → 24px  |  投影 Elevation 6 → 22  |  随时点击下方可无缝打断折叠",
-                                    .font_size = 12.5f
+                                    .font_size = 12.5f,
+                                    .overflow = TextOverflow::Wrap
                                 },
-                                Spacer {},
-                                HStack {
-                                    .align_items = AlignItems::Center,
+                                Wrap {
                                     .spacing = 10.0f,
+                                    .run_spacing = 8.0f,
                                     .content = {
                                         Button {
                                             .text = "返回并再次触发飞行",
@@ -1215,106 +1212,113 @@ WidgetPtr build_tactile_hero_transition_page(GalleryApp& app) {
         state->spring_label.set(buf);
     };
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(24.0f, 20.0f),
-            .content = {
-                Text { .text = "跨页面共享元素转场 (Connected / Hero Transition)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("通过 ktui::Hero + HeroCoordinator 在视图卸载与新建瞬间衔接绝对屏幕矩形、G2 超椭圆圆角、Elevation 投影高度与 OkLab 表面色彩。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("跨页面共享元素转场 (Connected / Hero Transition)", 22.0f),
+            app.make_muted("通过 ktui::Hero + HeroCoordinator 在视图卸载与新建瞬间衔接绝对屏幕矩形、G2 超椭圆圆角、Elevation 投影高度与 OkLab 表面色彩。", 13.0f),
 
-                app.make_card(VStack {
-                    .align_items = AlignItems::Stretch,
-                    .spacing = 12.0f,
-                    .content = {
-                        HStack {
-                            .align_items = AlignItems::Center,
-                            .spacing = 14.0f,
-                            .content = {
-                                Text { .font_size = 12.5f, .tabular_nums = true }.bind(&RenderText::set_text, state->spring_label),
-                                Spacer {},
-                                Button {
-                                    .text = "重置为三卡网格",
-                                    .on_click = [state]() { state->active_card.set(-1); }
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 12.0f,
+                .content = {
+                    Wrap {
+                        .spacing = 12.0f,
+                        .run_spacing = 8.0f,
+                        .content = {
+                            Text { .font_size = 12.5f, .tabular_nums = true }.bind(&RenderText::set_text, state->spring_label),
+                            Button {
+                                .text = "重置为三卡网格",
+                                .on_click = [state]() { state->active_card.set(-1); }
+                            }
+                        }
+                    },
+                    Wrap {
+                        .spacing = 14.0f,
+                        .run_spacing = 8.0f,
+                        .content = {
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 8.0f,
+                                .content = {
+                                    Text { .text = "Stiffness", .font_size = 12.0f },
+                                    Slider {
+                                        .value = state->stiffness.get(),
+                                        .min_value = 120.0f,
+                                        .max_value = 520.0f,
+                                        .width = 160.0f,
+                                        .on_change = [update_label](float) { update_label(); }
+                                    }.bind_two_way(state->stiffness)
+                                }
+                            },
+                            HStack {
+                                .align_items = AlignItems::Center,
+                                .spacing = 8.0f,
+                                .content = {
+                                    Text { .text = "Damping", .font_size = 12.0f },
+                                    Slider {
+                                        .value = state->damping.get(),
+                                        .min_value = 12.0f,
+                                        .max_value = 42.0f,
+                                        .width = 150.0f,
+                                        .on_change = [update_label](float) { update_label(); }
+                                    }.bind_two_way(state->damping)
                                 }
                             }
-                        },
-                        HStack {
-                            .align_items = AlignItems::Center,
-                            .spacing = 16.0f,
-                            .content = {
-                                Text { .text = "Stiffness", .font_size = 12.0f },
-                                Slider {
-                                    .value = state->stiffness.get(),
-                                    .min_value = 120.0f,
-                                    .max_value = 520.0f,
-                                    .width = 180.0f,
-                                    .on_change = [update_label](float) { update_label(); }
-                                }.bind_two_way(state->stiffness),
-                                Text { .text = "Damping", .font_size = 12.0f },
-                                Slider {
-                                    .value = state->damping.get(),
-                                    .min_value = 12.0f,
-                                    .max_value = 42.0f,
-                                    .width = 160.0f,
-                                    .on_change = [update_label](float) { update_label(); }
-                                }.bind_two_way(state->damping)
-                            }
-                        },
-                        HeroDemoStage {
-                            .active_idx = state->active_card.get(),
-                            .stiffness = state->stiffness.get(),
-                            .damping = state->damping.get(),
-                            .on_select = [state](int next) { state->active_card.set(next); }
-                        }.bind(state->active_card, [state](RenderHeroDemoStage& n, int idx) {
-                            n.configure(idx, state->stiffness.get(), state->damping.get(), [state](int next) { state->active_card.set(next); });
-                        }).bind(state->stiffness, [state](RenderHeroDemoStage& n, float k) {
-                            n.configure(state->active_card.get(), k, state->damping.get(), [state](int next) { state->active_card.set(next); });
-                        }).bind(state->damping, [state](RenderHeroDemoStage& n, float d) {
-                            n.configure(state->active_card.get(), state->stiffness.get(), d, [state](int next) { state->active_card.set(next); });
-                        })
-                    }
-                }),
-
-                app.make_card(HStack {
-                    .align_items = AlignItems::Center,
-                    .spacing = 14.0f,
-                    .content = {
-                        Hero {
-                            .tag = "gallery_cross_route_chip",
-                            .corner_radius = 12.0f,
-                            .surface_color = Color{0.18f, 0.56f, 0.98f, 0.22f},
-                            .border_color = Color{0.35f, 0.72f, 1.0f, 0.5f},
-                            .border_width = 1.0f,
-                            .elevation = 6.0f,
-                            .child = Box {
-                                .width = 180.0f,
-                                .height = 54.0f,
-                                .child = Text { .text = "NavigationView 路由同步已接入", .font_size = 12.0f },
-                                .alignment = Alignment::center()
-                            }
-                        },
-                        VStack {
-                            .align_items = AlignItems::Stretch,
-                            .spacing = 4.0f,
-                            .content = {
-                                Text { .text = "NavigationView 自动 Route Epoch 递进", .font_size = 13.5f, .font_weight = FontWeight::SemiBold },
-                                app.make_muted("RenderNavigationView::set_content_box 每次切页都会递增 HeroCoordinator 纪元并承接跨页同名 Hero 标签。", 12.0f)
-                            }
-                        },
-                        Spacer {},
-                        Button {
-                            .text = "跳转到 OkLab 色彩页",
-                            .variant = ButtonVariant::Standard,
-                            .on_click = [&app]() { app.nav_selected.set("tactile_oklab"); },
-                            .tactile_press = true
                         }
+                    },
+                    HeroDemoStage {
+                        .active_idx = state->active_card.get(),
+                        .stiffness = state->stiffness.get(),
+                        .damping = state->damping.get(),
+                        .on_select = [state](int next) { state->active_card.set(next); }
+                    }.bind(state->active_card, [state](RenderHeroDemoStage& n, int idx) {
+                        n.configure(idx, state->stiffness.get(), state->damping.get(), [state](int next) { state->active_card.set(next); });
+                    }).bind(state->stiffness, [state](RenderHeroDemoStage& n, float k) {
+                        n.configure(state->active_card.get(), k, state->damping.get(), [state](int next) { state->active_card.set(next); });
+                    }).bind(state->damping, [state](RenderHeroDemoStage& n, float d) {
+                        n.configure(state->active_card.get(), state->stiffness.get(), d, [state](int next) { state->active_card.set(next); });
+                    })
+                }
+            }),
+
+            app.make_card(Wrap {
+                .spacing = 12.0f,
+                .run_spacing = 10.0f,
+                .content = {
+                    Hero {
+                        .tag = "gallery_cross_route_chip",
+                        .corner_radius = 12.0f,
+                        .surface_color = Color{0.18f, 0.56f, 0.98f, 0.22f},
+                        .border_color = Color{0.35f, 0.72f, 1.0f, 0.5f},
+                        .border_width = 1.0f,
+                        .elevation = 6.0f,
+                        .child = Box {
+                            .width = 180.0f,
+                            .height = 54.0f,
+                            .child = Text { .text = "NavigationView 路由同步已接入", .font_size = 12.0f },
+                            .alignment = Alignment::center()
+                        }
+                    },
+                    VStack {
+                        .align_items = AlignItems::Stretch,
+                        .spacing = 4.0f,
+                        .content = {
+                            Text { .text = "NavigationView 自动 Route Epoch 递进", .font_size = 13.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
+                            app.make_muted("RenderNavigationView::set_content_box 每次切页都会递增 HeroCoordinator 纪元并承接跨页同名 Hero 标签。", 12.0f)
+                        }
+                    },
+                    Button {
+                        .text = "跳转到 OkLab 色彩页",
+                        .variant = ButtonVariant::Standard,
+                        .on_click = [&app]() { app.nav_selected.set("tactile_oklab"); },
+                        .tactile_press = true
                     }
-                })
-            }
+                }
+            })
         }
-    };
+    });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }
