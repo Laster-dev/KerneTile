@@ -207,15 +207,40 @@ private:
             mark_needs_paint();
         };
 
+        on_pointer_preview = [this](PointerEvent& ev) {
+            if (ev.device_kind != PointerDeviceKind::Touch) return;
+            if (ev.type == PlatformEventType::PointerDown) {
+                m_touch_start_x = ev.position.x;
+                m_touch_start_y = ev.position.y;
+                m_touch_down = true;
+            } else if (ev.type == PlatformEventType::PointerMove && m_touch_down && m_drag_mode != DragMode::None) {
+                float dx = ev.position.x - m_touch_start_x;
+                float dy = ev.position.y - m_touch_start_y;
+                if (touch::is_horizontal_drag(dx, dy, 6.0f)) {
+                    ev.gesture_capture_target = this;
+                    ev.stop_propagation();
+                }
+            }
+        };
+
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_drag_mode = DragMode::None;
+            m_hovered = false;
+            m_hover_handle = 0;
+            mark_needs_paint();
+        };
+
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
             const float px = ev.local_position.x;
             const float sx = m_track.min_x + m_track.width() * m_start;
             const float ex = m_track.min_x + m_track.width() * m_end;
+            const float grab_r = (ev.device_kind == PointerDeviceKind::Touch) ? 20.0f : 9.0f;
 
-            if (std::abs(px - sx) <= 9.0f) {
+            if (std::abs(px - sx) <= grab_r) {
                 m_drag_mode = DragMode::LeftHandle;
-            } else if (std::abs(px - ex) <= 9.0f) {
+            } else if (std::abs(px - ex) <= grab_r) {
                 m_drag_mode = DragMode::RightHandle;
             } else if (px > sx && px < ex) {
                 m_drag_mode = DragMode::MoveWindow;
@@ -288,6 +313,9 @@ private:
     bool m_hovered{false};
     int m_hover_handle{0};
     PointF m_hover_pos{};
+    bool m_touch_down{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
 };
 
 struct MinimapTimelineSlider : BindableMixin<MinimapTimelineSlider, RenderMinimapTimelineSlider> {

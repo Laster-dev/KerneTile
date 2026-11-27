@@ -257,7 +257,8 @@ private:
     [[nodiscard]] bool spin_buttons_visible() const noexcept {
         if (m_disabled || m_spin_mode == NumberBoxSpinButtonPlacementMode::Hidden) return false;
         if (m_spin_mode == NumberBoxSpinButtonPlacementMode::Compact) {
-            return m_input && (m_input->state().is_hovered || m_input->state().is_focused);
+            return touch::InputModeTracker::is_touch_active() ||
+                   (m_input && (m_input->state().is_hovered || m_input->state().is_focused));
         }
         return true;
     }

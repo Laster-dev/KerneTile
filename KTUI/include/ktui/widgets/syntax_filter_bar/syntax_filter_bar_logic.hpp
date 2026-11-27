@@ -38,6 +38,47 @@ public:
             return false;
         });
 
+        // 触控右滑手势接受字段自动补全
+        auto orig_down = on_pointer_down;
+        on_pointer_down = [this, orig_down](PointerEvent& ev) {
+            if (ev.is_touch() && ev.button == PointerButton::Primary) {
+                m_touch_swiping = true;
+                m_touch_start_x = ev.local_position.x;
+                m_touch_start_y = ev.local_position.y;
+                m_touch_accepted = false;
+            }
+            if (orig_down) orig_down(ev);
+        };
+        auto orig_move = on_pointer_move;
+        on_pointer_move = [this, orig_move](PointerEvent& ev) {
+            if (ev.is_touch() && m_touch_swiping && !m_touch_accepted && !m_cur_ghost.empty()) {
+                float dx = ev.local_position.x - m_touch_start_x;
+                float dy = ev.local_position.y - m_touch_start_y;
+                if (dx > 28.0f && touch::is_horizontal_drag(dx, dy)) {
+                    std::string next = RenderTextBox::text() + m_cur_ghost;
+                    RenderTextBox::set_text(next);
+                    set_cursor_index(next.size());
+                    evaluate();
+                    m_touch_accepted = true;
+                    ev.stop_propagation();
+                    return;
+                }
+            }
+            if (orig_move) orig_move(ev);
+        };
+        auto orig_up = on_pointer_up;
+        on_pointer_up = [this, orig_up](PointerEvent& ev) {
+            m_touch_swiping = false;
+            m_touch_accepted = false;
+            if (orig_up) orig_up(ev);
+        };
+        auto orig_cancel = on_pointer_cancel;
+        on_pointer_cancel = [this, orig_cancel](PointerEvent& ev) {
+            m_touch_swiping = false;
+            m_touch_accepted = false;
+            if (orig_cancel) orig_cancel(ev);
+        };
+
         RenderTextBox::set_text(std::move(text));
         set_cursor_index(RenderTextBox::text().size());
         evaluate();
@@ -195,6 +236,10 @@ private:
     SyntaxFilterState m_state{SyntaxFilterState::Empty};
     std::string m_diag;
     std::string m_cur_ghost;
+    bool m_touch_swiping{false};
+    bool m_touch_accepted{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
 };
 
 struct SyntaxFilterBar : BindableMixin<SyntaxFilterBar, RenderSyntaxFilterBar> {

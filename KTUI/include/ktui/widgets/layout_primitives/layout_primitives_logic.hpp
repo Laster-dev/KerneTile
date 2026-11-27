@@ -139,6 +139,7 @@ public:
     }
 
     [[nodiscard]] bool hit_test(HitTestResult&, PointF) override { return false; }
+    [[nodiscard]] bool hit_test_touch(HitTestResult&, PointF) override { return false; }
 
 private:
     float m_min_length{0.0f};
@@ -543,6 +544,7 @@ public:
     }
 
     [[nodiscard]] bool hit_test(HitTestResult&, PointF) override { return false; }
+    [[nodiscard]] bool hit_test_touch(HitTestResult&, PointF) override { return false; }
 
 private:
     bool m_vertical{false};
@@ -638,6 +640,11 @@ public:
     bool hit_test(HitTestResult& result, PointF position) override {
         if (!m_visible) return false;
         return RenderBox::hit_test(result, position);
+    }
+
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (!m_visible) return false;
+        return RenderBox::hit_test_touch(result, position);
     }
 
 private:

@@ -5,6 +5,7 @@
 #include <ktui/layout/flex_types.hpp>
 #include <ktui/event/event_types.hpp>
 #include <ktui/event/hit_test_tree.hpp>
+#include <ktui/event/touch_metrics.hpp>
 #include <functional>
 
 namespace ktui {
@@ -96,6 +97,29 @@ public:
         return true;
     }
 
+    // 触控命中测试：自动沿渲染树透传并允许小尺寸叶子控件覆写隐式扩张 44px 触控热区
+    // 容器节点在子节点略微溢出自身 bounds（因触控热区外扩）时也能正确命中子控件
+    virtual bool hit_test_touch(HitTestResult& result, PointF position) {
+        Rect expanded = touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize);
+        if (!expanded.contains(position)) {
+            return false;
+        }
+        for (RenderNode* child = last_child(); child != nullptr; child = child->prev_sibling()) {
+            if (auto* child_box = (child ? (child)->as_render_box() : nullptr)) {
+                PointF child_pos = PointF{position.x - child_box->offset().x, position.y - child_box->offset().y};
+                if (child_box->hit_test_touch(result, child_pos)) {
+                    result.add(this, position);
+                    return true;
+                }
+            }
+        }
+        if (bounds().contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 绘制管线 (Painting Pipeline) ====================
     virtual void paint(PaintContext& context);
 
@@ -141,6 +165,7 @@ public:
     Fn<void(PointerEvent&)> on_pointer_preview; // 隧道/捕获阶段预览回调 (供触控滚动与边缘滑动手势识别)
     Fn<void(PointerEvent&)> on_pointer_down;
     Fn<void(PointerEvent&)> on_pointer_up;
+    Fn<void(PointerEvent&)> on_pointer_cancel;  // 触控手势被祖先抢占或系统中断时回调 (彻底取消按压态防止误触点击)
     Fn<void(PointerEvent&)> on_pointer_move;
     Fn<void(PointerEvent&)> on_pointer_enter;
     Fn<void(PointerEvent&)> on_pointer_exit;

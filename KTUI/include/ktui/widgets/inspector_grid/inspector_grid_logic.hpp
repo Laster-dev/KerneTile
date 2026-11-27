@@ -327,8 +327,8 @@ private:
         return tag == "int" || tag == "float";
     }
 
-    [[nodiscard]] bool is_on_divider(float x) const noexcept {
-        return std::abs(x - std::round(m_size.x * m_key_ratio)) <= 4.5f;
+    [[nodiscard]] bool is_on_divider(float x, bool is_touch = false) const noexcept {
+        return std::abs(x - std::round(m_size.x * m_key_ratio)) <= (is_touch ? 12.0f : 4.5f);
     }
 
     [[nodiscard]] float max_scroll() const noexcept {
@@ -591,7 +591,7 @@ private:
                 ev.stop_propagation();
                 return;
             }
-            if (is_on_divider(ev.local_position.x)) {
+            if (is_on_divider(ev.local_position.x, ev.is_touch())) {
                 m_resizing_col = true;
                 mark_needs_paint();
                 ev.stop_propagation();
@@ -606,7 +606,9 @@ private:
             float ry = 1.0f + static_cast<float>(r) * kRowH - m_scroll_y;
             auto& row = m_rows[static_cast<size_t>(r)];
 
-            if (copy_btn_rect(ry).contains(ev.local_position)) {
+            Rect copy_hit = ev.is_touch() ? touch::expand_hit_rect(copy_btn_rect(ry), 32.0f) : copy_btn_rect(ry);
+            Rect rst_hit = ev.is_touch() ? touch::expand_hit_rect(reset_btn_rect(ry), 32.0f) : reset_btn_rect(ry);
+            if (copy_hit.contains(ev.local_position)) {
                 Clipboard::set_text(row.value);
                 m_copied_row = r;
                 m_copied_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(1200);
@@ -614,7 +616,7 @@ private:
                 ev.stop_propagation();
                 return;
             }
-            if (row.is_modified() && reset_btn_rect(ry).contains(ev.local_position)) {
+            if (row.is_modified() && rst_hit.contains(ev.local_position)) {
                 set_value(static_cast<size_t>(r), row.default_value, true);
                 ev.stop_propagation();
                 return;
@@ -632,6 +634,15 @@ private:
             if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
             m_touch_dragging = false;
             if (m_resizing_col) { m_resizing_col = false; mark_needs_paint(); }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_hovered_row = -1;
+            m_divider_hovered = false;
+            m_resizing_col = false;
+            m_touch_dragging = false;
+            m_scrollbar.handle_pointer_exit();
+            mark_needs_paint();
         };
     }
 

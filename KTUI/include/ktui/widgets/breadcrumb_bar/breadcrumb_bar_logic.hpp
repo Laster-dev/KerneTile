@@ -343,6 +343,14 @@ private:
             }
             mark_needs_paint();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_hovered_slot = -1;
+            m_hovered_chev = false;
+            m_pressed_slot = -1;
+            m_pressed_chev = false;
+            cursor_shape = CursorShape::Arrow;
+            mark_needs_paint();
+        };
     }
 
     std::vector<BreadcrumbItem> m_items;

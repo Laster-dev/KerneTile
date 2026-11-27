@@ -198,6 +198,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
 private:
     Rect segment_rect(int idx) const noexcept {
         if (m_items.empty()) return Rect{};
@@ -214,7 +222,33 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (e.device_kind != PointerDeviceKind::Touch) return;
+            if (e.type == PlatformEventType::PointerDown) {
+                m_touch_down = true;
+                m_touch_dragging = false;
+                m_touch_start_x = e.position.x;
+                m_touch_start_y = e.position.y;
+            } else if (e.type == PlatformEventType::PointerMove && m_touch_down && !m_touch_dragging) {
+                float dx = e.position.x - m_touch_start_x;
+                float dy = e.position.y - m_touch_start_y;
+                if (touch::is_horizontal_drag(dx, dy, 8.0f)) {
+                    m_touch_dragging = true;
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                }
+            }
+        };
         on_pointer_move = [this](PointerEvent& e) {
+            if (m_touch_dragging) {
+                int idx = hit_segment(e.local_position);
+                if (idx >= 0 && idx != m_selected) {
+                    select(idx);
+                }
+                e.stop_propagation();
+                return;
+            }
+            if (e.device_kind == PointerDeviceKind::Touch) return;
             int h = hit_segment(e.local_position);
             bool dirty = (h != m_hovered);
             m_hovered = h;
@@ -233,17 +267,36 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_touch_dragging = false;
+            m_hovered = -1;
+            m_pressed = -1;
+            m_reveal_active = false;
+            mark_needs_paint();
+        };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
             int idx = hit_segment(e.local_position);
             if (idx >= 0) {
                 m_pressed = idx;
-                select(idx);
+                if (e.device_kind != PointerDeviceKind::Touch) {
+                    select(idx);
+                } else {
+                    mark_needs_paint();
+                }
                 e.stop_propagation();
             }
         };
-        on_pointer_up = [this](PointerEvent&) {
+        on_pointer_up = [this](PointerEvent& e) {
+            const int prev_pressed = m_pressed;
+            const bool was_drag = m_touch_dragging;
+            m_touch_down = false;
+            m_touch_dragging = false;
             if (m_pressed != -1) { m_pressed = -1; mark_needs_paint(); }
+            if (e.device_kind == PointerDeviceKind::Touch && !was_drag && prev_pressed >= 0) {
+                select(prev_pressed);
+            }
         };
     }
 
@@ -251,6 +304,10 @@ private:
     int m_selected{0};
     int m_hovered{-1};
     int m_pressed{-1};
+    bool m_touch_down{false};
+    bool m_touch_dragging{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
     float m_width{0.0f};
     bool m_pill_init{false};
     float m_pill_x{2.0f};

@@ -40,14 +40,26 @@ public:
         m_gpu_full_frame = true;
     }
 
+    [[nodiscard]] bool has_atlas_overflowed() const noexcept override {
+        return m_atlas.has_overflowed();
+    }
+
     void begin_frame() override {
-        // 图集满载或发生溢出时在帧首执行分代安全驱逐，避免长时运行丢字或破坏当帧图元 UV
+        // 图集满载或发生溢出时在帧首执行安全驱逐/倍增扩容，避免高 DPI + CJK 场景单帧循环溢出丢字
         if (m_atlas.has_overflowed() || m_atlas.get_utilization() >= 0.92) {
-            m_atlas.reset();
-            m_mask_cache.clear();
-            if (m_text_streamer) {
-                m_text_streamer->clear_cache();
+            const bool overflowed = m_atlas.has_overflowed();
+            const uint32_t cur_sz = m_atlas.get_width();
+            if (overflowed && cur_sz < 4096u) {
+                const uint32_t next_sz = std::min(4096u, cur_sz * 2u);
+                m_atlas = atlas::DynamicAtlas(next_sz, next_sz, atlas::AtlasFormat::R8_UNORM);
+                m_text_streamer = std::make_unique<text::TextStreamer>(text::shared_text_engine(), m_atlas);
+            } else {
+                m_atlas.reset();
+                if (m_text_streamer) {
+                    m_text_streamer->clear_cache();
+                }
             }
+            m_mask_cache.clear();
             m_dirty_tracker.reset();
             m_gpu_full_frame = true;
         }

@@ -125,9 +125,10 @@ public:
     }
 
     void paint(PaintContext& ctx) override {
-        if (m_hovered && !m_text.empty() && !m_popup_handle.is_open()) {
+        if ((m_hovered || m_touch_pressing) && !m_text.empty() && !m_popup_handle.is_open()) {
             double elapsed = FrameClock::global().frame_time_sec() - m_hover_start_sec;
-            if (elapsed >= static_cast<double>(m_delay_sec)) {
+            double delay = m_touch_pressing ? static_cast<double>(touch::kLongPressSec) : static_cast<double>(m_delay_sec);
+            if (elapsed >= delay) {
                 show_tooltip();
             } else {
                 mark_needs_paint();
@@ -141,6 +142,7 @@ public:
 
     void dismiss() {
         m_hovered = false;
+        m_touch_pressing = false;
         m_popup_handle.close();
     }
 
@@ -177,6 +179,23 @@ private:
 
     void setup_behavior() {
         on_pointer_preview = [this](PointerEvent& e) {
+            if (e.is_touch()) {
+                if (e.type == PlatformEventType::PointerDown && !m_text.empty()) {
+                    m_touch_pressing = true;
+                    m_touch_down_pos = e.position;
+                    m_hover_start_sec = FrameClock::global().frame_time_sec();
+                    mark_needs_paint();
+                } else if (e.type == PlatformEventType::PointerMove && m_touch_pressing) {
+                    float dist = std::hypot(e.position.x - m_touch_down_pos.x, e.position.y - m_touch_down_pos.y);
+                    if (dist > touch::kTouchSlopPx) {
+                        dismiss();
+                    }
+                } else if (e.type == PlatformEventType::PointerUp) {
+                    m_touch_pressing = false;
+                    dismiss();
+                }
+                return;
+            }
             if (e.type == PlatformEventType::PointerMove) {
                 if (!m_hovered && !m_text.empty()) {
                     m_hovered = true;
@@ -187,8 +206,8 @@ private:
                 dismiss();
             }
         };
-        on_pointer_enter = [this](PointerEvent&) {
-            if (!m_text.empty()) {
+        on_pointer_enter = [this](PointerEvent& e) {
+            if (!e.is_touch() && !m_text.empty()) {
                 m_hovered = true;
                 m_hover_start_sec = FrameClock::global().frame_time_sec();
                 mark_needs_paint();
@@ -197,12 +216,17 @@ private:
         on_pointer_exit = [this](PointerEvent&) {
             dismiss();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            dismiss();
+        };
     }
 
     std::shared_ptr<RenderBox> m_child;
     std::string m_text;
     float m_delay_sec{0.40f};
     bool m_hovered{false};
+    bool m_touch_pressing{false};
+    PointF m_touch_down_pos{};
     double m_hover_start_sec{0.0};
     PopupHandle m_popup_handle;
 };

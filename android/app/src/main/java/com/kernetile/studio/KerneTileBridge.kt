@@ -71,9 +71,20 @@ object KerneTileBridge {
             canvas.drawColor(Color.TRANSPARENT)
             canvas.drawText(text, (-left).toFloat(), (-top).toFloat(), measurePaint)
 
-            val pixels = ByteArray(width * height)
-            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(pixels))
+            val rowBytes = bitmap.rowBytes
+            val rawPixels = ByteArray(rowBytes * height)
+            bitmap.copyPixelsToBuffer(ByteBuffer.wrap(rawPixels))
             bitmap.recycle()
+
+            val pixels = if (rowBytes == width) {
+                rawPixels
+            } else {
+                ByteArray(width * height).also { dst ->
+                    for (r in 0 until height) {
+                        System.arraycopy(rawPixels, r * rowBytes, dst, r * width, width)
+                    }
+                }
+            }
 
             outBox[0] = width
             outBox[1] = height

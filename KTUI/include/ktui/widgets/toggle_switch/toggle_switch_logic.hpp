@@ -163,19 +163,21 @@ public:
         }
         m_last_tick_time = now;
 
-        if (m_elapsed < kDurationSec) {
-            m_elapsed = std::min(kDurationSec, m_elapsed + dt);
-            const float norm = m_elapsed / kDurationSec;
-            const float b_t = kBounceCurve.evaluate(norm);
-            const float e_t = kEffectCurve.evaluate(norm);
-            m_bounce_val = m_from + (m_to - m_from) * b_t;
-            m_effect_val = m_from + (m_to - m_from) * e_t;
+        if (!m_touch_dragging) {
             if (m_elapsed < kDurationSec) {
-                mark_needs_paint();
+                m_elapsed = std::min(kDurationSec, m_elapsed + dt);
+                const float norm = m_elapsed / kDurationSec;
+                const float b_t = kBounceCurve.evaluate(norm);
+                const float e_t = kEffectCurve.evaluate(norm);
+                m_bounce_val = m_from + (m_to - m_from) * b_t;
+                m_effect_val = m_from + (m_to - m_from) * e_t;
+                if (m_elapsed < kDurationSec) {
+                    mark_needs_paint();
+                }
+            } else {
+                m_bounce_val = m_to;
+                m_effect_val = m_to;
             }
-        } else {
-            m_bounce_val = m_to;
-            m_effect_val = m_to;
         }
 
         const Rect b = bounds();
@@ -251,6 +253,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
 private:
     static Color lerp_color(const Color& a, const Color& b, float t) noexcept {
         return Motion::lerp(a, b, std::clamp(t, 0.0f, 1.0f));
@@ -274,6 +284,52 @@ private:
             }
         };
 
+        on_pointer_preview = [this](PointerEvent& ev) {
+            if (m_state.is_disabled || ev.device_kind != PointerDeviceKind::Touch) return;
+            if (ev.type == PlatformEventType::PointerDown) {
+                m_touch_down = true;
+                m_touch_dragging = false;
+                m_touch_start_x = ev.position.x;
+                m_touch_start_y = ev.position.y;
+            } else if (ev.type == PlatformEventType::PointerMove && m_touch_down && !m_touch_dragging) {
+                float dx = ev.position.x - m_touch_start_x;
+                float dy = ev.position.y - m_touch_start_y;
+                if (touch::is_horizontal_drag(dx, dy, 8.0f)) {
+                    m_touch_dragging = true;
+                    m_state.is_pressed = true;
+                    float base = m_data.checked ? 1.0f : 0.0f;
+                    float norm = std::clamp(base + dx / 22.0f, 0.0f, 1.0f);
+                    m_bounce_val = norm;
+                    m_effect_val = norm;
+                    ev.gesture_capture_target = this;
+                    ev.stop_propagation();
+                    mark_needs_paint();
+                }
+            }
+        };
+
+        on_pointer_move = [this](PointerEvent& ev) {
+            if (m_state.is_disabled || !m_touch_dragging) return;
+            float dx = ev.position.x - m_touch_start_x;
+            float base = m_data.checked ? 1.0f : 0.0f;
+            float norm = std::clamp(base + dx / 22.0f, 0.0f, 1.0f);
+            m_bounce_val = norm;
+            m_effect_val = norm;
+            ev.stop_propagation();
+            mark_needs_paint();
+        };
+
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_touch_dragging = false;
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            is_hovered = false;
+            m_bounce_val = m_data.checked ? 1.0f : 0.0f;
+            m_effect_val = m_bounce_val;
+            mark_needs_paint();
+        };
+
         on_pointer_down = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && ev.button == PointerButton::Primary) {
                 m_state.is_pressed = true;
@@ -282,9 +338,25 @@ private:
         };
 
         on_pointer_up = [this](PointerEvent& ev) {
-            if (!m_state.is_disabled && ev.button == PointerButton::Primary && m_state.is_pressed) {
+            if (!m_state.is_disabled && ev.button == PointerButton::Primary && (m_state.is_pressed || m_touch_dragging)) {
+                const bool was_drag = m_touch_dragging;
+                m_touch_down = false;
+                m_touch_dragging = false;
                 m_state.is_pressed = false;
-                toggle();
+                if (ev.device_kind == PointerDeviceKind::Touch) {
+                    m_state.is_hovered = false;
+                    is_hovered = false;
+                }
+                if (was_drag) {
+                    bool want = (m_bounce_val >= 0.5f);
+                    if (want != m_data.checked) {
+                        toggle();
+                    } else {
+                        set_checked(m_data.checked, true);
+                    }
+                } else {
+                    toggle();
+                }
             }
         };
 
@@ -308,6 +380,10 @@ private:
 
     ToggleSwitchData m_data;
     ToggleSwitchInteractiveState m_state;
+    bool m_touch_down{false};
+    bool m_touch_dragging{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
 
     bool m_anim_initialized{false};
     float m_from{0.0f};

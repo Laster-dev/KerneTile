@@ -185,6 +185,12 @@ private:
                 }
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_hovered_slot != -1) {
+                m_hovered_slot = -1;
+                mark_needs_paint();
+            }
+        };
     }
 
     std::vector<StatusBarSlot> m_slots;

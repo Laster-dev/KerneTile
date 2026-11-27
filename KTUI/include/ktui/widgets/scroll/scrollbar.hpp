@@ -100,20 +100,25 @@ public:
         return m;
     }
 
-    [[nodiscard]] HitPart hit_test(PointF local_pos, const Metrics& m) const noexcept {
-        if (!m.visible || !m.track_rect.contains(local_pos)) {
+    [[nodiscard]] HitPart hit_test(PointF local_pos, const Metrics& m, PointerDeviceKind kind = PointerDeviceKind::Mouse) const noexcept {
+        if (!m.visible) {
             return HitPart::None;
         }
-        if (m.top_arrow_rect.height() > 0.0f && m.top_arrow_rect.contains(local_pos)) {
+        Rect track_hit = m.track_rect;
+        if (kind == PointerDeviceKind::Touch) {
+            // 触控下向左侧扩宽命中带至 24px，方便手指直接抓握滚动条
+            track_hit.min_x = std::min(track_hit.min_x, track_hit.max_x - 24.0f);
+        }
+        if (!track_hit.contains(local_pos)) {
+            return HitPart::None;
+        }
+        if (m.top_arrow_rect.height() > 0.0f && local_pos.y <= m.top_arrow_rect.max_y) {
             return HitPart::TopArrow;
         }
-        if (m.bottom_arrow_rect.height() > 0.0f && m.bottom_arrow_rect.contains(local_pos)) {
+        if (m.bottom_arrow_rect.height() > 0.0f && local_pos.y >= m.bottom_arrow_rect.min_y) {
             return HitPart::BottomArrow;
         }
-        // 滑块热区横向覆盖整个 12px 轨道，方便点击拖拽
-        Rect thumb_hit = Rect::from_xywh(m.track_rect.min_x, m.thumb_rect.min_y,
-                                         m.track_rect.width(), m.thumb_rect.height());
-        if (thumb_hit.contains(local_pos)) {
+        if (local_pos.y >= m.thumb_rect.min_y && local_pos.y <= m.thumb_rect.max_y) {
             return HitPart::Thumb;
         }
         if (local_pos.y < m.thumb_rect.min_y) {

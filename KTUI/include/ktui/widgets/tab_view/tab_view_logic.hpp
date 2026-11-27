@@ -235,7 +235,7 @@ public:
             ctx.pop_clip();
 
             // 关闭按钮 (×)
-            if (tab.is_closable && (is_sel || is_hov)) {
+            if (tab.is_closable && (is_sel || is_hov || touch::InputModeTracker::is_touch_active())) {
                 Rect cr = close_rect_for(tr);
                 if (m_hovered_close == static_cast<int>(i)) {
                     ctx.draw_rect(cr, hov_bg, 4.0f, 0.0f);
@@ -372,14 +372,17 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary || e.local_position.y > kStripH) return;
-            if (m_show_add_button && m_add_btn_rect.contains(e.local_position)) {
+            Rect add_hit = e.is_touch() ? touch::expand_hit_rect(m_add_btn_rect, 40.0f) : m_add_btn_rect;
+            if (m_show_add_button && add_hit.contains(e.local_position)) {
                 if (m_on_add_tab) m_on_add_tab();
                 e.stop_propagation();
                 return;
             }
             for (size_t i = 0; i < m_tab_rects.size(); ++i) {
                 if (m_tab_rects[i].contains(e.local_position)) {
-                    if (m_tabs[i].is_closable && close_rect_for(m_tab_rects[i]).contains(e.local_position)) {
+                    Rect close_r = close_rect_for(m_tab_rects[i]);
+                    Rect close_hit = e.is_touch() ? touch::expand_hit_rect(close_r, 32.0f) : close_r;
+                    if (m_tabs[i].is_closable && close_hit.contains(e.local_position)) {
                         if (m_on_tab_close) m_on_tab_close(static_cast<int>(i));
                     } else if (static_cast<int>(i) != m_selected_index) {
                         trigger_tab_switch_anim(m_selected_index, static_cast<int>(i));
@@ -391,6 +394,16 @@ private:
                     e.stop_propagation();
                     return;
                 }
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_hovered_tab != -1 || m_hovered_close != -1 || m_add_hovered || m_reveal_active) {
+                m_hovered_tab = -1;
+                m_hovered_close = -1;
+                m_add_hovered = false;
+                m_reveal_active = false;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
             }
         };
     }

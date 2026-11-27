@@ -445,12 +445,20 @@ private:
     }
 
     void upload_atlas(FrameSlot& slot, const Frame& frame) {
-        const bool first = !m_atlas.handle;
-        if (first) image(m_atlas, frame.atlas_width, frame.atlas_height, VK_FORMAT_R8_UNORM,
-                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-        if (!first && frame.atlas_updates.empty()) return;
+        const bool recreate = !m_atlas.handle || m_atlas_w != frame.atlas_width || m_atlas_h != frame.atlas_height;
+        if (recreate) {
+            if (m_atlas.handle) {
+                vkDeviceWaitIdle(m_device);
+                destroy(m_atlas);
+            }
+            image(m_atlas, frame.atlas_width, frame.atlas_height, VK_FORMAT_R8_UNORM,
+                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+            m_atlas_w = frame.atlas_width;
+            m_atlas_h = frame.atlas_height;
+        }
+        if (!recreate && frame.atlas_updates.empty()) return;
         const atlas::RectU32 full{0, 0, frame.atlas_width, frame.atlas_height};
-        const auto rects = first ? std::span(&full, 1) : frame.atlas_updates;
+        const auto rects = recreate ? std::span(&full, 1) : frame.atlas_updates;
         size_t total = 0;
         std::vector<VkBufferImageCopy> regions;
         for (const auto& rect : rects) {
@@ -603,6 +611,7 @@ private:
     VkPipeline m_pipeline{};
     VkSampler m_sampler{};
     Image m_atlas, m_color_atlas, m_output;
+    uint32_t m_atlas_w{}, m_atlas_h{};
     uint32_t m_color_atlas_w{}, m_color_atlas_h{};
     uint32_t m_width{}, m_height{};
     bool m_failed = false, m_recreate = false;

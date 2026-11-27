@@ -104,6 +104,14 @@ public:
         m_size = m_constraints.constrain(Vec2{std::ceil(w), std::ceil(h)});
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
     void paint(PaintContext& ctx) override {
         update_animations();
 
@@ -159,6 +167,13 @@ private:
                 m_last_anim_time = std::chrono::steady_clock::now();
                 mark_needs_paint();
             }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            is_hovered = false;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            mark_needs_paint();
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && ev.button == PointerButton::Primary) {
@@ -616,6 +631,14 @@ private:
                 update_anim_targets();
                 mark_needs_paint();
             }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            m_reveal_active = false;
+            is_hovered = false;
+            update_anim_targets();
+            mark_needs_paint();
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && ev.button == PointerButton::Primary) {

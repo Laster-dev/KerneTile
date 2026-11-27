@@ -153,6 +153,12 @@ public:
         set_size(m_constraints.constrain(Vec2{std::ceil(nav_w + track_w), 30.0f}));
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!touch::expand_hit_rect(bounds()).contains(local_position)) return false;
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         if (step_animations()) {
             mark_needs_paint();
@@ -313,15 +319,21 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
-            if (m_show_nav && prev_btn_rect().contains(e.local_position)) {
+            Rect prev_hit = e.is_touch() ? touch::expand_hit_rect(prev_btn_rect(), 40.0f) : prev_btn_rect();
+            Rect next_hit = e.is_touch() ? touch::expand_hit_rect(next_btn_rect(), 40.0f) : next_btn_rect();
+            if (m_show_nav && prev_hit.contains(e.local_position)) {
                 select_page(m_selected - 1);
                 e.stop_propagation();
                 return;
             }
-            if (m_show_nav && next_btn_rect().contains(e.local_position)) {
+            if (m_show_nav && next_hit.contains(e.local_position)) {
                 select_page(m_selected + 1);
                 e.stop_propagation();
                 return;
+            }
+            if (e.is_touch()) {
+                m_touch_swiping = true;
+                m_touch_start_x = e.local_position.x;
             }
             int pg = hit_pip(e.local_position);
             if (pg >= 0) {
@@ -329,9 +341,25 @@ private:
                 e.stop_propagation();
             }
         };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (m_touch_swiping && e.is_touch()) {
+                m_touch_swiping = false;
+                float dx = e.local_position.x - m_touch_start_x;
+                if (dx > 28.0f) select_page(m_selected - 1);
+                else if (dx < -28.0f) select_page(m_selected + 1);
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_swiping = false;
+            m_hover_prev = m_hover_next = false;
+            m_hover_page = -1;
+            mark_needs_paint();
+        };
     }
 
     int m_pages{5};
+    bool m_touch_swiping{false};
+    float m_touch_start_x{0.0f};
     int m_selected{0};
     int m_max_visible{7};
     bool m_show_nav{true};

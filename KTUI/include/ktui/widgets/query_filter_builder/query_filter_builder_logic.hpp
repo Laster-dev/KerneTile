@@ -424,20 +424,24 @@ private:
         on_pointer_down = [this, prev_down](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary) {
                 PointF p = ev.local_position;
+                const bool is_t = ev.is_touch();
                 const bool has_content = !m_tokens.empty() || !RenderTextBox::text().empty();
-                if (m_mode_btn.contains(p)) {
+                Rect mode_hit = is_t ? touch::expand_hit_rect(m_mode_btn, 36.0f) : m_mode_btn;
+                Rect clear_hit = is_t ? touch::expand_hit_rect(m_clear_btn, 36.0f) : m_clear_btn;
+                if (mode_hit.contains(p)) {
                     toggle_raw_mode();
                     ev.stop_propagation();
                     return;
                 }
-                if (has_content && m_clear_btn.contains(p)) {
+                if (has_content && clear_hit.contains(p)) {
                     clear_all();
                     ev.stop_propagation();
                     return;
                 }
                 if (!m_raw_mode) {
                     for (const auto& ph : m_pill_hits) {
-                        if (ph.close_rect.contains(p)) {
+                        Rect close_hit = is_t ? touch::expand_hit_rect(ph.close_rect, 32.0f) : ph.close_rect;
+                        if (close_hit.contains(p)) {
                             remove_token(ph.index);
                             ev.stop_propagation();
                             return;
@@ -460,13 +464,15 @@ private:
 
         auto prev_move = on_pointer_move;
         on_pointer_move = [this, prev_move](PointerEvent& ev) {
-            const bool has_content = !m_tokens.empty() || !RenderTextBox::text().empty();
-            bool hm = m_mode_btn.contains(ev.local_position);
-            bool hc = has_content && m_clear_btn.contains(ev.local_position);
-            if (hm != m_hover_mode || hc != m_hover_clear) {
-                m_hover_mode = hm;
-                m_hover_clear = hc;
-                mark_needs_paint();
+            if (!ev.is_touch()) {
+                const bool has_content = !m_tokens.empty() || !RenderTextBox::text().empty();
+                bool hm = m_mode_btn.contains(ev.local_position);
+                bool hc = has_content && m_clear_btn.contains(ev.local_position);
+                if (hm != m_hover_mode || hc != m_hover_clear) {
+                    m_hover_mode = hm;
+                    m_hover_clear = hc;
+                    mark_needs_paint();
+                }
             }
             if (prev_move) prev_move(ev);
         };
@@ -479,6 +485,16 @@ private:
                 mark_needs_paint();
             }
             if (prev_exit) prev_exit(ev);
+        };
+
+        auto prev_cancel = on_pointer_cancel;
+        on_pointer_cancel = [this, prev_cancel](PointerEvent& ev) {
+            if (m_hover_mode || m_hover_clear) {
+                m_hover_mode = false;
+                m_hover_clear = false;
+                mark_needs_paint();
+            }
+            if (prev_cancel) prev_cancel(ev);
         };
 
         auto prev_focus = on_focus;

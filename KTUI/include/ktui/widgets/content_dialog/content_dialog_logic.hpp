@@ -303,6 +303,14 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_hovered_btn != -1 || m_pressed_btn != -1) {
+                m_hovered_btn = -1;
+                m_pressed_btn = -1;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
+            }
+        };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
             for (int i = 0; i < static_cast<int>(m_buttons.size()); ++i) {

@@ -263,6 +263,25 @@ private:
                 }
                 return;
             }
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_col >= 0) {
+                float dy = e.local_position.y - m_touch_last_y;
+                m_touch_accum_y += dy;
+                m_touch_last_y = e.local_position.y;
+                if (std::abs(m_touch_accum_y) >= 8.0f) {
+                    m_touch_dragged = true;
+                }
+                while (m_touch_accum_y <= -kRowH) {
+                    step_col(m_touch_col, 1);
+                    m_touch_accum_y += kRowH;
+                }
+                while (m_touch_accum_y >= kRowH) {
+                    step_col(m_touch_col, -1);
+                    m_touch_accum_y -= kRowH;
+                }
+                e.stop_propagation();
+                return;
+            }
+            if (e.device_kind == PointerDeviceKind::Touch) return;
             bool hok = ok_btn_rect().contains(e.local_position);
             bool hca = cancel_btn_rect().contains(e.local_position);
             int hc = -1, ho = 0;
@@ -281,6 +300,14 @@ private:
             m_hover_col = -1;
             mark_needs_paint();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_col = -1;
+            m_touch_dragged = false;
+            m_touch_accum_y = 0.0f;
+            m_hover_ok = m_hover_cancel = false;
+            m_hover_col = -1;
+            mark_needs_paint();
+        };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
             if (ok_btn_rect().contains(e.local_position)) {
@@ -294,14 +321,41 @@ private:
                 return;
             }
             int col = 0, off = 0;
-            if (hit_drum(e.local_position, col, off) && off != 0) {
-                step_col(col, off);
+            if (hit_drum(e.local_position, col, off)) {
+                if (e.device_kind == PointerDeviceKind::Touch) {
+                    m_touch_col = col;
+                    m_touch_off = off;
+                    m_touch_last_y = e.local_position.y;
+                    m_touch_accum_y = 0.0f;
+                    m_touch_dragged = false;
+                    e.stop_propagation();
+                    return;
+                }
+                if (off != 0) {
+                    step_col(col, off);
+                    e.stop_propagation();
+                }
+            }
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_col >= 0) {
+                if (!m_touch_dragged && m_touch_off != 0) {
+                    step_col(m_touch_col, m_touch_off);
+                }
+                m_touch_col = -1;
+                m_touch_dragged = false;
+                m_touch_accum_y = 0.0f;
                 e.stop_propagation();
             }
         };
     }
 
     TimeOfDay m_time;
+    int m_touch_col{-1};
+    int m_touch_off{0};
+    float m_touch_last_y{0.0f};
+    float m_touch_accum_y{0.0f};
+    bool m_touch_dragged{false};
     bool m_use_24h{true};
     int m_minute_inc{1};
     FluentPopupSurface m_surface;
@@ -353,6 +407,14 @@ public:
     }
 
     [[nodiscard]] const TimeOfDay& time() const noexcept { return m_time; }
+
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
 
     void perform_layout() override {
         float header_h = m_header.empty() ? 0.0f : 22.0f;
@@ -466,6 +528,12 @@ private:
             }
         };
         on_pointer_exit = [this](PointerEvent&) {
+            m_hovered = false;
+            m_pressed = false;
+            m_reveal_active = false;
+            mark_needs_paint();
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
             m_hovered = false;
             m_pressed = false;
             m_reveal_active = false;

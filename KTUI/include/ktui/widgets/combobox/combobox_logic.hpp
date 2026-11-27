@@ -607,6 +607,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
     void perform_layout() override {
         float w = m_constraints.constrain_width(m_data.width > 0.0f ? m_data.width : 180.0f);
         float h = m_constraints.constrain_height(m_data.height > 0.0f ? m_data.height : 32.0f);
@@ -704,6 +712,14 @@ private:
         };
 
         on_pointer_exit = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            m_reveal_active = false;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            mark_needs_paint();
+        };
+
+        on_pointer_cancel = [this](PointerEvent&) {
             m_state.is_hovered = false;
             m_state.is_pressed = false;
             m_reveal_active = false;

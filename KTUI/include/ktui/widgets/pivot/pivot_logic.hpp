@@ -403,11 +403,42 @@ private:
                 m_pressed = idx;
                 select(idx);
                 e.stop_propagation();
+                return;
+            }
+            if (e.is_touch() && e.local_position.y > strip_height()) {
+                m_touch_swiping = true;
+                m_touch_start_x = e.local_position.x;
+                m_touch_start_y = e.local_position.y;
             }
         };
-        on_pointer_up = [this](PointerEvent&) {
+        on_pointer_up = [this](PointerEvent& e) {
             if (m_pressed != -1) {
                 m_pressed = -1;
+                mark_needs_paint();
+            }
+            if (m_touch_swiping && e.is_touch()) {
+                m_touch_swiping = false;
+                float dx = e.local_position.x - m_touch_start_x;
+                float dy = e.local_position.y - m_touch_start_y;
+                if (std::abs(dx) > 40.0f && touch::is_horizontal_drag(dx, dy) && !m_items.empty()) {
+                    int dir = (dx < 0.0f) ? 1 : -1;
+                    int n = static_cast<int>(m_items.size());
+                    for (int step = 1; step <= n; ++step) {
+                        int cand = m_selected + dir * step;
+                        if (cand >= 0 && cand < n && !m_items[static_cast<size_t>(cand)].disabled) {
+                            select(cand);
+                            break;
+                        }
+                    }
+                }
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_swiping = false;
+            if (m_hovered != -1 || m_pressed != -1) {
+                m_hovered = -1;
+                m_pressed = -1;
+                cursor_shape = CursorShape::Arrow;
                 mark_needs_paint();
             }
         };
@@ -431,6 +462,9 @@ private:
     int m_selected{0};
     int m_hovered{-1};
     int m_pressed{-1};
+    bool m_touch_swiping{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
     float m_width{0.0f};
     float m_height{0.0f};
     float m_font_size{14.0f};

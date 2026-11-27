@@ -277,7 +277,7 @@ private:
             m_prev_mouse_pos = cur_pos;
             m_has_prev_mouse = true;
 
-            if (idx != m_hovered_index) {
+            if (idx != m_hovered_index && is_mouse) {
                 m_hovered_index = idx;
                 cursor_shape = (idx >= 0 && !m_items[static_cast<size_t>(idx)].disabled)
                     ? CursorShape::PointingHand : CursorShape::Arrow;
@@ -290,6 +290,15 @@ private:
             }
         };
         on_pointer_exit = [this](PointerEvent&) {
+            clear_aim_cone();
+            m_has_prev_mouse = false;
+            if (m_hovered_index != -1) {
+                m_hovered_index = -1;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
             clear_aim_cone();
             m_has_prev_mouse = false;
             if (m_hovered_index != -1) {

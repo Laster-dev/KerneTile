@@ -137,6 +137,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
 private:
     static constexpr float kStarGap = 5.0f;
 
@@ -154,9 +162,44 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (m_read_only || e.device_kind != PointerDeviceKind::Touch) return;
+            if (e.type == PlatformEventType::PointerDown) {
+                m_touch_down = true;
+                m_touch_scrubbing = false;
+                m_touch_start_x = e.position.x;
+                m_touch_start_y = e.position.y;
+            } else if (e.type == PlatformEventType::PointerMove && m_touch_down && !m_touch_scrubbing) {
+                float dx = e.position.x - m_touch_start_x;
+                float dy = e.position.y - m_touch_start_y;
+                if (touch::is_horizontal_drag(dx, dy, 8.0f)) {
+                    m_touch_scrubbing = true;
+                    float hv = rating_at_x(e.local_position.x);
+                    if (hv > 0.0f && std::abs(hv - m_value) > 0.001f) {
+                        m_value = hv;
+                        m_hover_value = hv;
+                        if (m_on_value_changed) m_on_value_changed(m_value);
+                        mark_needs_paint();
+                    }
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                }
+            }
+        };
         on_pointer_move = [this](PointerEvent& e) {
             if (m_read_only) return;
             float hv = rating_at_x(e.local_position.x);
+            if (m_touch_scrubbing) {
+                if (hv > 0.0f && std::abs(hv - m_value) > 0.001f) {
+                    m_value = hv;
+                    m_hover_value = hv;
+                    if (m_on_value_changed) m_on_value_changed(m_value);
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+                return;
+            }
+            if (e.device_kind == PointerDeviceKind::Touch) return;
             cursor_shape = (hv > 0.0f) ? CursorShape::PointingHand : CursorShape::Arrow;
             if (std::abs(hv - m_hover_value) > 0.001f) {
                 m_hover_value = hv;
@@ -169,11 +212,48 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_touch_scrubbing = false;
+            m_hover_value = -1.0f;
+            mark_needs_paint();
+        };
         on_pointer_down = [this](PointerEvent& e) {
             if (m_read_only || e.button != PointerButton::Primary) return;
+            if (e.device_kind == PointerDeviceKind::Touch) {
+                m_touch_down = true;
+                float picked = rating_at_x(e.local_position.x);
+                if (picked > 0.0f) {
+                    m_hover_value = picked;
+                    mark_needs_paint();
+                }
+                return;
+            }
             float picked = rating_at_x(e.local_position.x);
             if (picked > 0.0f) {
                 apply_rating_click(picked);
+                e.stop_propagation();
+            }
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (m_read_only || e.button != PointerButton::Primary) return;
+            if (m_touch_scrubbing) {
+                m_touch_down = false;
+                m_touch_scrubbing = false;
+                m_hover_value = -1.0f;
+                mark_needs_paint();
+                e.stop_propagation();
+                return;
+            }
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_down) {
+                m_touch_down = false;
+                m_hover_value = -1.0f;
+                float picked = rating_at_x(e.local_position.x);
+                if (picked > 0.0f) {
+                    apply_rating_click(picked);
+                } else {
+                    mark_needs_paint();
+                }
                 e.stop_propagation();
             }
         };
@@ -187,6 +267,10 @@ private:
     float m_star_size{22.0f};
     std::string m_caption;
     float m_hover_value{-1.0f};
+    bool m_touch_down{false};
+    bool m_touch_scrubbing{false};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
     Fn<void(float)> m_on_value_changed;
 
 public:

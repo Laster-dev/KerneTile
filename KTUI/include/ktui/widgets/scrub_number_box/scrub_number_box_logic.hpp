@@ -183,10 +183,34 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_preview = [this](PointerEvent& ev) {
+            if (ev.device_kind != PointerDeviceKind::Touch || m_editing) return;
+            if (ev.type == PlatformEventType::PointerDown) {
+                m_touch_start_x = ev.position.x;
+                m_touch_start_y = ev.position.y;
+            } else if (ev.type == PlatformEventType::PointerMove && m_pressed && !m_scrubbing) {
+                float dx = ev.position.x - m_touch_start_x;
+                float dy = ev.position.y - m_touch_start_y;
+                if (touch::is_horizontal_drag(dx, dy, 8.0f)) {
+                    m_scrubbing = true;
+                    m_prev_x = ev.local_position.x;
+                    ev.gesture_capture_target = this;
+                    ev.stop_propagation();
+                }
+            }
+        };
         on_pointer_enter = [this](PointerEvent&) { m_hovered = true; mark_needs_paint(); };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = false;
             m_hover_step = 0;
+            mark_needs_paint();
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_pressed = false;
+            m_scrubbing = false;
+            m_hovered = false;
+            m_hover_step = 0;
+            m_active_mult = 1.0;
             mark_needs_paint();
         };
 
@@ -199,7 +223,7 @@ private:
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
 
-            if (!m_editing && m_hovered) {
+            if (!m_editing && (m_hovered || ev.device_kind == PointerDeviceKind::Touch)) {
                 double mult = ev.modifiers.shift ? 10.0 : (ev.modifiers.alt ? 0.1 : 1.0);
                 if (m_btn_dec.contains(ev.local_position)) {
                     set_value(m_value - m_step * mult, true);
@@ -349,6 +373,8 @@ private:
     bool m_select_all{false};
     float m_drag_start_x{0.0f};
     float m_prev_x{0.0f};
+    float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
     double m_active_mult{1.0};
     std::string m_edit_buf;
     std::chrono::steady_clock::time_point m_last_click{};

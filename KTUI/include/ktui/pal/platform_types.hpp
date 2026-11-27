@@ -130,6 +130,7 @@ enum class PlatformEventType {
     PointerDown,
     PointerMove,
     PointerUp,
+    PointerCancel,
     PointerScroll,
     KeyDown,
     KeyUp,
@@ -156,6 +157,7 @@ struct PlatformEvent {
     PointerButton button = PointerButton::None;
     PointerDeviceKind device_kind = PointerDeviceKind::Mouse;
     uint32_t pointer_id = 0;           // 触控指点 ID (支持多点触控区分)
+    Vec2 contact_size = {0.0f, 0.0f};  // 触控接触面积 (逻辑像素，0 表示未知)
     uint32_t key_code = 0;             // KTUI 虚拟键值，与 Windows VK 值一致
     std::string text;                  // 提交字符或拼音预编辑文本
     std::vector<std::string> dropped_files; // OS 文件拖放路径列表 (UTF-8)

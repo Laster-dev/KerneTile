@@ -423,6 +423,21 @@ inline void RenderNavigationView::setup_behavior() {
         }
     };
 
+    on_pointer_cancel = [this](PointerEvent&) {
+        m_menu_scrollbar.handle_pointer_exit();
+        m_touch_mode = TouchGestureMode::None;
+        m_touch_tracking = false;
+        m_pressed_chrome = ChromeButton::None;
+        m_pressed_top = -1;
+        m_pressed_row = -1;
+        m_hovered_chrome = ChromeButton::None;
+        m_hovered_row = -1;
+        m_hovered_top = -1;
+        m_settings_hovered = false;
+        m_has_reveal_cursor = false;
+        mark_needs_paint();
+    };
+
     on_key = [this](KeyEvent& e) {
         if (e.type != PlatformEventType::KeyDown) return;
         const NavigationPaneDisplayMode eff = compute_effective_mode(size().x);

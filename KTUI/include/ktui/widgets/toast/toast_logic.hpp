@@ -261,6 +261,15 @@ private:
 
     void setup_behavior() {
         on_pointer_move = [this](PointerEvent& e) {
+            if (e.is_touch()) {
+                if (m_touch_swiping) {
+                    m_touch_dx = e.local_position.x - m_touch_start.x;
+                    m_touch_dy = e.local_position.y - m_touch_start.y;
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+                return;
+            }
             m_hovered = true;
             bool ch = m_close_rect.contains(e.local_position);
             bool ah = m_action_rect.width() > 0.0f && m_action_rect.contains(e.local_position);
@@ -279,17 +288,64 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
-            if (m_close_rect.contains(e.local_position)) {
+            Rect close_hit = e.is_touch() ? touch::expand_hit_rect(m_close_rect, 40.0f) : m_close_rect;
+            Rect act_hit = (m_action_rect.width() > 0.0f)
+                ? (e.is_touch() ? touch::expand_hit_rect(m_action_rect, 40.0f) : m_action_rect)
+                : Rect{};
+            if (close_hit.contains(e.local_position)) {
                 begin_dismiss();
-            } else if (m_action_rect.width() > 0.0f && m_action_rect.contains(e.local_position)) {
+                e.stop_propagation();
+                return;
+            } else if (act_hit.width() > 0.0f && act_hit.contains(e.local_position)) {
                 if (m_desc.on_action) m_desc.on_action();
                 begin_dismiss();
+                e.stop_propagation();
+                return;
+            }
+            if (e.is_touch()) {
+                m_hovered = true; // 按住暂停倒计时
+                m_touch_swiping = true;
+                m_touch_start = e.local_position;
+                m_touch_dx = 0.0f;
+                m_touch_dy = 0.0f;
             }
             e.stop_propagation();
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (e.is_touch() && m_touch_swiping) {
+                m_touch_swiping = false;
+                m_hovered = false;
+                float dx = e.local_position.x - m_touch_start.x;
+                float dy = e.local_position.y - m_touch_start.y;
+                m_touch_dx = 0.0f;
+                m_touch_dy = 0.0f;
+                bool dismiss = (m_desc.placement == ToastPlacement::BottomCenter)
+                    ? (dy > 36.0f)
+                    : (std::abs(dx) > size().x * 0.35f);
+                if (dismiss) {
+                    begin_dismiss();
+                } else {
+                    mark_needs_paint();
+                }
+                e.stop_propagation();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_swiping = false;
+            m_touch_dx = 0.0f;
+            m_touch_dy = 0.0f;
+            m_hovered = false;
+            m_close_hovered = false;
+            m_action_hovered = false;
+            mark_needs_paint();
         };
     }
 
     ToastDesc m_desc;
+    bool m_touch_swiping{false};
+    PointF m_touch_start{};
+    float m_touch_dx{0.0f};
+    float m_touch_dy{0.0f};
     Fn<void()> m_on_finish_close;
     Fn<void()> m_on_begin_dismiss;
     uint64_t m_overlay_id{0};

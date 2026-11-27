@@ -301,20 +301,45 @@ private:
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
-            if (m_btn_skip.contains(ev.local_position)) {
+            Rect skip_hit = ev.is_touch() ? touch::expand_hit_rect(m_btn_skip, 40.0f) : m_btn_skip;
+            Rect prev_hit = m_btn_prev.is_empty() ? Rect{} : (ev.is_touch() ? touch::expand_hit_rect(m_btn_prev, 40.0f) : m_btn_prev);
+            Rect next_hit = ev.is_touch() ? touch::expand_hit_rect(m_btn_next, 40.0f) : m_btn_next;
+            if (skip_hit.contains(ev.local_position)) {
                 finish(false);
                 ev.stop_propagation();
-            } else if (m_btn_prev.contains(ev.local_position)) {
+            } else if (!prev_hit.is_empty() && prev_hit.contains(ev.local_position)) {
                 prev();
                 ev.stop_propagation();
-            } else if (m_btn_next.contains(ev.local_position)) {
+            } else if (next_hit.contains(ev.local_position)) {
                 next();
                 ev.stop_propagation();
+            } else if (ev.is_touch() && m_card_rect.contains(ev.local_position)) {
+                m_touch_swiping = true;
+                m_touch_start_x = ev.local_position.x;
+                ev.stop_propagation();
+            }
+        };
+        on_pointer_up = [this](PointerEvent& ev) {
+            if (m_touch_swiping && ev.is_touch()) {
+                m_touch_swiping = false;
+                float dx = ev.local_position.x - m_touch_start_x;
+                if (dx < -40.0f) next();
+                else if (dx > 40.0f) prev();
+                ev.stop_propagation();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_swiping = false;
+            if (m_hovered_btn != 0) {
+                m_hovered_btn = 0;
+                mark_needs_paint();
             }
         };
     }
 
     std::vector<SpotlightStep> m_steps;
+    bool m_touch_swiping{false};
+    float m_touch_start_x{0.0f};
     size_t m_step{0};
     Fn<void(size_t)> m_on_step_changed;
     Fn<void(bool)> m_on_finished;

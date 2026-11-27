@@ -196,10 +196,11 @@ private:
         auto orig_exit = m_input->on_pointer_exit;
         auto orig_down = m_input->on_pointer_down;
         auto orig_up = m_input->on_pointer_up;
+        auto orig_cancel = m_input->on_pointer_cancel;
         auto orig_focus = m_input->on_focus;
 
         m_input->on_pointer_move = [this, orig_move](PointerEvent& e) {
-            if (!m_disabled) {
+            if (!m_disabled && !e.is_touch()) {
                 bool eh = has_reveal_button() && input_local_eye_rect().contains(e.local_position);
                 if (eh != m_eye_hovered) {
                     m_eye_hovered = eh;
@@ -222,8 +223,11 @@ private:
 
         m_input->on_pointer_down = [this, orig_down](PointerEvent& e) {
             if (m_disabled) return;
+            Rect eye_hit = e.is_touch()
+                ? touch::expand_hit_rect(input_local_eye_rect(), 40.0f)
+                : input_local_eye_rect();
             if (e.button == PointerButton::Primary && has_reveal_button() &&
-                input_local_eye_rect().contains(e.local_position)) {
+                eye_hit.contains(e.local_position)) {
                 m_peeking = true;
                 m_input->set_password_revealed(true);
                 mark_needs_paint();
@@ -242,6 +246,16 @@ private:
                 return;
             }
             if (orig_up) orig_up(e);
+        };
+
+        m_input->on_pointer_cancel = [this, orig_cancel](PointerEvent& e) {
+            if (m_eye_hovered || m_peeking) {
+                m_eye_hovered = false;
+                m_peeking = false;
+                m_input->set_password_revealed(is_revealing());
+                mark_needs_paint();
+            }
+            if (orig_cancel) orig_cancel(e);
         };
 
         m_input->on_focus = [this, orig_focus](FocusEvent& e) {

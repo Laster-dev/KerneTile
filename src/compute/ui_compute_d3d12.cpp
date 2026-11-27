@@ -179,14 +179,19 @@ private:
     }
 
     void compose(D3D12CommandRecorder& commands, FrameSlot& slot, const Frame& frame) {
-        const bool first_atlas = !m_atlas;
-        if (first_atlas) m_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
-            TextureDesc{frame.atlas_width, frame.atlas_height, TextureFormat::R8_UNORM, false});
+        const bool recreate_atlas = !m_atlas ||
+            m_atlas->get_desc().width != frame.atlas_width ||
+            m_atlas->get_desc().height != frame.atlas_height;
+        if (recreate_atlas) {
+            if (m_atlas) m_device.wait_idle();
+            m_atlas = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                TextureDesc{frame.atlas_width, frame.atlas_height, TextureFormat::R8_UNORM, false});
+        }
 
         using DirtyRect = std::remove_cvref_t<decltype(frame.atlas_updates)>::value_type;
         std::vector<DirtyRect> full_rect_storage;
         std::span<const DirtyRect> rects = frame.atlas_updates;
-        if (first_atlas && frame.atlas_width > 0 && frame.atlas_height > 0 && !frame.atlas.empty()) {
+        if (recreate_atlas && frame.atlas_width > 0 && frame.atlas_height > 0 && !frame.atlas.empty()) {
             full_rect_storage.push_back(DirtyRect{0, 0, frame.atlas_width, frame.atlas_height});
             rects = full_rect_storage;
         }
@@ -218,7 +223,7 @@ private:
                 offset += aligned(size_t(pitch) * rect.h, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
             }
             commands.resource_barrier(*m_atlas, ResourceState::CopyDst, ResourceState::ComputeShaderResource);
-        } else if (first_atlas) {
+        } else if (recreate_atlas) {
             commands.resource_barrier(*m_atlas, m_atlas->get_current_state(), ResourceState::ComputeShaderResource);
         }
 

@@ -144,6 +144,22 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!bounds().contains(local_position)) return false;
+        Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
+        auto m = m_scrollbar.compute_metrics(vp, m_content_height, m_physics.offset());
+        if (m_scrollbar.hit_test(local_position, m, PointerDeviceKind::Touch) != WinUIScrollBar::HitPart::None) {
+            result.add(this, local_position);
+            return true;
+        }
+        if (m_child_box) {
+            PointF child_pos{local_position.x, local_position.y + m_physics.offset()};
+            m_child_box->hit_test_touch(result, child_pos);
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     void paint(PaintContext& ctx) override {
         const float prev_offset = m_physics.offset();
         bool anim_scroll = m_physics.update();
@@ -235,25 +251,32 @@ private:
                 // 若触控点落在滚动条区域内，交由滚动条直接处理，不启动内容区触控拖拽
                 Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
                 auto m = m_scrollbar.compute_metrics(vp, m_content_height, m_physics.offset());
-                if (m_scrollbar.hit_test(e.local_position, m) != WinUIScrollBar::HitPart::None) {
+                if (m_scrollbar.hit_test(e.local_position, m, e.device_kind) != WinUIScrollBar::HitPart::None) {
                     m_touch_tracking = false;
                     m_touch_dragging = false;
+                    m_touch_braked = false;
                     return;
                 }
                 // 防御性清理可能残留的滚动条拖拽态
                 m_scrollbar.handle_pointer_up();
                 if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
+                    m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f);
                     m_touch_tracking = true;
                     m_touch_dragging = false;
                     m_touch_start_pos = e.position;
                     m_touch_last_pos = e.position;
                     m_physics.begin_touch_drag();
+                    if (m_touch_braked) {
+                        e.gesture_capture_target = this;
+                        e.stop_propagation();
+                    }
                 }
             } else if (e.type == PlatformEventType::PointerMove && m_touch_tracking && !m_touch_dragging && !m_scrollbar.is_dragging()) {
                 float dx = e.position.x - m_touch_start_pos.x;
                 float dy = e.position.y - m_touch_start_pos.y;
-                if (std::abs(dy) > 8.0f && std::abs(dy) > std::abs(dx) * 1.15f) {
+                if (std::abs(dy) > touch::kTouchSlopPx && touch::is_vertical_drag(dx, dy)) {
                     m_touch_dragging = true;
+                    m_touch_braked = false;
                     m_physics.apply_touch_drag(e.position.y - m_touch_last_pos.y);
                     m_touch_last_pos = e.position;
                     m_scrollbar.notify_activity();
@@ -262,6 +285,12 @@ private:
                     e.stop_propagation();
                 }
             } else if (e.type == PlatformEventType::PointerUp) {
+                if (m_touch_braked) {
+                    m_touch_braked = false;
+                    m_touch_tracking = false;
+                    e.stop_propagation();
+                    return;
+                }
                 if (!m_touch_dragging && m_touch_tracking) {
                     m_touch_tracking = false;
                     // 若在回弹中途被手指轻触停住后直接抬起，确保继续弹回边界
@@ -327,9 +356,19 @@ private:
                 e.stop_propagation();
             }
         };
+
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_touch_dragging = false;
+            m_touch_tracking = false;
+            m_touch_braked = false;
+            m_scrollbar.handle_pointer_exit();
+            mark_needs_paint();
+        };
     }
 
     float m_width{0.0f};
+    bool m_touch_braked{false};
     float m_height{0.0f};
     float m_max_height{0.0f};
     float m_content_height{0.0f};

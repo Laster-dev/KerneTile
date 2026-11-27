@@ -171,6 +171,12 @@ inline void RenderTerminal::setup_behavior() {
         }
 
         if (e.button == PointerButton::Primary) {
+            if (e.is_touch()) {
+                m_touch_scrolling = true;
+                m_touch_last_y = e.local_position.y;
+                e.stop_propagation();
+                return;
+            }
             TerminalCoord pos = point_to_coord(e.local_position);
             auto now = std::chrono::steady_clock::now();
             auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_click_time).count();
@@ -261,6 +267,17 @@ inline void RenderTerminal::setup_behavior() {
             return;
         }
 
+        if (m_touch_scrolling && e.is_touch()) {
+            float dy = e.local_position.y - m_touch_last_y;
+            m_touch_last_y = e.local_position.y;
+            m_scroll_y = std::clamp(m_scroll_y - dy, 0.0f, max_scroll_y());
+            clamp_scroll();
+            m_scrollbar.notify_activity();
+            mark_needs_paint();
+            e.stop_propagation();
+            return;
+        }
+
         if (m_dragging_sel) {
             TerminalCoord cur = point_to_coord(e.local_position);
             if (cur != m_sel_end) {
@@ -273,6 +290,11 @@ inline void RenderTerminal::setup_behavior() {
     };
 
     on_pointer_up = [this](PointerEvent& e) {
+        if (m_touch_scrolling) {
+            m_touch_scrolling = false;
+            e.stop_propagation();
+            return;
+        }
         if (m_scrollbar.handle_pointer_up()) {
             mark_needs_paint();
             e.stop_propagation();
@@ -299,6 +321,14 @@ inline void RenderTerminal::setup_behavior() {
     };
 
     on_pointer_exit = [this](PointerEvent&) {
+        m_scrollbar.handle_pointer_exit();
+        mark_needs_paint();
+    };
+
+    on_pointer_cancel = [this](PointerEvent&) {
+        m_touch_scrolling = false;
+        m_dragging_sel = false;
+        m_vt_mouse_button = -1;
         m_scrollbar.handle_pointer_exit();
         mark_needs_paint();
     };

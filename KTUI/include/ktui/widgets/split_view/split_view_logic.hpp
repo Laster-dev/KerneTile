@@ -224,6 +224,16 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_preview = [this](PointerEvent& ev) {
+            if (!ev.is_touch()) return;
+            Rect touch_splitter = touch::expand_hit_rect(m_splitter_rect, touch::kSplitterTargetSize);
+            if (ev.type == PlatformEventType::PointerDown && touch_splitter.contains(ev.local_position)) {
+                m_dragging = true;
+                mark_needs_paint();
+                ev.gesture_capture_target = this;
+                ev.stop_propagation();
+            }
+        };
         on_pointer_enter = [this](PointerEvent&) {
             if (!m_hovered) { m_hovered = true; mark_needs_paint(); }
         };
@@ -232,7 +242,10 @@ private:
         };
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button != PointerButton::Primary) return;
-            if (!m_splitter_rect.contains(ev.local_position)) return;
+            Rect hit_r = ev.is_touch()
+                ? touch::expand_hit_rect(m_splitter_rect, touch::kSplitterTargetSize)
+                : m_splitter_rect;
+            if (!hit_r.contains(ev.local_position)) return;
             auto now = std::chrono::steady_clock::now();
             auto dt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_click_time).count();
             m_last_click_time = now;
@@ -251,7 +264,7 @@ private:
             if (m_dragging) {
                 apply_drag_pos(ev.local_position);
                 ev.stop_propagation();
-            } else {
+            } else if (!ev.is_touch()) {
                 bool on_handle = m_splitter_rect.contains(ev.local_position);
                 if (m_hovered != on_handle) {
                     m_hovered = on_handle;
@@ -264,6 +277,13 @@ private:
                 m_dragging = false;
                 mark_needs_paint();
                 ev.stop_propagation();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_dragging || m_hovered) {
+                m_dragging = false;
+                m_hovered = false;
+                mark_needs_paint();
             }
         };
     }

@@ -467,12 +467,18 @@ private:
             if (e.button != PointerButton::Primary) return;
             auto lnk = hit_link(e.local_position);
             if (lnk.first >= 0) {
+                if (e.is_touch()) {
+                    m_touch_pending_link = lnk;
+                    m_touch_down_pos = e.local_position;
+                    e.stop_propagation();
+                    return;
+                }
                 const auto& run = m_paragraphs[static_cast<size_t>(lnk.first)].runs[static_cast<size_t>(lnk.second)];
                 if (run.on_click) run.on_click();
                 e.stop_propagation();
                 return;
             }
-            if (m_selectable) {
+            if (m_selectable && !e.is_touch()) {
                 size_t idx = hit_char_index(e.local_position);
                 m_sel_anchor = m_sel_end = idx;
                 m_dragging_sel = true;
@@ -480,8 +486,27 @@ private:
                 e.stop_propagation();
             }
         };
-        on_pointer_up = [this](PointerEvent&) {
+        on_pointer_up = [this](PointerEvent& e) {
             m_dragging_sel = false;
+            if (e.is_touch() && m_touch_pending_link.first >= 0) {
+                auto pending = m_touch_pending_link;
+                m_touch_pending_link = {-1, -1};
+                float dx = e.local_position.x - m_touch_down_pos.x;
+                float dy = e.local_position.y - m_touch_down_pos.y;
+                if (std::hypot(dx, dy) <= touch::kTouchSlopPx && hit_link(e.local_position) == pending) {
+                    const auto& run = m_paragraphs[static_cast<size_t>(pending.first)].runs[static_cast<size_t>(pending.second)];
+                    if (run.on_click) run.on_click();
+                    e.stop_propagation();
+                }
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_dragging_sel = false;
+            m_touch_pending_link = {-1, -1};
+            if (m_hovered_link.first >= 0) {
+                m_hovered_link = {-1, -1};
+                mark_needs_paint();
+            }
         };
         on_key = [this](KeyEvent& e) {
             if (!m_selectable || e.type != PlatformEventType::KeyDown || !e.modifiers.ctrl) return;
@@ -512,6 +537,8 @@ private:
     size_t m_sel_anchor{0};
     size_t m_sel_end{0};
     std::pair<int, int> m_hovered_link{-1, -1};
+    std::pair<int, int> m_touch_pending_link{-1, -1};
+    PointF m_touch_down_pos{};
 };
 
 // C++20 指定初始化器声明式 WinUI 3 RichTextBlock

@@ -183,7 +183,7 @@ inline void RenderTextBox::setup_behavior() {
 
         // 密码显示/隐藏眼睛按钮命中测试
         if (m_data.is_password && m_data.show_reveal_button) {
-            float eye_x = bounds().max_x - 24.0f;
+            float eye_x = bounds().max_x - (ev.is_touch() ? 40.0f : 24.0f);
             if (ev.local_position.x >= eye_x) {
                 m_data.is_password_revealed = !m_data.is_password_revealed;
                 mark_needs_paint();
@@ -257,6 +257,14 @@ inline void RenderTextBox::setup_behavior() {
             ensure_cursor_visible();
             mark_needs_paint();
         }
+    };
+
+    on_pointer_cancel = [this](PointerEvent&) {
+        m_state.is_hovered = false;
+        is_hovered = false;
+        m_pending_touch_collapse = false;
+        m_state.is_dragging_selection = false;
+        mark_needs_paint();
     };
 
     on_key = [this](KeyEvent& ev) {

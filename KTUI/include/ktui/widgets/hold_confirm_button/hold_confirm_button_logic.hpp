@@ -96,6 +96,19 @@ public:
         return true;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (m_shape == HoldConfirmShape::CircularRing) {
+            float r = std::max(std::min(m_size.x, m_size.y) * 0.5f, touch::kMinTargetSize * 0.5f);
+            float cx = m_size.x * 0.5f, cy = m_size.y * 0.5f;
+            if (std::hypot(position.x - cx, position.y - cy) > r) return false;
+            result.add(this, position);
+            return true;
+        }
+        if (!touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) return false;
+        result.add(this, position);
+        return true;
+    }
+
     void paint(PaintContext& context) override {
         auto now = std::chrono::steady_clock::now();
         if (m_last_tick.time_since_epoch().count() != 0) {
@@ -274,6 +287,15 @@ private:
     void setup_behavior() {
         on_pointer_enter = [this](PointerEvent&) { m_hovered = true; mark_needs_paint(); };
         on_pointer_move = [this](PointerEvent& ev) {
+            if (m_holding && ev.device_kind == PointerDeviceKind::Touch) {
+                Rect tol{ -touch::kTouchCancelPadPx, -touch::kTouchCancelPadPx,
+                          m_size.x + touch::kTouchCancelPadPx, m_size.y + touch::kTouchCancelPadPx };
+                if (!tol.contains(ev.local_position)) {
+                    m_holding = false;
+                    mark_needs_paint();
+                }
+                return;
+            }
             if (ev.type == PlatformEventType::PointerMove &&
                 ev.device_kind != PointerDeviceKind::Touch &&
                 ThemeContext::current().resolve_pointer_reveal(m_enable_pointer_reveal)) {
@@ -281,6 +303,12 @@ private:
                 m_reveal_active = true;
                 mark_needs_paint();
             }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_hovered = false;
+            m_reveal_active = false;
+            m_holding = false;
+            mark_needs_paint();
         };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = false;
@@ -294,6 +322,9 @@ private:
             m_fired_this_hold = false;
             m_confirm_flash = 0.0f;
             m_last_tick = std::chrono::steady_clock::now();
+            if (ev.device_kind == PointerDeviceKind::Touch) {
+                ev.gesture_capture_target = this;
+            }
             mark_needs_paint();
             ev.stop_propagation();
         };

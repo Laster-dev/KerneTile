@@ -270,6 +270,14 @@ public:
         return resolve_current_style().corner_radius;
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
     // ==================== 绘制管线 (Painting Pipeline) ====================
 
     void paint(PaintContext& context) override {
@@ -515,6 +523,17 @@ private:
             }
         };
 
+        on_pointer_cancel = [this](PointerEvent&) {
+            bool need_paint = m_state.is_pressed || m_state.is_hovered || m_reveal_active || m_tactile_press.is_active();
+            m_state.is_pressed = false;
+            m_state.is_hovered = false;
+            is_hovered = false;
+            is_active = false;
+            m_reveal_active = false;
+            m_tactile_press.on_exit();
+            if (need_paint) mark_needs_paint();
+        };
+
         on_pointer_down = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && !m_state.is_loading && ev.button == PointerButton::Primary) {
                 m_state.is_pressed = true;
@@ -529,7 +548,10 @@ private:
 
         on_pointer_up = [this](PointerEvent& ev) {
             if (!m_state.is_disabled && !m_state.is_loading && ev.button == PointerButton::Primary) {
-                bool should_click = (m_state.is_pressed && m_state.is_hovered);
+                bool inside = ev.is_touch()
+                    ? touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(ev.local_position)
+                    : m_state.is_hovered;
+                bool should_click = (m_state.is_pressed && inside);
                 auto cb = should_click ? m_data.on_click : Fn<void()>{};
                 m_state.is_pressed = false;
                 is_active = false;

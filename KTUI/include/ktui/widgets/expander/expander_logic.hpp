@@ -285,6 +285,15 @@ private:
                 e.stop_propagation();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_header_hovered || m_pressed || m_reveal_active) {
+                m_header_hovered = false;
+                m_pressed = false;
+                m_reveal_active = false;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
+            }
+        };
     }
 
     bool m_initialized{false};

@@ -975,6 +975,179 @@ void test_touch_long_press_synthesizes_secondary_click() {
     std::cout << "  -> 触控长按全局右键合成（含 Telegram 风格自动选词、全选保活与短按折叠）验证通过！" << std::endl;
 }
 
+void test_comprehensive_touch_adaptation() {
+    std::cout << "[Test 12] 全控件触控适配验收：44px 隐式热区、PointerCancel 仲裁、手势拖拽与滑块..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    // 1. touch_metrics 44px 热区扩展与 InputModeTracker
+    {
+        Rect small = Rect::from_xywh(100.0f, 100.0f, 20.0f, 20.0f);
+        Rect mouse_r = touch::expand_hit_rect(small, PointerDeviceKind::Mouse);
+        Rect touch_r = touch::expand_hit_rect(small, PointerDeviceKind::Touch);
+        require(std::abs(mouse_r.width() - 20.0f) < 0.01f, "mouse hit rect unchanged");
+        require(std::abs(touch_r.width() - touch::kMinTargetSize) < 0.01f &&
+                std::abs(touch_r.height() - touch::kMinTargetSize) < 0.01f,
+                "touch hit rect expanded to 44x44");
+        require(touch_r.contains(PointF{90.0f, 90.0f}), "touch expanded rect catches outer margin");
+        touch::InputModeTracker::notify(PointerDeviceKind::Touch);
+        require(touch::InputModeTracker::is_touch_active(), "InputModeTracker reports Touch");
+        touch::InputModeTracker::notify(PointerDeviceKind::Mouse);
+        require(!touch::InputModeTracker::is_touch_active(), "InputModeTracker reports Mouse");
+    }
+
+    auto make_touch = [](PlatformEventType type, Vec2 pos) {
+        PlatformEvent ev;
+        ev.type = type;
+        ev.button = PointerButton::Primary;
+        ev.device_kind = PointerDeviceKind::Touch;
+        ev.position = pos;
+        return ev;
+    };
+
+    // 2. ScrollView + Button 触控滚动手势仲裁：垂直拖过阈值 -> Button 收到 PointerCancel，抬手绝不误触发 on_click
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{320.0f, 220.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        int clicks = 0;
+        std::vector<WidgetPtr> rows;
+        rows.push_back(Button{ .text = "Tap Me", .on_click = [&]() { ++clicks; } });
+        for (int i = 0; i < 14; ++i) {
+            rows.push_back(Box{ .height = 40.0f, .child = Text{ .text = "Row " + std::to_string(i) } });
+        }
+        win->set_content(ScrollView{
+            .height = 220.0f,
+            .child = VStack{ .spacing = 6.0f, .content = std::move(rows) }
+        });
+        win->render_frame();
+
+        // 2a. 短按按钮 -> 正常触发点击
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{40.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{40.0f, 16.0f}));
+        require(clicks == 1, "touch tap on button inside ScrollView fires click");
+
+        // 2b. 按在按钮上垂直拖 40px -> ScrollView 抢占手势并向 Button 派发 PointerCancel，不触发点击
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{40.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerMove, Vec2{40.0f, 56.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{40.0f, 56.0f}));
+        require(clicks == 1, "vertical touch scroll cancels button press via PointerCancel");
+    }
+
+    // 3. ToggleSwitch 触控水平拖拽切换开关
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{300.0f, 120.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        bool is_on = false;
+        win->set_content(ToggleSwitch{ .checked = false, .on_change = [&](bool v) { is_on = v; } });
+        win->render_frame();
+
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{12.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerMove, Vec2{36.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{36.0f, 16.0f}));
+        require(is_on, "ToggleSwitch horizontal touch drag turns switch ON");
+    }
+
+    // 4. RatingControl 触控横扫连续选星
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{300.0f, 120.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        float rating = 1.0f;
+        win->set_content(RatingControl{ .value = 1.0f, .max_rating = 5, .on_value_changed = [&](float v) { rating = v; } });
+        win->render_frame();
+
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{10.0f, 14.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerMove, Vec2{100.0f, 14.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{100.0f, 14.0f}));
+        require(rating >= 3.0f, "RatingControl horizontal touch swipe updates rating");
+    }
+
+    // 5. GhostTextBox 触控右滑逐词接受补全
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{460.0f, 120.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        win->set_content(GhostTextBox{
+            .text = "git ",
+            .suggestions = { "git status --short" }
+        });
+        win->render_frame();
+        auto* ghost = static_cast<RenderGhostTextBox*>(win->root_render_box());
+        require(ghost && !ghost->ghost_suffix().empty(), "GhostTextBox has ghost suffix");
+
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{30.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerMove, Vec2{80.0f, 16.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{80.0f, 16.0f}));
+        require(ghost->text().find("status") != std::string::npos, "GhostTextBox touch swipe-right accepts next word");
+    }
+
+    // 6. SplitView 28px 触控加宽抓取区拖动分栏
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{400.0f, 200.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        float ratio = 0.35f;
+        win->set_content(SplitView{
+            .ratio = 0.35f,
+            .splitter_size = 8.0f,
+            .first = Box{ .child = Text{ .text = "Left" } },
+            .second = Box{ .child = Text{ .text = "Right" } },
+            .on_ratio_changed = [&](float r) { ratio = r; }
+        });
+        win->render_frame();
+
+        // 视觉分隔条中心约在 400*0.35 + 4 = 144，点在 154（超出 8px 视觉条但在 28px 触控抓取带内）
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{154.0f, 100.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerMove, Vec2{220.0f, 100.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{220.0f, 100.0f}));
+        require(ratio > 0.45f, "SplitView 28px touch grab zone drags splitter smoothly");
+    }
+
+    // 7. PipsPager 触控轻扫翻页
+    {
+        Application app(create_platform_backend(true));
+        WindowDesc desc;
+        desc.size = Vec2{300.0f, 100.0f};
+        desc.decorated = true;
+        auto win = app.create_window(desc);
+
+        int page = 0;
+        win->set_content(PipsPager{
+            .number_of_pages = 5,
+            .selected_index = 0,
+            .on_selected_index_changed = [&](int p) { page = p; }
+        });
+        win->render_frame();
+
+        win->handle_platform_event(make_touch(PlatformEventType::PointerDown, Vec2{90.0f, 15.0f}));
+        win->handle_platform_event(make_touch(PlatformEventType::PointerUp, Vec2{45.0f, 15.0f}));
+        require(page == 1, "PipsPager touch swipe left advances page");
+    }
+
+    std::cout << "  -> 全控件触控适配验收（44px 热区、PointerCancel、ToggleSwitch/Rating/Ghost/SplitView/PipsPager）全部通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -991,6 +1164,7 @@ int main() {
     test_cursor_blink_and_on_demand_rendering();
     test_mobile_touch_scroll_inertia_and_overscroll_bounce();
     test_touch_long_press_synthesizes_secondary_click();
+    test_comprehensive_touch_adaptation();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

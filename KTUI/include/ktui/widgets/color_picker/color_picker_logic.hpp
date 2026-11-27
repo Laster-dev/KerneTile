@@ -298,12 +298,20 @@ private:
     void setup_behavior() {
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
+            Rect hue_hit = touch::expand_hit_rect(hue_rect(), e.device_kind, 36.0f);
+            Rect alpha_hit = touch::expand_hit_rect(alpha_rect(), e.device_kind, 36.0f);
             if (spectrum_rect().contains(e.local_position)) m_drag = DragTarget::Spectrum;
-            else if (hue_rect().contains(e.local_position)) m_drag = DragTarget::Hue;
-            else if (m_alpha_enabled && alpha_rect().contains(e.local_position)) m_drag = DragTarget::Alpha;
+            else if (hue_hit.contains(e.local_position)) m_drag = DragTarget::Hue;
+            else if (m_alpha_enabled && alpha_hit.contains(e.local_position)) m_drag = DragTarget::Alpha;
             else return;
+            if (e.device_kind == PointerDeviceKind::Touch) {
+                e.gesture_capture_target = this;
+            }
             apply_drag(e.local_position);
             e.stop_propagation();
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_drag = DragTarget::None;
         };
         on_pointer_move = [this](PointerEvent& e) {
             if (m_drag != DragTarget::None) {

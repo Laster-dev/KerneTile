@@ -21,11 +21,17 @@ public:
 
         // ==================== 0. 独占触控手势捕获快速通道 ====================
         if (m_gesture_captured && m_active_target &&
-            (event.type == PlatformEventType::PointerMove || event.type == PlatformEventType::PointerUp)) {
+            (event.type == PlatformEventType::PointerMove ||
+             event.type == PlatformEventType::PointerUp ||
+             event.type == PlatformEventType::PointerCancel)) {
             Vec2 abs_off = m_active_target->global_offset();
             event.local_position = event.position - abs_off;
             if (event.type == PlatformEventType::PointerMove && m_active_target->on_pointer_move) {
                 m_active_target->on_pointer_move(event);
+            } else if (event.type == PlatformEventType::PointerCancel) {
+                dispatch_cancel_to_node(m_active_target, event);
+                m_active_target = nullptr;
+                m_gesture_captured = false;
             } else if (event.type == PlatformEventType::PointerUp) {
                 if (m_active_target->on_pointer_up) {
                     m_active_target->on_pointer_up(event);
@@ -37,8 +43,31 @@ public:
             return;
         }
 
+        if (event.type == PlatformEventType::PointerCancel) {
+            cancel_active_interaction();
+            return;
+        }
+
+        // 触控按下时清理任何残留的鼠标 :hover 状态，彻底杜绝触控屏「点完一直高亮悬停」
+        if (event.type == PlatformEventType::PointerDown && event.device_kind == PointerDeviceKind::Touch && !m_hovered_nodes.empty()) {
+            std::vector<RenderBox*> prev_hovered(m_hovered_nodes.begin(), m_hovered_nodes.end());
+            m_hovered_nodes.clear();
+            for (RenderBox* old_node : prev_hovered) {
+                old_node->is_hovered = false;
+                if (old_node->on_pointer_exit) {
+                    PointerEvent exit_ev = event;
+                    exit_ev.type = PlatformEventType::PointerMove;
+                    old_node->on_pointer_exit(exit_ev);
+                }
+            }
+        }
+
         HitTestResult result;
-        root->hit_test(result, event.position);
+        if (event.device_kind == PointerDeviceKind::Touch) {
+            root->hit_test_touch(result, event.position);
+        } else {
+            root->hit_test(result, event.position);
+        }
 
         // ==================== 0.5 隧道预览阶段 (Root -> Leaf，供触控滚动与边缘滑动手势识别) ====================
         if (event.type == PlatformEventType::PointerDown ||
@@ -52,16 +81,9 @@ public:
                 target->on_pointer_preview(event);
                 if (event.gesture_capture_target != nullptr) {
                     RenderBox* capturer = event.gesture_capture_target;
-                    // 取消先前被手指按下的底层子控件 (例如 Button/Toggle)，防止滚动后误触发点击
+                    // 取消先前被手指按下的底层子控件 (例如 Button/Toggle)，派发正式 PointerCancel 防止滚动后误触发点击
                     if (m_active_target && m_active_target != capturer) {
-                        RenderBox* prev = m_active_target;
-                        prev->is_active = false;
-                        prev->is_hovered = false;
-                        if (prev->on_pointer_exit) {
-                            PointerEvent cancel_ev = event;
-                            cancel_ev.type = PlatformEventType::PointerMove;
-                            prev->on_pointer_exit(cancel_ev);
-                        }
+                        dispatch_cancel_to_node(m_active_target, event);
                     }
                     m_active_target = capturer;
                     m_active_target->is_active = true;
@@ -139,7 +161,10 @@ public:
             if (!m_is_dragging && m_drag_candidate && m_drag_candidate->on_drag_start) {
                 float dx = event.position.x - m_drag_start_pos.x;
                 float dy = event.position.y - m_drag_start_pos.y;
-                if (dx * dx + dy * dy >= 25.0f) { // 5px 拖拽启动阈值
+                const float drag_slop_sq = (event.device_kind == PointerDeviceKind::Touch)
+                    ? (touch::kTouchSlopPx * touch::kTouchSlopPx)
+                    : 25.0f;
+                if (dx * dx + dy * dy >= drag_slop_sq) { // 鼠标 5px / 触控 10px 拖拽启动阈值
                     DragPayload payload;
                     payload.source = m_drag_candidate;
                     DragEvent start_ev(DragEventType::DragStart, event.position, std::move(payload), event.modifiers);
@@ -324,23 +349,37 @@ public:
         if (m_drop_target == node) m_drop_target = nullptr;
     }
 
-    // 取消当前正在进行的按压/拖拽交互（例如触控长按触发右键菜单时，取消底层控件的点击态）
+    // 取消当前正在进行的按压/拖拽交互（例如触控长按触发右键菜单或祖先抢占滚动时，彻底取消底层控件的点击态）
     void cancel_active_interaction() {
         if (m_active_target) {
             RenderBox* prev = m_active_target;
             m_active_target = nullptr;
-            prev->is_active = false;
-            prev->is_hovered = false;
-            if (prev->on_pointer_exit) {
-                PointerEvent exit_ev(PlatformEventType::PointerMove, Vec2{-10000.0f, -10000.0f}, PointerButton::None);
-                exit_ev.local_position = Vec2{-10000.0f, -10000.0f};
-                prev->on_pointer_exit(exit_ev);
-            }
-            prev->mark_needs_paint();
+            PointerEvent cancel_ev(PlatformEventType::PointerCancel, Vec2{-10000.0f, -10000.0f}, PointerButton::None);
+            cancel_ev.device_kind = touch::InputModeTracker::current();
+            dispatch_cancel_to_node(prev, cancel_ev);
         }
         end_drag_session();
         m_gesture_captured = false;
     }
+
+private:
+    static void dispatch_cancel_to_node(RenderBox* prev, const PointerEvent& src_ev) {
+        if (!prev) return;
+        prev->is_active = false;
+        prev->is_hovered = false;
+        PointerEvent cancel_ev = src_ev;
+        cancel_ev.type = PlatformEventType::PointerCancel;
+        cancel_ev.local_position = Vec2{-10000.0f, -10000.0f};
+        if (prev->on_pointer_cancel) {
+            prev->on_pointer_cancel(cancel_ev);
+        } else if (prev->on_pointer_exit) {
+            cancel_ev.type = PlatformEventType::PointerMove;
+            prev->on_pointer_exit(cancel_ev);
+        }
+        prev->mark_needs_paint();
+    }
+
+public:
 
     void clear() {
         m_hovered_nodes.clear();

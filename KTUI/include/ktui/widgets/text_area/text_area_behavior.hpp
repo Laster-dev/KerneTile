@@ -256,6 +256,13 @@ inline void RenderTextArea::setup_behavior() {
         }
         if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
     };
+    on_pointer_cancel = [this](PointerEvent&) {
+        m_hovered = false;
+        m_pending_touch_collapse = false;
+        m_dragging = false;
+        m_scrollbar.handle_pointer_exit();
+        mark_needs_paint();
+    };
     on_focus = [this](FocusEvent& e) {
         if (m_disabled) return;
         m_focused = e.gained_focus;

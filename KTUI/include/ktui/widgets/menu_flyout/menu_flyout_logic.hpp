@@ -452,12 +452,21 @@ private:
             m_prev_mouse_pos = cur_pos;
             m_has_prev_mouse = true;
 
-            if (idx != m_hovered_index) {
+            if (is_mouse && idx != m_hovered_index) {
                 apply_hover_target(idx);
             }
             e.stop_propagation();
         };
         on_pointer_exit = [this](PointerEvent&) {
+            clear_aim_cone();
+            m_has_prev_mouse = false;
+            if (m_hovered_index != -1 || m_pressed_index != -1) {
+                m_hovered_index = -1;
+                m_pressed_index = -1;
+                mark_needs_paint();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
             clear_aim_cone();
             m_has_prev_mouse = false;
             if (m_hovered_index != -1 || m_pressed_index != -1) {

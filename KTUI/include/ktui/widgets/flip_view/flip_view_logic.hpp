@@ -149,12 +149,28 @@ private:
     }
 
     void setup_behavior() {
+        on_pointer_preview = [this](PointerEvent& e) {
+            if (e.device_kind != PointerDeviceKind::Touch) return;
+            if (e.type == PlatformEventType::PointerDown) {
+                m_touch_start_x = e.local_position.x;
+                m_touch_start_y = e.local_position.y;
+                m_touch_active = true;
+            } else if (e.type == PlatformEventType::PointerMove && m_touch_active) {
+                float dx = e.local_position.x - m_touch_start_x;
+                float dy = e.local_position.y - m_touch_start_y;
+                if (std::abs(dx) > touch::kTouchSlopPx && touch::is_horizontal_drag(dx, dy)) {
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                }
+            }
+        };
         on_pointer_enter = [this](PointerEvent&) { m_hovered = true; mark_needs_paint(); };
         on_pointer_exit = [this](PointerEvent&) {
             m_hovered = m_hover_prev = m_hover_next = false;
             mark_needs_paint();
         };
         on_pointer_move = [this](PointerEvent& e) {
+            if (e.is_touch()) return;
             bool hp = (m_selected > 0) && prev_btn_rect().contains(e.local_position);
             bool hn = (m_selected + 1 < static_cast<int>(m_item_nodes.size())) && next_btn_rect().contains(e.local_position);
             cursor_shape = (hp || hn) ? CursorShape::PointingHand : CursorShape::Arrow;
@@ -166,18 +182,23 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
-            if (m_selected > 0 && prev_btn_rect().contains(e.local_position)) {
+            Rect prev_hit = e.is_touch() ? touch::expand_hit_rect(prev_btn_rect(), 44.0f) : prev_btn_rect();
+            Rect next_hit = e.is_touch() ? touch::expand_hit_rect(next_btn_rect(), 44.0f) : next_btn_rect();
+            if (m_selected > 0 && prev_hit.contains(e.local_position)) {
                 go_to(m_selected - 1);
+                m_touch_active = false;
                 e.stop_propagation();
                 return;
             }
-            if (m_selected + 1 < static_cast<int>(m_item_nodes.size()) && next_btn_rect().contains(e.local_position)) {
+            if (m_selected + 1 < static_cast<int>(m_item_nodes.size()) && next_hit.contains(e.local_position)) {
                 go_to(m_selected + 1);
+                m_touch_active = false;
                 e.stop_propagation();
                 return;
             }
             if (e.device_kind == PointerDeviceKind::Touch) {
                 m_touch_start_x = e.local_position.x;
+                m_touch_start_y = e.local_position.y;
                 m_touch_active = true;
             }
         };
@@ -188,6 +209,11 @@ private:
                 if (dx > 36.0f) go_to(m_selected - 1);
                 else if (dx < -36.0f) go_to(m_selected + 1);
             }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_active = false;
+            m_hovered = m_hover_prev = m_hover_next = false;
+            mark_needs_paint();
         };
     }
 
@@ -201,6 +227,7 @@ private:
     bool m_hover_next{false};
     bool m_touch_active{false};
     float m_touch_start_x{0.0f};
+    float m_touch_start_y{0.0f};
     Fn<void(int)> m_on_selected;
 
 public:

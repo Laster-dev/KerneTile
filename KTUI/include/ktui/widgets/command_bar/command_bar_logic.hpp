@@ -392,6 +392,15 @@ private:
             }
             mark_needs_paint();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_hovered_slot != -1 || m_pressed_slot != -1 || m_reveal_active) {
+                m_hovered_slot = -1;
+                m_pressed_slot = -1;
+                m_reveal_active = false;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
+            }
+        };
     }
 
     std::string m_content_text;

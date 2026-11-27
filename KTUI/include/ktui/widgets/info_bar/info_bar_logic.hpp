@@ -217,13 +217,23 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_close_hovered || m_action_hovered) {
+                m_close_hovered = false;
+                m_action_hovered = false;
+                cursor_shape = CursorShape::Arrow;
+                mark_needs_paint();
+            }
+        };
         on_pointer_up = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
-            if (m_data.is_closable && m_close_rect.contains(e.local_position)) {
+            Rect close_hit = e.is_touch() ? touch::expand_hit_rect(m_close_rect, 40.0f) : m_close_rect;
+            Rect act_hit = e.is_touch() ? touch::expand_hit_rect(m_action_rect, 40.0f) : m_action_rect;
+            if (m_data.is_closable && close_hit.contains(e.local_position)) {
                 set_open(false);
                 if (m_data.on_close) m_data.on_close();
                 e.stop_propagation();
-            } else if (!m_data.action_text.empty() && m_action_rect.contains(e.local_position)) {
+            } else if (!m_data.action_text.empty() && act_hit.contains(e.local_position)) {
                 if (m_data.on_action) m_data.on_action();
                 e.stop_propagation();
             }

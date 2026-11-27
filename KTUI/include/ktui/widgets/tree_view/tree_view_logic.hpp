@@ -675,6 +675,7 @@ private:
                 return;
             }
             if (e.device_kind == PointerDeviceKind::Touch) {
+                m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f);
                 m_touch_dragging = true;
                 m_touch_moved = false;
                 m_touch_start_y = e.local_position.y;
@@ -686,13 +687,15 @@ private:
             if (m_resizing_col >= 0) { m_resizing_col = -1; mark_needs_paint(); return; }
             if (m_scrollbar.handle_pointer_up()) { mark_needs_paint(); return; }
             bool was_drag = m_touch_dragging && m_touch_moved;
+            bool was_braked = m_touch_braked;
+            m_touch_braked = false;
             if (m_touch_dragging && e.device_kind == PointerDeviceKind::Touch) {
                 m_physics.end_touch_drag();
                 mark_needs_paint();
             }
             m_touch_dragging = false;
             m_touch_moved = false;
-            if (was_drag || e.button != PointerButton::Primary) return;
+            if (was_drag || was_braked || e.button != PointerButton::Primary) return;
 
             int idx = hit_row(e.local_position);
             if (idx < 0 || idx >= static_cast<int>(m_rows.size())) return;
@@ -700,8 +703,9 @@ private:
             FlatRow& row = m_rows[static_cast<size_t>(idx)];
             float chev_x0 = 4.0f + 10.0f + static_cast<float>(row.depth) * kIndent;
             float chev_x1 = chev_x0 + 22.0f;
+            float chev_pad = e.is_touch() ? 10.0f : 4.0f;
 
-            if (!row.node->children.empty() && e.local_position.x >= chev_x0 - 4.0f && e.local_position.x <= chev_x1) {
+            if (!row.node->children.empty() && e.local_position.x >= chev_x0 - chev_pad && e.local_position.x <= chev_x1 + (e.is_touch() ? 8.0f : 0.0f)) {
                 row.node->is_expanded = !row.node->is_expanded;
                 m_expand_anim_active = true;
                 m_last_expand_time = std::chrono::steady_clock::now();
@@ -731,6 +735,20 @@ private:
                 if (m_on_selection_changed) m_on_selection_changed(row.node->id, row.node->label);
                 e.stop_propagation();
             }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_resizing_col = -1;
+            m_hover_divider = -1;
+            m_touch_dragging = false;
+            m_touch_moved = false;
+            m_touch_braked = false;
+            if (m_hovered_row != -1) {
+                update_checkbox_hover(m_hovered_row, false);
+                m_hovered_row = -1;
+            }
+            m_scrollbar.handle_pointer_exit();
+            mark_needs_paint();
         };
     }
 
@@ -769,6 +787,7 @@ private:
     bool m_user_resized{false};
     bool m_touch_dragging{false};
     bool m_touch_moved{false};
+    bool m_touch_braked{false};
     float m_touch_start_y{0.0f};
     float m_touch_last_y{0.0f};
     SmoothScrollPhysics m_physics;

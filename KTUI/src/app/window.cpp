@@ -180,8 +180,11 @@ void Window::ensure_renderer() {
     kernetile::RendererConfig cfg;
     cfg.width = w;
     cfg.height = h;
-    // 浮动/辅助窗口采用 512x512 紧凑图集 (仅 256KB)，主窗口采用 1024x1024 (1MB)，避免每窗 16MB 内存暴涨
-    cfg.atlas_size = (!has_custom_titlebar() || s_live_windows.size() > 1) ? 512u : 1024u;
+    // 仅多窗口场景的辅助/浮动子窗采用紧凑图集；主窗口按 DPI 自适应（Android / 高 DPI 屏默认 2048x2048，避免 CJK 高倍率单帧溢出）
+    const bool is_aux_window = (s_live_windows.size() > 1);
+    cfg.atlas_size = is_aux_window
+        ? (m_render_scale >= 2.0f ? 1024u : 512u)
+        : (m_render_scale >= 2.0f ? 2048u : 1024u);
     cfg.enable_dithering = m_dithering_enabled;
     cfg.enable_pixel_snapping = m_pixel_snapping_enabled;
     cfg.enable_font_gamma = m_font_gamma_enabled;
@@ -453,6 +456,12 @@ void Window::render_frame(bool force_full_present) {
         m_renderer->end_frame();
     }
 
+    // 若本帧发生字形图集溢出，立即预约下一帧触发自动扩容与完整补绘，杜绝静止画面残留丢字
+    if (m_renderer->has_atlas_overflowed()) {
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+
     // 5. GPU 计算呈现或 CPU 软件回退呈现
     if (m_renderer->present_computed_frame(force_full_present)) {
         m_framebuffer.clear();
@@ -498,7 +507,7 @@ bool Window::route_overlay_event(const PlatformEvent& pe) {
             return true;
         }
     } else if (pe.type == PlatformEventType::PointerUp) {
-        bool handled = m_overlay_manager.handle_pointer_up(pe.position, pe.button);
+        bool handled = m_overlay_manager.handle_pointer_up(pe.position, pe.button, pe.device_kind);
         request_redraw();
         if (m_platform_window) m_platform_window->invalidate();
         if (handled) return true;
@@ -577,6 +586,11 @@ bool Window::route_titlebar_event(const PlatformEvent& pe, float tb_h) {
 void Window::handle_platform_event(const PlatformEvent& pe) {
     s_active_window = this;
     if (!m_root_render_box) return;
+    if (pe.type == PlatformEventType::PointerDown ||
+        pe.type == PlatformEventType::PointerMove ||
+        pe.type == PlatformEventType::PointerUp) {
+        touch::InputModeTracker::notify(pe.device_kind);
+    }
     if (pe.type == PlatformEventType::PointerDown || pe.type == PlatformEventType::PointerUp) {
         m_last_pointer_pos = pe.position;
         m_has_last_pointer = true;

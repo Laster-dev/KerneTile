@@ -58,6 +58,7 @@ public:
     // 帧生命周期控制
     virtual void begin_frame() = 0;
     virtual void end_frame() = 0;
+    [[nodiscard]] virtual bool has_atlas_overflowed() const noexcept { return false; }
 
     // 绘制命令录入
     virtual void push_primitive(const core::UiPrimitive& prim) = 0;

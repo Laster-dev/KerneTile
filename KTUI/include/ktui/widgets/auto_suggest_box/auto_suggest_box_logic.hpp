@@ -143,6 +143,24 @@ private:
                 }
                 return;
             }
+            if (e.is_touch() && m_touch_down) {
+                float dy_total = std::abs(e.local_position.y - m_touch_start_y);
+                if (!m_touch_scrolling && dy_total > touch::kTouchSlopPx) {
+                    m_touch_scrolling = true;
+                }
+                if (m_touch_scrolling) {
+                    float view_h = std::max(kItemH, size().y - 8.0f);
+                    float max_scroll = std::max(0.0f, static_cast<float>(m_suggestions.size()) * kItemH - view_h);
+                    float dy = e.local_position.y - m_touch_last_y;
+                    m_touch_last_y = e.local_position.y;
+                    if (max_scroll > 0.0f) {
+                        m_scroll_offset = std::clamp(m_scroll_offset - dy, 0.0f, max_scroll);
+                        mark_needs_paint();
+                    }
+                    e.stop_propagation();
+                }
+                return;
+            }
             int idx = hit_row(e.local_position);
             cursor_shape = (idx >= 0) ? CursorShape::PointingHand : CursorShape::Arrow;
             if (idx != m_hovered) { m_hovered = idx; mark_needs_paint(); }
@@ -152,11 +170,39 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
+            if (e.is_touch()) {
+                m_touch_down = true;
+                m_touch_scrolling = false;
+                m_touch_start_y = e.local_position.y;
+                m_touch_last_y = e.local_position.y;
+                m_touch_down_row = hit_row(e.local_position);
+                e.stop_propagation();
+                return;
+            }
             int idx = hit_row(e.local_position);
             if (idx >= 0 && idx < static_cast<int>(m_suggestions.size())) {
                 if (m_on_pick) m_on_pick(m_suggestions[static_cast<size_t>(idx)]);
                 e.stop_propagation();
             }
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (e.is_touch() && m_touch_down) {
+                bool was_scroll = m_touch_scrolling;
+                int row = hit_row(e.local_position);
+                m_touch_down = false;
+                m_touch_scrolling = false;
+                if (!was_scroll && row >= 0 && row == m_touch_down_row &&
+                    row < static_cast<int>(m_suggestions.size())) {
+                    if (m_on_pick) m_on_pick(m_suggestions[static_cast<size_t>(row)]);
+                }
+                e.stop_propagation();
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_touch_scrolling = false;
+            m_touch_down_row = -1;
+            if (m_hovered != -1) { m_hovered = -1; mark_needs_paint(); }
         };
     }
 
@@ -166,6 +212,11 @@ private:
     int m_hovered{-1};
     int m_highlighted{-1};
     float m_scroll_offset{0.0f};
+    bool m_touch_down{false};
+    bool m_touch_scrolling{false};
+    float m_touch_start_y{0.0f};
+    float m_touch_last_y{0.0f};
+    int m_touch_down_row{-1};
     FluentPopupSurface m_surface;
 };
 
@@ -433,11 +484,12 @@ private:
         auto orig_move = m_input->on_pointer_move;
         auto orig_exit = m_input->on_pointer_exit;
         auto orig_down = m_input->on_pointer_down;
+        auto orig_cancel = m_input->on_pointer_cancel;
         auto orig_focus = m_input->on_focus;
         auto orig_key = m_input->on_key;
 
         m_input->on_pointer_move = [this, orig_move](PointerEvent& e) {
-            if (!m_disabled) {
+            if (!m_disabled && !e.is_touch()) {
                 bool hc = !m_text.empty() && input_local_clear_rect().contains(e.local_position);
                 bool hs = input_local_search_rect().contains(e.local_position);
                 m_input->cursor_shape = (hc || hs) ? CursorShape::PointingHand : CursorShape::IBeam;
@@ -459,10 +511,25 @@ private:
             if (orig_exit) orig_exit(e);
         };
 
+        m_input->on_pointer_cancel = [this, orig_cancel](PointerEvent& e) {
+            if (m_hover_clear || m_hover_search) {
+                m_hover_clear = false;
+                m_hover_search = false;
+                mark_needs_paint();
+            }
+            if (orig_cancel) orig_cancel(e);
+        };
+
         m_input->on_pointer_down = [this, orig_down](PointerEvent& e) {
             if (m_disabled) return;
             if (e.button == PointerButton::Primary) {
-                if (!m_text.empty() && input_local_clear_rect().contains(e.local_position)) {
+                Rect clear_hit = e.is_touch()
+                    ? touch::expand_hit_rect(input_local_clear_rect(), 36.0f)
+                    : input_local_clear_rect();
+                Rect search_hit = e.is_touch()
+                    ? touch::expand_hit_rect(input_local_search_rect(), 36.0f)
+                    : input_local_search_rect();
+                if (!m_text.empty() && clear_hit.contains(e.local_position)) {
                     m_text.clear();
                     m_input->set_text("");
                     m_input->set_cursor_index(0);
@@ -471,7 +538,7 @@ private:
                     e.stop_propagation();
                     return;
                 }
-                if (input_local_search_rect().contains(e.local_position)) {
+                if (search_hit.contains(e.local_position)) {
                     close_popup();
                     if (m_on_query_submitted) m_on_query_submitted(m_text);
                     e.stop_propagation();

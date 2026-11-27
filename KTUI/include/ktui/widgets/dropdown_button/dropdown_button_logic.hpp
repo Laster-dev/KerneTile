@@ -175,7 +175,8 @@ public:
 
         // 兼容直接向 RenderSplitButton 派发指针事件的调用方，按点击区域转发给对应子 RenderButton
         on_pointer_down = [this](PointerEvent& e) {
-            float split_x = std::max(0.0f, size().x - kDropW);
+            float drop_w = (e.device_kind == PointerDeviceKind::Touch) ? std::max(kDropW, 40.0f) : kDropW;
+            float split_x = std::max(0.0f, size().x - drop_w);
             auto& target = (e.local_position.x >= split_x) ? m_drop_btn : m_main_btn;
             if (target && target->on_pointer_down) {
                 PointerEvent child_e = e;
@@ -184,13 +185,18 @@ public:
             }
         };
         on_pointer_up = [this](PointerEvent& e) {
-            float split_x = std::max(0.0f, size().x - kDropW);
+            float drop_w = (e.device_kind == PointerDeviceKind::Touch) ? std::max(kDropW, 40.0f) : kDropW;
+            float split_x = std::max(0.0f, size().x - drop_w);
             auto& target = (e.local_position.x >= split_x) ? m_drop_btn : m_main_btn;
             if (target && target->on_pointer_up) {
                 PointerEvent child_e = e;
                 child_e.local_position = e.local_position - target->offset();
                 target->on_pointer_up(child_e);
             }
+        };
+        on_pointer_cancel = [this](PointerEvent& e) {
+            if (m_main_btn && m_main_btn->on_pointer_cancel) m_main_btn->on_pointer_cancel(e);
+            if (m_drop_btn && m_drop_btn->on_pointer_cancel) m_drop_btn->on_pointer_cancel(e);
         };
     }
 

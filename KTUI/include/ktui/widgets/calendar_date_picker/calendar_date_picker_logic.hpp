@@ -448,6 +448,18 @@ private:
                 e.stop_propagation();
                 return;
             }
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_down) {
+                float dx = e.local_position.x - m_touch_start.x;
+                float dy = e.local_position.y - m_touch_start.y;
+                if (!m_touch_swiped && (std::abs(dx) > 36.0f || std::abs(dy) > 36.0f)) {
+                    m_touch_swiped = true;
+                    int step = (std::abs(dx) >= std::abs(dy)) ? (dx < 0.0f ? 1 : -1) : (dy < 0.0f ? 1 : -1);
+                    navigate_page(step);
+                }
+                e.stop_propagation();
+                return;
+            }
+            if (e.device_kind == PointerDeviceKind::Touch) return;
             bool ht = title_btn_rect().contains(e.local_position);
             bool hp = prev_btn_rect().contains(e.local_position);
             bool hn = next_btn_rect().contains(e.local_position);
@@ -471,8 +483,38 @@ private:
             m_hover_ym = -1;
             mark_needs_paint();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_down = false;
+            m_touch_swiped = false;
+            m_hover_title = m_hover_prev = m_hover_next = false;
+            m_hover_cell = -1;
+            m_hover_ym = -1;
+            mark_needs_paint();
+        };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
+            if (e.device_kind == PointerDeviceKind::Touch) {
+                m_touch_down = true;
+                m_touch_swiped = false;
+                m_touch_start = e.local_position;
+                return;
+            }
+            handle_calendar_tap(e);
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (e.device_kind == PointerDeviceKind::Touch && m_touch_down) {
+                bool was_swipe = m_touch_swiped;
+                m_touch_down = false;
+                m_touch_swiped = false;
+                if (!was_swipe) {
+                    handle_calendar_tap(e);
+                }
+                e.stop_propagation();
+            }
+        };
+    }
+
+    void handle_calendar_tap(PointerEvent& e) {
             if (title_btn_rect().contains(e.local_position)) {
                 if (m_view_mode == ViewMode::Day) {
                     m_view_mode = ViewMode::Month;
@@ -546,10 +588,12 @@ private:
                     e.stop_propagation();
                 }
             }
-        };
     }
 
     ViewMode m_view_mode{ViewMode::Day};
+    bool m_touch_down{false};
+    bool m_touch_swiped{false};
+    PointF m_touch_start{0.0f, 0.0f};
     bool m_range_mode{false};
     bool m_picking_end{false};
     CalendarDate m_selected;
@@ -635,6 +679,14 @@ public:
         if (m_min_date.is_valid() && d.compare(m_min_date) < 0) return false;
         if (m_max_date.is_valid() && d.compare(m_max_date) > 0) return false;
         return true;
+    }
+
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
     }
 
     void perform_layout() override {
@@ -787,6 +839,12 @@ private:
             }
         };
         on_pointer_exit = [this](PointerEvent&) {
+            m_hovered = false;
+            m_pressed = false;
+            m_reveal_active = false;
+            mark_needs_paint();
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
             m_hovered = false;
             m_pressed = false;
             m_reveal_active = false;

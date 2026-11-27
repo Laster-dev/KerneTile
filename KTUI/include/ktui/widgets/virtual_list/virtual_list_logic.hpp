@@ -265,18 +265,24 @@ private:
             float total_h = static_cast<float>(m_item_count) * m_item_height;
             if (e.type == PlatformEventType::PointerDown) {
                 auto m = m_scrollbar.compute_metrics(vp, total_h, m_physics.offset());
-                if (m_scrollbar.hit_test(e.local_position, m) != WinUIScrollBar::HitPart::None) return;
+                if (m_scrollbar.hit_test(e.local_position, m, e.device_kind) != WinUIScrollBar::HitPart::None) return;
                 m_scrollbar.handle_pointer_up();
                 if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
+                    m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f);
                     m_touch_tracking = true;
                     m_touch_dragging = false;
                     m_touch_start_y = e.position.y;
                     m_touch_last_y = e.position.y;
                     m_physics.begin_touch_drag();
+                    if (m_touch_braked) {
+                        e.gesture_capture_target = this;
+                        e.stop_propagation();
+                    }
                 }
             } else if (e.type == PlatformEventType::PointerMove && m_touch_tracking && !m_touch_dragging && !m_scrollbar.is_dragging()) {
-                if (std::abs(e.position.y - m_touch_start_y) > 8.0f) {
+                if (std::abs(e.position.y - m_touch_start_y) > touch::kTouchSlopPx) {
                     m_touch_dragging = true;
+                    m_touch_braked = false;
                     m_physics.apply_touch_drag(e.position.y - m_touch_last_y);
                     m_touch_last_y = e.position.y;
                     m_scrollbar.notify_activity();
@@ -286,6 +292,12 @@ private:
                     e.stop_propagation();
                 }
             } else if (e.type == PlatformEventType::PointerUp) {
+                if (m_touch_braked) {
+                    m_touch_braked = false;
+                    m_touch_tracking = false;
+                    e.stop_propagation();
+                    return;
+                }
                 if (!m_touch_dragging && m_touch_tracking) {
                     m_touch_tracking = false;
                     if (std::abs(m_physics.overscroll_amount()) > 0.05f) {
@@ -361,6 +373,15 @@ private:
             m_scrollbar.handle_pointer_exit();
             mark_needs_paint();
         };
+
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_touch_dragging = false;
+            m_touch_tracking = false;
+            m_touch_braked = false;
+            m_scrollbar.handle_pointer_exit();
+            mark_needs_paint();
+        };
     }
 
     size_t m_item_count{0};
@@ -377,6 +398,7 @@ private:
     size_t m_last_visible{0};
 
     bool m_viewport_hovered{false};
+    bool m_touch_braked{false};
 
     bool m_touch_tracking{false};
     bool m_touch_dragging{false};

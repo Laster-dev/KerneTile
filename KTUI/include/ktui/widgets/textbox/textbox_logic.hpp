@@ -44,6 +44,14 @@ public:
 
     ~RenderTextBox() override = default;
 
+    bool hit_test_touch(HitTestResult& result, PointF local_position) override {
+        if (!touch::expand_hit_rect(bounds()).contains(local_position)) {
+            return false;
+        }
+        result.add(this, local_position);
+        return true;
+    }
+
     // 向后兼容历史接口 (Legacy Setter)
     void set_properties(std::string text, std::string placeholder,
                         float h, float radius, EdgeInsets pad,

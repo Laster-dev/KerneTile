@@ -293,6 +293,14 @@ private:
             }
             e.stop_propagation();
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_hovered || m_pressed || m_reveal_active) {
+                m_hovered = false;
+                m_pressed = false;
+                m_reveal_active = false;
+                mark_needs_paint();
+            }
+        };
     }
 
     std::string m_header;

@@ -253,7 +253,10 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             if (e.button != PointerButton::Primary) return;
-            if (close_x_rect().contains(e.local_position)) {
+            Rect x_hit = e.is_touch() ? touch::expand_hit_rect(close_x_rect(), 40.0f) : close_x_rect();
+            Rect act_hit = e.is_touch() ? touch::expand_hit_rect(action_btn_rect(), 40.0f) : action_btn_rect();
+            Rect cls_hit = e.is_touch() ? touch::expand_hit_rect(close_btn_rect(), 40.0f) : close_btn_rect();
+            if (x_hit.contains(e.local_position)) {
                 auto cb = m_desc.on_close;
                 auto dis = m_on_dismiss_self;
                 if (dis) dis();
@@ -261,7 +264,7 @@ private:
                 e.stop_propagation();
                 return;
             }
-            if (!m_desc.action_text.empty() && action_btn_rect().contains(e.local_position)) {
+            if (!m_desc.action_text.empty() && act_hit.contains(e.local_position)) {
                 auto cb = m_desc.on_action;
                 auto dis = m_on_dismiss_self;
                 if (dis) dis();
@@ -269,17 +272,43 @@ private:
                 e.stop_propagation();
                 return;
             }
-            if (!m_desc.close_text.empty() && close_btn_rect().contains(e.local_position)) {
+            if (!m_desc.close_text.empty() && cls_hit.contains(e.local_position)) {
                 auto cb = m_desc.on_close;
                 auto dis = m_on_dismiss_self;
                 if (dis) dis();
                 if (cb) cb();
                 e.stop_propagation();
+                return;
             }
+            if (e.is_touch()) {
+                m_touch_swiping = true;
+                m_touch_start = e.local_position;
+                e.stop_propagation();
+            }
+        };
+        on_pointer_up = [this](PointerEvent& e) {
+            if (m_touch_swiping && e.is_touch()) {
+                m_touch_swiping = false;
+                float dist = std::hypot(e.local_position.x - m_touch_start.x, e.local_position.y - m_touch_start.y);
+                if (dist > 48.0f) {
+                    auto cb = m_desc.on_close;
+                    auto dis = m_on_dismiss_self;
+                    if (dis) dis();
+                    if (cb) cb();
+                    e.stop_propagation();
+                }
+            }
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_touch_swiping = false;
+            m_hover_x = m_hover_action = m_hover_close = false;
+            mark_needs_paint();
         };
     }
 
     TeachingTipDesc m_desc;
+    bool m_touch_swiping{false};
+    PointF m_touch_start{};
     bool m_show_tail{true};
     bool m_tail_on_top{true};
     float m_tail_center_x{160.0f};

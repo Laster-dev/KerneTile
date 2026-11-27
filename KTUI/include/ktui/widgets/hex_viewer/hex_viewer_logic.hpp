@@ -414,13 +414,17 @@ private:
                 m_touch_dragging = true;
                 m_touch_prev_y = ev.local_position.y;
             }
-            if (m_endian_btn.contains(ev.local_position)) {
+            Rect endian_hit = ev.is_touch() ? touch::expand_hit_rect(m_endian_btn, 40.0f) : m_endian_btn;
+            Rect copy_hit = ev.is_touch() ? touch::expand_hit_rect(m_copy_btn, 40.0f) : m_copy_btn;
+            if (endian_hit.contains(ev.local_position)) {
                 m_big_endian = !m_big_endian;
+                m_touch_dragging = false;
                 mark_needs_paint();
                 ev.stop_propagation();
                 return;
             }
-            if (m_copy_btn.contains(ev.local_position)) {
+            if (copy_hit.contains(ev.local_position)) {
+                m_touch_dragging = false;
                 auto [lo, hi] = selection_range();
                 size_t start_i = (lo >= 0 && hi > lo) ? static_cast<size_t>(lo) : 0;
                 size_t end_i   = (lo >= 0 && hi > lo) ? static_cast<size_t>(hi + 1) : m_bytes.size();
@@ -453,6 +457,14 @@ private:
             if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
             m_touch_dragging = false;
             m_mouse_selecting = false;
+        };
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_viewport_hovered = false;
+            m_touch_dragging = false;
+            m_mouse_selecting = false;
+            m_hovered = -1;
+            m_scrollbar.handle_pointer_exit();
+            mark_needs_paint();
         };
 
         on_key = [this](KeyEvent& ev) {

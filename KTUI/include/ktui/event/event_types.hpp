@@ -46,9 +46,12 @@ public:
     PointerButton button = PointerButton::None;
     PointerDeviceKind device_kind = PointerDeviceKind::Mouse;
     uint32_t pointer_id{0};
+    Vec2 contact_size{0.0f, 0.0f};
     RenderBox* gesture_capture_target{nullptr}; // 祖先手势识别器 (ScrollView / NavigationView) 声明独占捕获
     KeyModifiers modifiers;
     uint64_t timestamp_ms{0};
+
+    [[nodiscard]] bool is_touch() const noexcept { return device_kind == PointerDeviceKind::Touch; }
 
     PointerEvent() = default;
     PointerEvent(PlatformEventType t, PointF pos, PointerButton btn = PointerButton::None,

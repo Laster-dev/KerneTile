@@ -332,6 +332,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
 private:
     [[nodiscard]] float normalize_val(float v) const noexcept {
         float span = m_data.max_value - m_data.min_value;
@@ -393,6 +401,15 @@ private:
         };
 
         on_pointer_exit = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_hovered_thumb = -1;
+            m_last_anim_time = std::chrono::steady_clock::now();
+            mark_needs_paint();
+        };
+
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_state.is_pressed = false;
+            m_state.is_dragging = false;
             m_state.is_hovered = false;
             m_hovered_thumb = -1;
             m_last_anim_time = std::chrono::steady_clock::now();

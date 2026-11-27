@@ -475,7 +475,10 @@ inline void RenderDockPanel::setup_behavior() {
         for (const auto& th : m_tab_hits) {
             if (th.rect.contains(p)) {
                 auto& pane = m_panes[th.pane_index];
-                if (pane.closable && !th.close_rect.is_empty() && th.close_rect.contains(p)) {
+                Rect close_hit = (ev.is_touch() && !th.close_rect.is_empty())
+                    ? touch::expand_hit_rect(th.close_rect, 36.0f)
+                    : th.close_rect;
+                if (pane.closable && !close_hit.is_empty() && close_hit.contains(p)) {
                     if (pane.content_box) detail::forget_render_subtree(pane.content_box.get());
                     pane.closed = true;
                     mark_needs_layout();
@@ -600,6 +603,18 @@ inline void RenderDockPanel::setup_behavior() {
             }
             ev.stop_propagation();
         }
+    };
+
+    on_pointer_cancel = [this](PointerEvent&) {
+        m_dragging_splitter.reset();
+        m_dragging_pane.reset();
+        m_drop_target.reset();
+        m_drag_started = false;
+        m_will_detach_on_drop = false;
+        m_hovered_splitter.reset();
+        m_hovered_pane_index = SIZE_MAX;
+        m_hovered_detach_zone.reset();
+        mark_needs_paint();
     };
 }
 

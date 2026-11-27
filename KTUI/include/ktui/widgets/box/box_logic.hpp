@@ -318,6 +318,12 @@ private:
                 mark_needs_paint();
             }
         };
+        on_pointer_cancel = [this](PointerEvent&) {
+            if (m_tactile_press.enabled()) {
+                m_tactile_press.on_exit();
+                mark_needs_paint();
+            }
+        };
     }
 
     float m_width{-1.0f};

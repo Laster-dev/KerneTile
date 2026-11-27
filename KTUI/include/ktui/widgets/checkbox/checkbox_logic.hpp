@@ -237,6 +237,14 @@ public:
         }
     }
 
+    bool hit_test_touch(HitTestResult& result, PointF position) override {
+        if (touch::expand_hit_rect_for_touch(bounds(), touch::kMinTargetSize).contains(position)) {
+            result.add(this, position);
+            return true;
+        }
+        return false;
+    }
+
     void apply_custom_overrides(std::optional<Color> bg_normal,
                                 std::optional<Color> bg_checked,
                                 std::optional<Color> border,
@@ -299,17 +307,33 @@ private:
             mark_needs_paint();
         };
 
+        on_pointer_cancel = [this](PointerEvent&) {
+            m_state.is_hovered = false;
+            m_state.is_pressed = false;
+            mark_needs_paint();
+        };
+
         on_pointer_down = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary && !m_state.is_disabled) {
                 m_state.is_pressed = true;
-                cycle_state();
+                if (ev.device_kind != PointerDeviceKind::Touch) {
+                    cycle_state();
+                } else {
+                    mark_needs_paint();
+                }
             }
         };
 
         on_pointer_up = [this](PointerEvent& ev) {
             if (ev.button == PointerButton::Primary && !m_state.is_disabled) {
+                const bool was_pressed = m_state.is_pressed;
                 m_state.is_pressed = false;
-                mark_needs_paint();
+                if (ev.device_kind == PointerDeviceKind::Touch && was_pressed) {
+                    m_state.is_hovered = false;
+                    cycle_state();
+                } else {
+                    mark_needs_paint();
+                }
             }
         };
 

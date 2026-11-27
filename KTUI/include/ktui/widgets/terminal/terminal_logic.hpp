@@ -630,6 +630,8 @@ private:
 
     float m_scroll_y{0.0f};
     bool m_stick_to_bottom{true};
+    bool m_touch_scrolling{false};
+    float m_touch_last_y{0.0f};
     WinUIScrollBar m_scrollbar;
 
     bool m_has_selection{false};

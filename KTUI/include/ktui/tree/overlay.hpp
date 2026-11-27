@@ -230,7 +230,10 @@ public:
                 uint64_t eid = entry.id;
                 HitTestResult hit_res;
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                if (content_guard->hit_test(hit_res, local_p)) {
+                const bool hit_ok = (device_kind == PointerDeviceKind::Touch)
+                    ? content_guard->hit_test_touch(hit_res, local_p)
+                    : content_guard->hit_test(hit_res, local_p);
+                if (hit_ok) {
                     m_captured_id = eid;
                     m_captured_target = nullptr;
                     PointerEvent ev(PlatformEventType::PointerDown, pos, button);
@@ -315,20 +318,25 @@ public:
                 uint64_t eid = entry.id;
                 HitTestResult hit_res;
                 PointF local_p{pos.x - entry.global_pos.x, pos.y - entry.global_pos.y};
-                if (content_guard->hit_test(hit_res, local_p)) {
-                    // 维护浮层内深层子控件的 PointerEnter / PointerExit 悬停态
-                    RenderBox* top_hit = hit_res.path().empty() ? nullptr : hit_res.path().front().target;
-                    if (top_hit != m_hovered_target) {
-                        if (m_hovered_target && m_hovered_target->on_pointer_exit) {
-                            PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
-                            m_hovered_target->on_pointer_exit(exit_ev);
-                        }
-                        m_hovered_id = eid;
-                        m_hovered_target = top_hit;
-                        if (m_hovered_target && m_hovered_target->on_pointer_enter) {
-                            PointerEvent enter_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
-                            enter_ev.local_position = hit_res.path().front().local_position;
-                            m_hovered_target->on_pointer_enter(enter_ev);
+                const bool hit_ok = (device_kind == PointerDeviceKind::Touch)
+                    ? content_guard->hit_test_touch(hit_res, local_p)
+                    : content_guard->hit_test(hit_res, local_p);
+                if (hit_ok) {
+                    // 仅鼠标/手写笔维护浮层内深层子控件的 PointerEnter / PointerExit 悬停态，触控屏不残留 hover
+                    if (device_kind != PointerDeviceKind::Touch) {
+                        RenderBox* top_hit = hit_res.path().empty() ? nullptr : hit_res.path().front().target;
+                        if (top_hit != m_hovered_target) {
+                            if (m_hovered_target && m_hovered_target->on_pointer_exit) {
+                                PointerEvent exit_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                                m_hovered_target->on_pointer_exit(exit_ev);
+                            }
+                            m_hovered_id = eid;
+                            m_hovered_target = top_hit;
+                            if (m_hovered_target && m_hovered_target->on_pointer_enter) {
+                                PointerEvent enter_ev(PlatformEventType::PointerMove, pos, PointerButton::None);
+                                enter_ev.local_position = hit_res.path().front().local_position;
+                                m_hovered_target->on_pointer_enter(enter_ev);
+                            }
                         }
                     }
                     PointerEvent ev(PlatformEventType::PointerMove, pos, PointerButton::None);
@@ -398,8 +406,8 @@ public:
         return false;
     }
 
-    // 处理鼠标释放事件
-    bool handle_pointer_up(Vec2 pos, PointerButton button) {
+    // 处理鼠标/触控释放事件
+    bool handle_pointer_up(Vec2 pos, PointerButton button, PointerDeviceKind device_kind = PointerDeviceKind::Mouse) {
         if (m_entries.empty()) return false;
 
         uint64_t captured = m_captured_id;
@@ -423,6 +431,7 @@ public:
                 if (entry.id == captured && captured_target && captured_target != content_guard.get()) {
                     if (captured_target->on_pointer_up) {
                         PointerEvent ev(PlatformEventType::PointerUp, pos, button);
+                        ev.device_kind = device_kind;
                         Vec2 tg = captured_target->global_offset();
                         ev.local_position = PointF{pos.x - tg.x, pos.y - tg.y};
                         captured_target->on_pointer_up(ev);
@@ -431,8 +440,13 @@ public:
                 }
 
                 HitTestResult hit_res;
-                if (entry_rect.contains(pos) && content_guard->hit_test(hit_res, local_p)) {
+                const bool hit_ok = entry_rect.contains(pos) &&
+                    ((device_kind == PointerDeviceKind::Touch)
+                        ? content_guard->hit_test_touch(hit_res, local_p)
+                        : content_guard->hit_test(hit_res, local_p));
+                if (hit_ok) {
                     PointerEvent ev(PlatformEventType::PointerUp, pos, button);
+                    ev.device_kind = device_kind;
                     for (const auto& h : hit_res.path()) {
                         if (h.target == captured_target && entry.id == captured && captured_target != content_guard.get()) {
                             continue; // 已在上方分发过，避免重复触发
