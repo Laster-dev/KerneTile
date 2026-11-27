@@ -404,39 +404,25 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
         require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "re-grabbed rebound settles cleanly");
     }
 
-    // 5. Wheel overscroll past top and bottom + automatic SpringSolver rebound
+    // 5. Mouse wheel strictly clamped to [0, max_scroll] even when rubber_band_overscroll is enabled (overscroll is touch-only)
     {
         constexpr float d = 400.0f;
-        constexpr float c = 0.55f;
         SmoothScrollPhysics phys;
         phys.set_rubber_band_enabled(true);
         phys.set_viewport_extent(d);
         phys.set_max_scroll(500.0f);
 
-        // Top wheel overscroll
+        // Top wheel: must stay strictly clamped at 0 without overscroll
         phys.jump_to(0.0f);
         phys.add_wheel_delta(-36.0f); // -100px
-        const float expected_100 = (100.0f * d * c) / (d + c * 100.0f);
-        require(std::abs((-phys.target()) - expected_100) < 1e-4f, "wheel top overscroll target matches f(100)");
-        for (int i = 0; i < 120; ++i) {
-            FrameClock::global().advance_virtual(1.0f / 60.0f);
-            if (!phys.update() && !phys.is_bouncing()) break;
-        }
-        require(std::abs(phys.offset()) < 1e-3f && !phys.is_bouncing(), "wheel top overscroll settles at 0");
+        require(phys.target() == 0.0f && phys.offset() == 0.0f && !phys.is_bouncing(),
+                "wheel at top must stay clamped at 0 (touch-only overscroll)");
 
-        // Bottom wheel overscroll
+        // Bottom wheel: must stay strictly clamped at 500 without overscroll
         phys.jump_to(500.0f);
         phys.add_wheel_delta(36.0f); // +100px
-        require(std::abs((phys.target() - 500.0f) - expected_100) < 1e-4f, "wheel bottom overscroll target matches f(100)");
-        bool saw_bottom_overscroll = false;
-        for (int i = 0; i < 120; ++i) {
-            FrameClock::global().advance_virtual(1.0f / 60.0f);
-            bool active = phys.update();
-            if (phys.offset() > 510.0f) saw_bottom_overscroll = true;
-            if (!active && !phys.is_bouncing()) break;
-        }
-        require(saw_bottom_overscroll, "wheel bottom overscroll exceeded max_scroll");
-        require(std::abs(phys.offset() - 500.0f) < 1e-3f && !phys.is_bouncing(), "wheel bottom overscroll settles at 500");
+        require(phys.target() == 500.0f && phys.offset() == 500.0f && !phys.is_bouncing(),
+                "wheel at bottom must stay clamped at max_scroll (touch-only overscroll)");
     }
 
     // 6. Regression: set_max_scroll shrinking mid-bounce rebinds SpringSolver cleanly and never settles out of bounds
@@ -459,39 +445,23 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
         require(phys.target() <= 300.0f && phys.offset() <= 300.5f, "offset and target remain within new max_scroll");
     }
 
-    // 7. Regression: sub-0.1px scroll_by at boundaries preserves f(x) target and settles cleanly
+    // 7. Regression: sub-0.1px wheel scroll_by at boundaries stays clamped cleanly
     {
         constexpr float d = 400.0f;
-        constexpr float c = 0.55f;
-        constexpr float x = 0.01f;
-        const float expected_tiny = (x * d * c) / (d + c * x);
-
         SmoothScrollPhysics phys;
         phys.set_rubber_band_enabled(true);
         phys.set_viewport_extent(d);
         phys.set_max_scroll(500.0f);
 
         phys.jump_to(0.0f);
-        phys.scroll_by(-x);
-        require(std::abs((-phys.target()) - expected_tiny) < 1e-4f,
-                "tiny scroll_by(-0.01) target matches -f(0.01) within 1e-4");
-        for (int i = 0; i < 60; ++i) {
-            FrameClock::global().advance_virtual(1.0f / 60.0f);
-            if (!phys.update() && !phys.is_bouncing()) break;
-        }
-        require(std::abs(phys.offset()) < 1e-4f && !phys.is_animating(),
-                "tiny top scroll_by settles cleanly at 0");
+        phys.scroll_by(-0.01f);
+        require(phys.target() == 0.0f && phys.offset() == 0.0f && !phys.is_animating(),
+                "tiny top scroll_by stays clamped at 0");
 
         phys.jump_to(500.0f);
-        phys.scroll_by(x);
-        require(std::abs((phys.target() - 500.0f) - expected_tiny) < 1e-4f,
-                "tiny scroll_by(+0.01) target matches +f(0.01) within 1e-4");
-        for (int i = 0; i < 60; ++i) {
-            FrameClock::global().advance_virtual(1.0f / 60.0f);
-            if (!phys.update() && !phys.is_bouncing()) break;
-        }
-        require(std::abs(phys.offset() - 500.0f) < 1e-4f && !phys.is_animating(),
-                "tiny bottom scroll_by settles cleanly at 500");
+        phys.scroll_by(0.01f);
+        require(phys.target() == 500.0f && phys.offset() == 500.0f && !phys.is_animating(),
+                "tiny bottom scroll_by stays clamped at 500");
     }
 
     // 8. Regression: disabling rubber_band mid-wheel-overscroll clears is_animating() immediately
@@ -501,11 +471,13 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
         phys.set_viewport_extent(400.0f);
         phys.set_max_scroll(500.0f);
         phys.jump_to(0.0f);
-        phys.add_wheel_delta(-36.0f);
-        require(phys.is_animating(), "wheel overscroll impulse animating before disable");
+        phys.begin_touch_drag();
+        phys.apply_touch_drag_with_dt(120.0f, 0.016);
+        phys.end_touch_drag_for_test(0.0);
+        require(phys.is_bouncing(), "touch overscroll bouncing before disable");
         phys.set_rubber_band_enabled(false);
         require(!phys.is_animating() && !phys.is_bouncing() && phys.offset() == 0.0f && phys.target() == 0.0f,
-                "disabling rubber_band mid-wheel-overscroll clears is_animating() and clamps to 0");
+                "disabling rubber_band mid-touch-overscroll clears is_animating() and clamps to 0");
     }
 
     // 9. Regression: max_scroll == 0.0f disabled clamps strictly, enabled overscrolls and rebounds

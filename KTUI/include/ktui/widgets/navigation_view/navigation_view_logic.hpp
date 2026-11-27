@@ -619,7 +619,7 @@ private:
     void paint_content_area(PaintContext& ctx, const ResolvedNavigationViewStyle& style, NavigationPaneDisplayMode eff);
 
     void paint_item_pointer_reveal(PaintContext& ctx, Rect r, float corner_radius, bool enabled, float alpha_mul = 1.0f) const {
-        if (!m_data.enable_pointer_reveal || !m_has_reveal_cursor || !enabled || r.is_empty() || alpha_mul <= 0.01f) {
+        if (!(m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) || !m_has_reveal_cursor || !enabled || r.is_empty() || alpha_mul <= 0.01f) {
             return;
         }
         constexpr float kRevealRadius = 72.0f;

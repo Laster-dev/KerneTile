@@ -234,7 +234,7 @@ public:
 
         // 2. O(1) 视口虚拟化数据行绘制 (支持默认列表边缘渐隐羽化与表头接触分隔线)
         Rect body_vp = Rect::from_xywh(1.0f, kHeaderH + 1.0f, std::max(0.0f, w - 2.0f), std::max(0.0f, h - kHeaderH - 2.0f));
-        float scroll_y = m_physics.offset();
+        float scroll_y = std::round(m_physics.offset());
         float top_f = 0.0f;
         float bot_f = 0.0f;
         if (m_edge_feather && m_feather_size > 0.5f && body_vp.height() > 8.0f) {

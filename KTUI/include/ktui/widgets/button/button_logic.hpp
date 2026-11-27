@@ -353,8 +353,9 @@ public:
                 clip_r, bw, m_tactile_press.tilted_light_dir(), 0.22f * press_w);
         }
 
-        // 4.5 Opt-in Fluent Pointer Reveal
-        if (m_data.enable_pointer_reveal && m_reveal_active && !m_state.is_disabled && !m_state.is_loading) {
+        // 4.5 Opt-in Fluent Pointer Reveal (支持控件级或 Theme 全局开启)
+        if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) &&
+            m_reveal_active && !m_state.is_disabled && !m_state.is_loading) {
             const bool is_dark = ThemeContext::current().is_dark;
             const bool use_light_sheen = is_dark ||
                 m_data.variant == ButtonVariant::Accent ||
@@ -478,7 +479,7 @@ private:
                     m_tactile_press.on_move(ev.local_position, m_size);
                     need_paint = true;
                 }
-                if (m_data.enable_pointer_reveal &&
+                if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) &&
                     (!m_reveal_active ||
                      std::abs(m_reveal_pos.x - ev.local_position.x) > 0.01f ||
                      std::abs(m_reveal_pos.y - ev.local_position.y) > 0.01f)) {

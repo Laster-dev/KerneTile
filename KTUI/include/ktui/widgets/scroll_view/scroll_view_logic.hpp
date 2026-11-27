@@ -166,8 +166,9 @@ public:
         }
         ctx.push_feathered_clip(vp, 0.0f, top_f, bot_f);
         if (m_child_box) {
-            // 同步更新子节点的 offset，使内部 ComboBox 弹出定位、Slider 拖拽、TextInput IME 坐标全局精确
-            m_child_box->set_offset(Vec2{0.0f, -m_physics.offset()});
+            // 像素对齐滚动平移 (std::round)，确保内容与文字随滚动整像素同步移动，杜绝子像素抖动
+            const float snapped_scroll = std::round(m_physics.offset());
+            m_child_box->set_offset(Vec2{0.0f, -snapped_scroll});
             PaintContext::OffsetScope scroll_scope(ctx, m_child_box->offset());
             m_child_box->paint(ctx);
         }

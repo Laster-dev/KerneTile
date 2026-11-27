@@ -217,7 +217,7 @@ private:
             return;
         }
 
-        float scroll_y = m_physics.offset();
+        float scroll_y = std::round(m_physics.offset());
         size_t first = static_cast<size_t>(std::max(0.0f, std::floor(scroll_y / m_item_height)));
         size_t vis_count = static_cast<size_t>(std::ceil(size().y / m_item_height)) + 1;
         size_t start = (first > m_overscan) ? (first - m_overscan) : 0;

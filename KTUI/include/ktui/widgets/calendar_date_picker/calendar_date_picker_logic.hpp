@@ -443,7 +443,7 @@ private:
     void setup_behavior() {
         on_pointer_move = [this](PointerEvent& e) {
             if (e.type == PlatformEventType::PointerScroll) {
-                int step = (e.delta.y > 0.0f) ? -1 : 1;
+                int step = (e.delta.y > 0.0f) ? 1 : -1;
                 navigate_page(step);
                 e.stop_propagation();
                 return;

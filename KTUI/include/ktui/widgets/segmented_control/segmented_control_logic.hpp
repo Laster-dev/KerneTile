@@ -99,7 +99,7 @@ public:
             const Color sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.40f} : Color{0.0f, 0.04f, 0.12f, 0.18f};
             ctx.draw_inset_shadow(track_r, sh, 6.0f, 4.0f, 0.3f, Vec2{0.0f, 1.4f});
         }
-        if (m_pointer_reveal && m_reveal_active) {
+        if ((m_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active) {
             const Color surf = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.04f};
             const Color edge = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.26f} : Color{0.0f, 0.0f, 0.0f, 0.18f};
             ctx.draw_pointer_reveal(track_r, m_reveal_pos, 72.0f, surf, edge, 6.0f, 1.0f);
@@ -218,7 +218,7 @@ private:
             int h = hit_segment(e.local_position);
             bool dirty = (h != m_hovered);
             m_hovered = h;
-            if (m_pointer_reveal) {
+            if (m_pointer_reveal || ThemeContext::current().enable_pointer_reveal) {
                 m_reveal_pos = e.local_position;
                 m_reveal_active = true;
                 dirty = true;

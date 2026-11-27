@@ -590,22 +590,15 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
     p.end_touch_drag_for_test(0.12);
     require(!p.is_flinging(), "pause before lift suppresses fling");
 
-    // 6. 滚轮输入越界橡皮筋 + 自动过渡 SpringSolver 回弹
+    // 6. 鼠标滚轮输入在边界处严格钳制（过冲回弹仅在触控模式下启用）
     p.jump_to(0.0f);
     p.add_wheel_delta(-36.0f); // -100px
-    const float expected_wheel_100 = (100.0f * d * c) / (d + c * 100.0f);
-    require(std::abs((-p.target()) - expected_wheel_100) < 1e-4f, "wheel top overscroll target matches f(x)");
-    bool saw_wheel_overscroll = false;
-    bool saw_wheel_bounce = false;
-    for (int i = 0; i < 120; ++i) {
-        FrameClock::global().advance_virtual(1.0f / 60.0f);
-        bool active = p.update();
-        if (p.offset() < -10.0f) saw_wheel_overscroll = true;
-        if (p.is_bouncing()) saw_wheel_bounce = true;
-        if (!active && !p.is_bouncing()) break;
-    }
-    require(saw_wheel_overscroll && saw_wheel_bounce, "wheel overscroll transitioned to SpringSolver bounce");
-    require(std::abs(p.offset()) < 0.5f && !p.is_bouncing(), "wheel overscroll settled at 0");
+    require(p.target() == 0.0f && p.offset() == 0.0f && !p.is_bouncing(),
+            "wheel at top stays clamped at 0 (touch-only overscroll)");
+    p.jump_to(1200.0f);
+    p.add_wheel_delta(36.0f); // +100px
+    require(p.target() == 1200.0f && p.offset() == 1200.0f && !p.is_bouncing(),
+            "wheel at bottom stays clamped at 1200 (touch-only overscroll)");
 
     // 7. 运行时关闭 rubber_band_overscroll 立即复位
     p.jump_to(0.0f);
@@ -751,8 +744,8 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
         run_touch_drag_past_top(*vl);
         require(std::abs((-vl->scroll_offset()) - expected_container_100) < 1e-4f,
                 "VirtualList overscrolled before disable");
-        require(std::abs(min_child_y(*vl) - expected_container_100) < 1e-3f,
-                "VirtualList child 0 shifted during overscroll");
+        require(std::abs(min_child_y(*vl) - std::round(expected_container_100)) < 1e-3f,
+                "VirtualList child 0 shifted during overscroll (pixel-snapped)");
 
         // Disable via set_rubber_band_enabled(false) and paint() WITHOUT calling layout()
         vl->set_rubber_band_enabled(false);
@@ -815,14 +808,12 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
             require(std::abs(sv_rb->scroll_offset()) < 0.5f, "ScrollView max_scroll==0 touch rebounds to 0");
 
             send_wheel(*sv_rb, -36.0f);
-            float min_wheel = 0.0f;
-            for (int i = 0; i < 90; ++i) {
+            for (int i = 0; i < 20; ++i) {
                 FrameClock::global().advance_virtual(1.0f / 60.0f);
                 sv_rb->paint(headless_ctx);
-                min_wheel = std::min(min_wheel, sv_rb->scroll_offset());
+                require(sv_rb->scroll_offset() == 0.0f,
+                        "ScrollView max_scroll==0 mouse wheel stays clamped at 0 (touch-only overscroll)");
             }
-            require(min_wheel < -10.0f && std::abs(sv_rb->scroll_offset()) < 0.5f,
-                    "ScrollView max_scroll==0 enabled wheel overscrolls and rebounds");
         }
 
         // 10b. VirtualList (3 items * 36 = 108 < viewport 300 => max_scroll == 0)
@@ -855,15 +846,13 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
             }
             require(std::abs(vl_rb->scroll_offset()) < 0.5f, "VirtualList max_scroll==0 touch rebounds to 0");
 
-            send_wheel(*vl_rb, 36.0f); // bottom overscroll on short list
-            float max_wheel = 0.0f;
-            for (int i = 0; i < 90; ++i) {
+            send_wheel(*vl_rb, 36.0f); // mouse wheel stays clamped on short list
+            for (int i = 0; i < 20; ++i) {
                 FrameClock::global().advance_virtual(1.0f / 60.0f);
                 vl_rb->paint(headless_ctx);
-                max_wheel = std::max(max_wheel, vl_rb->scroll_offset());
+                require(vl_rb->scroll_offset() == 0.0f,
+                        "VirtualList max_scroll==0 mouse wheel stays clamped at 0 (touch-only overscroll)");
             }
-            require(max_wheel > 10.0f && std::abs(vl_rb->scroll_offset()) < 0.5f,
-                    "VirtualList max_scroll==0 enabled wheel overscrolls and rebounds");
         }
 
         // 10c. DataGrid (3 rows * 34 = 102 < body_h 300 => max_scroll == 0)
@@ -899,14 +888,12 @@ void test_mobile_touch_scroll_inertia_and_overscroll_bounce() {
             require(std::abs(dg_rb->scroll_offset()) < 0.5f, "DataGrid max_scroll==0 touch rebounds to 0");
 
             send_wheel(*dg_rb, -36.0f);
-            float min_wheel = 0.0f;
-            for (int i = 0; i < 90; ++i) {
+            for (int i = 0; i < 20; ++i) {
                 FrameClock::global().advance_virtual(1.0f / 60.0f);
                 dg_rb->paint(headless_ctx);
-                min_wheel = std::min(min_wheel, dg_rb->scroll_offset());
+                require(dg_rb->scroll_offset() == 0.0f,
+                        "DataGrid max_scroll==0 mouse wheel stays clamped at 0 (touch-only overscroll)");
             }
-            require(min_wheel < -10.0f && std::abs(dg_rb->scroll_offset()) < 0.5f,
-                    "DataGrid max_scroll==0 enabled wheel overscrolls and rebounds");
         }
     }
 

@@ -207,6 +207,14 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     app = &application;
     window = std::move(win);
 
+    // Gallery 全局启用 Fluent 指针高光跟随（深浅色主题切换时自动保持）
+    Theme::set_global_pointer_reveal(true);
+    {
+        Theme cur = app->theme.get();
+        cur.enable_pointer_reveal = true;
+        app->theme.set(cur);
+    }
+
     app->theme.subscribe([this](const Theme& t) {
         if (t.is_dark) {
 #if defined(__ANDROID__)
@@ -305,6 +313,8 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .menu_items = {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
             make_cat("cat_tactile", "质感交互", NavigationIcon::Sparkles, true, {
+                {"polish_showcase",         "质感与微交互特性",   "New"},
+                {"squircle",                "Apple 超椭圆圆角",   "New"},
                 {"tactile_font_gamma",      "文字光渗补偿",       "New"},
                 {"tactile_directional_rim", "方向性玻璃高光",     "New"},
                 {"tactile_oklab",           "OkLab 色彩插值",     "New"},
@@ -367,8 +377,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"settings_card",     "SettingsCard",         "New"}
             }),
             make_cat("cat_media", "媒体", NavigationIcon::Media, false, {
-                {"polish_showcase",     "质感与微交互特性", "New"},
-                {"squircle",            "Apple 超椭圆圆角", "New"},
                 {"image",               "Image 位图与动图", "New"},
                 {"svg",                 "NanoSVG 矢量",     nullptr},
                 {"person_picture",      "PersonPicture",    nullptr}

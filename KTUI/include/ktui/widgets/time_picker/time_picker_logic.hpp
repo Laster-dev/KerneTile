@@ -257,7 +257,7 @@ private:
             if (e.type == PlatformEventType::PointerScroll) {
                 int col = 0, off = 0;
                 if (hit_drum(e.local_position, col, off)) {
-                    int step = (e.delta.y > 0.0f) ? -1 : 1;
+                    int step = (e.delta.y > 0.0f) ? 1 : -1;
                     step_col(col, step);
                     e.stop_propagation();
                 }

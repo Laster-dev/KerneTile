@@ -175,7 +175,7 @@ public:
         }
 
         Rect body_vp = body_rect();
-        const float scroll_y = m_physics.offset();
+        const float scroll_y = std::round(m_physics.offset());
         float top_f = 0.0f;
         float bot_f = 0.0f;
         if (m_edge_feather && m_feather_size > 0.5f && body_vp.height() > 8.0f) {

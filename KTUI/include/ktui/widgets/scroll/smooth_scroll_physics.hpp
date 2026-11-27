@@ -9,23 +9,26 @@
 
 namespace ktui {
 
-// 严格对齐 Chromium 源码 (cc/animation/scroll_offset_animation_curve.cc + ui/gfx/geometry/cubic_bezier.cc)
-// 所有常量与公式完全照搬 Chromium Impulse Smooth Scroll，无任何自定义魔数:
-// - kImpulseCurveX1 = 0.25, kImpulseCurveX2 = 0.0, kImpulseCurveY2 = 1.0
-// - kImpulseMinDurationMs = 200.0, kImpulseMaxDurationMs = 500.0, kImpulseMillisecondsPerPixel = 1.5
-// - Windows 单格滚轮位移 = 100.0px (Chromium kDefaultPixelsPerTick)
-// - UpdateTarget 重定目标时通过 ImpulseCurveWithInitialSlope 精确保持当前瞬时斜率 (C1 连续零卡顿)
+// 对齐 Ray-lea/Argus (vendor/gpui-pre/src/elements/div/smooth_scroll.rs) 的丝滑滚动算法:
+// - 反比例分段时长 (Chromium kInverseDelta):
+//     <= 120px -> 12 帧 (200ms), >= 480px -> 6 帧 (100ms), 越快滚动越利落跟手
+// - 速度连续对称三次贝塞尔: cubic-bezier(0.42, 0.42 * slope, 0.58, 1.0)
+//     slope = clamp(velocity * duration / distance, -1000, 1000)，连续滚轮与反向急停均 C1 连续
+// - Windows 单格滚轮位移 = 100.0px (3 行 * 100/3 px/行)
+// - 边界过冲采用极短 55ms 无拖尾外推冲量并即刻移交临界阻尼 SpringSolver 回弹，彻底消除峰值停滞
 class SmoothScrollPhysics {
 public:
-    // Chromium cc/animation/scroll_offset_animation_curve.cc 官方原版常量
-    static constexpr double kImpulseCurveX1 = 0.25;
-    static constexpr double kImpulseCurveX2 = 0.0;
-    static constexpr double kImpulseCurveY2 = 1.0;
-    static constexpr double kImpulseMinDurationMs = 200.0;
-    static constexpr double kImpulseMaxDurationMs = 500.0;
-    static constexpr double kImpulseMillisecondsPerPixel = 1.5;
-    static constexpr double kWindowsWheelPixelsPerNotch = 100.0; // Chromium Windows 默认 3 行 = 100px
-    static constexpr double kPalWheelDeltaPerNotch = 36.0;       // Win32Backend 单格输出 ±36.0f
+    // Argus / Chromium kInverseDelta 官方常量
+    static constexpr double kRampStartPx = 120.0;
+    static constexpr double kRampEndPx = 480.0;
+    static constexpr double kMinFrames = 6.0;                     // 100ms @ 60Hz (长距离/快速滚动)
+    static constexpr double kMaxFrames = 12.0;                    // 200ms @ 60Hz (单格精细滚动)
+    static constexpr double kEaseX1 = 0.42;
+    static constexpr double kEaseX2 = 0.58;
+    static constexpr double kEaseY2 = 1.0;
+    static constexpr double kOverscrollOutDurationSec = 0.055;    // 55ms 极速外推，到达峰值即刻回弹零等待
+    static constexpr double kWindowsWheelPixelsPerNotch = 100.0;  // Windows 默认 3 行 = 100px
+    static constexpr double kPalWheelDeltaPerNotch = 36.0;        // Win32Backend 单格输出 ±36.0f
 
     SmoothScrollPhysics() = default;
 
@@ -198,49 +201,13 @@ public:
         end_touch_drag_internal(m_virtual_time, current_time_sec());
     }
 
-    // 相对增量平滑滚动 (支持 opt-in 滚轮越界橡皮筋)
+    // 相对增量平滑滚动 (鼠标滚轮严格钳制在 [0, max_scroll]；橡皮筋过冲仅在触控拖拽/惯性模式下启用)
     void scroll_by(float delta_px) noexcept {
-        if (!rubber_band_overscroll) {
-            m_bouncing = false;
-            m_flinging = false;
-            m_wheel_overscroll_active = false;
-            scroll_to(static_cast<float>(std::clamp(m_target, 0.0, m_max_scroll)) + delta_px);
-            return;
-        }
-        double now = current_time_sec();
-        if (m_animating) {
-            step_internal(now);
-        }
-        if (m_bouncing || m_flinging) {
-            m_bouncing = false;
-            m_flinging = false;
-        }
-        double base = 0.0;
-        if (m_wheel_overscroll_active) {
-            base = m_raw_wheel_pos;
-        } else if (m_current < -0.05) {
-            base = inv_rubber_band(m_current, m_viewport_extent);
-        } else if (m_current > m_max_scroll + 0.05) {
-            base = m_max_scroll + inv_rubber_band(m_current - m_max_scroll, m_viewport_extent);
-        } else if (m_target < 0.0) {
-            base = inv_rubber_band(m_target, m_viewport_extent);
-        } else if (m_target > m_max_scroll) {
-            base = m_max_scroll + inv_rubber_band(m_target - m_max_scroll, m_viewport_extent);
-        } else {
-            base = m_target;
-        }
-        m_raw_wheel_pos = base + static_cast<double>(delta_px);
-        double visual_target = m_raw_wheel_pos;
-        if (m_raw_wheel_pos < 0.0) {
-            visual_target = rubber_band(m_raw_wheel_pos, m_viewport_extent);
-            m_wheel_overscroll_active = true;
-        } else if (m_raw_wheel_pos > m_max_scroll) {
-            visual_target = m_max_scroll + rubber_band(m_raw_wheel_pos - m_max_scroll, m_viewport_extent);
-            m_wheel_overscroll_active = true;
-        } else {
-            m_wheel_overscroll_active = false;
-        }
-        scroll_to_internal(visual_target, true);
+        m_bouncing = false;
+        m_flinging = false;
+        m_wheel_overscroll_active = false;
+        double base = std::clamp(m_target, 0.0, m_max_scroll);
+        scroll_to(static_cast<float>(base) + delta_px);
     }
 
     // Chromium ScrollOffsetAnimationCurve::UpdateTarget (编程式绝对跳转钳制到 [0, max_scroll])
@@ -372,6 +339,16 @@ private:
         return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     }
 
+    // Argus smooth_scroll.rs::segment(distance) — Chromium kInverseDelta 反比例分段时长
+    [[nodiscard]] static double compute_segment_duration_sec(double distance_px) noexcept {
+        constexpr double kSlope = (kMinFrames - kMaxFrames) / (kRampEndPx - kRampStartPx);
+        double frames = std::clamp(
+            kMaxFrames + (std::abs(distance_px) - kRampStartPx) * kSlope,
+            kMinFrames,
+            kMaxFrames);
+        return frames / 60.0;
+    }
+
     void scroll_to_internal(double target_pos, bool allow_overscroll) noexcept {
         double now = current_time_sec();
         if (m_animating) {
@@ -385,9 +362,9 @@ private:
         double dest = (allow_overscroll && rubber_band_overscroll)
             ? target_pos
             : std::clamp(target_pos, 0.0, m_max_scroll);
-        bool preserve_tiny_overscroll = (allow_overscroll && rubber_band_overscroll && (dest < 0.0 || dest > m_max_scroll));
+        bool is_overscroll_dest = (allow_overscroll && rubber_band_overscroll && (dest < 0.0 || dest > m_max_scroll));
         double new_delta = dest - m_current;
-        if (std::abs(new_delta) < (preserve_tiny_overscroll ? 1e-9 : 0.1)) {
+        if (std::abs(new_delta) < (is_overscroll_dest ? 1e-9 : 0.01)) {
             m_current = dest;
             m_start = dest;
             m_target = dest;
@@ -404,9 +381,9 @@ private:
                 }
                 if (m_current < 0.0 || m_current > m_max_scroll) {
                     m_animating = true;
-                    m_duration = kImpulseMinDurationMs * 0.001;
+                    m_duration = kOverscrollOutDurationSec;
                     m_start_time_sec = now;
-                    m_bezier.init(kImpulseCurveX1, 0.0, kImpulseCurveX2, kImpulseCurveY2);
+                    m_bezier.init(kEaseX1, 0.0, kEaseX2, kEaseY2);
                     return;
                 }
             }
@@ -416,26 +393,24 @@ private:
             return;
         }
 
-        // ImpulseSegmentDuration(new_delta)
-        double duration_ms = std::clamp(
-            std::abs(new_delta) * kImpulseMillisecondsPerPixel,
-            kImpulseMinDurationMs,
-            kImpulseMaxDurationMs);
-        double new_duration = duration_ms * 0.001;
+        // 界内滚动使用 Argus kInverseDelta (100ms~200ms) + cubic-bezier(0.42, 0.42*slope, 0.58, 1.0)
+        // 越界过冲使用 55ms 极速外推，到达橡皮筋峰值瞬间无缝移交 SpringSolver 回弹，零停顿
+        double new_duration = is_overscroll_dest
+            ? kOverscrollOutDurationSec
+            : compute_segment_duration_sec(new_delta);
 
-        // ImpulseCurveWithInitialSlope(slope):
-        // slope = current_velocity * new_duration / new_delta
-        double slope = (std::abs(new_delta) > 1e-6) ? ((m_velocity * new_duration) / new_delta) : 0.0;
-        if (slope < 0.0) slope = 0.0;
+        double slope = (std::abs(new_delta) > 1e-6)
+            ? std::clamp((m_velocity * new_duration) / new_delta, -1000.0, 1000.0)
+            : 0.0;
 
-        double x1 = kImpulseCurveX1;
-        double y1 = x1 * slope;
-        if (y1 > 1.0) {
-            y1 = 1.0;
-            x1 = 1.0 / slope;
+        if (is_overscroll_dest) {
+            // 越界外推使用利落 ease-out，避免在峰值附近拖尾卡顿
+            double clamped_slope = std::clamp(slope, 0.0, 3.0);
+            m_bezier.init(0.18, 0.18 * clamped_slope, 0.45, 1.0);
+        } else {
+            m_bezier.init(kEaseX1, kEaseX1 * slope, kEaseX2, kEaseY2);
         }
 
-        m_bezier.init(x1, y1, kImpulseCurveX2, kImpulseCurveY2);
         m_start = m_current;
         m_target = dest;
         m_duration = new_duration;
@@ -450,6 +425,7 @@ private:
 
     bool evaluate_at(double elapsed) noexcept {
         if (elapsed >= m_duration || m_duration <= 1e-6) {
+            double excess_dt = std::clamp(elapsed - m_duration, 0.0, 0.05);
             m_current = m_target;
             m_velocity = 0.0;
             m_animating = false;
@@ -457,10 +433,12 @@ private:
             if (rubber_band_overscroll) {
                 if (m_current < -0.05) {
                     start_bounce(0.0, 0.0);
+                    if (excess_dt > 1e-4) step_touch_physics(excess_dt);
                     return true;
                 }
                 if (m_current > m_max_scroll + 0.05) {
                     start_bounce(m_max_scroll, 0.0);
+                    if (excess_dt > 1e-4) step_touch_physics(excess_dt);
                     return true;
                 }
             }
@@ -721,7 +699,7 @@ private:
     static constexpr int kMaxSamples = 8;
 
     CubicBezier m_bezier;
-    SpringSolver m_spring{0.0f, SpringConfig{225.0f, 30.0f, 1.0f, 0.1f, 2.0f}};
+    SpringSolver m_spring{0.0f, SpringConfig{320.0f, 35.8f, 1.0f, 0.1f, 2.0f}};
     double m_current{0.0};
     double m_start{0.0};
     double m_target{0.0};

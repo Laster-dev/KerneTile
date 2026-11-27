@@ -396,21 +396,13 @@ target_link_libraries(kernetile_engine PUBLIC
 add_subdirectory(KTUI)
 
 # KTUI Gallery 桌面 / Web / Android 官方控件陈列室应用程序
+file(GLOB_RECURSE KTUI_GALLERY_PAGE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/pages/*.cpp"
+)
 set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/main.cpp
     examples/ktui_gallery/gallery_app.cpp
-    examples/ktui_gallery/pages/home_page.cpp
-    examples/ktui_gallery/pages/layout_pages.cpp
-    examples/ktui_gallery/pages/pro_controls_pages.cpp
-    examples/ktui_gallery/pages/geek_controls_pages.cpp
-    examples/ktui_gallery/pages/basic_input_pages.cpp
-    examples/ktui_gallery/pages/progress_page.cpp
-    examples/ktui_gallery/pages/dialogs_menus_page.cpp
-    examples/ktui_gallery/pages/media_desktop_pages.cpp
-    examples/ktui_gallery/pages/squircle_page.cpp
-    examples/ktui_gallery/pages/tactile_interaction_page.cpp
-    examples/ktui_gallery/pages/polish_showcase_page.cpp
-    examples/ktui_gallery/pages/settings_about_pages.cpp
+    ${KTUI_GALLERY_PAGE_SOURCES}
 )
 if (ANDROID)
     add_library(ktui_gallery SHARED ${KTUI_GALLERY_SOURCES})

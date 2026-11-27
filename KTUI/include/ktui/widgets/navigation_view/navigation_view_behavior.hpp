@@ -199,7 +199,7 @@ inline void RenderNavigationView::setup_behavior() {
                 m_settings_hovered = hov_settings;
                 m_last_anim_time = std::chrono::steady_clock::now();
             }
-            if (m_data.enable_pointer_reveal && e.device_kind != PointerDeviceKind::Touch &&
+            if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && e.device_kind != PointerDeviceKind::Touch &&
                 e.type == PlatformEventType::PointerMove) {
                 const bool over_nav = (e.local_position.y <= 44.0f || cb != ChromeButton::None || top_idx >= 0);
                 if (over_nav) {
@@ -254,7 +254,7 @@ inline void RenderNavigationView::setup_behavior() {
             m_settings_hovered = hov_settings;
             m_last_anim_time = std::chrono::steady_clock::now();
         }
-        if (m_data.enable_pointer_reveal && e.device_kind != PointerDeviceKind::Touch &&
+        if ((m_data.enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && e.device_kind != PointerDeviceKind::Touch &&
             e.type == PlatformEventType::PointerMove) {
             const bool over_nav = (e.local_position.x <= pane_w || cb != ChromeButton::None || r_idx >= 0);
             if (over_nav) {

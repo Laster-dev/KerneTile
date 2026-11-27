@@ -193,7 +193,7 @@ public:
             ctx.draw_directional_rim(bounds(), top_hi, bot_sh, 4.0f, 1.0f, Vec2{-0.18f, -0.98f}, 0.25f);
         }
 
-        if (m_enable_pointer_reveal && m_reveal_active && !m_disabled) {
+        if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active && !m_disabled) {
             const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
                                             : Color{0.0f, 0.0f, 0.0f, 0.05f};
             const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
@@ -254,7 +254,7 @@ private:
         on_pointer_move = [this](PointerEvent& e) {
             if (e.type == PlatformEventType::PointerMove &&
                 e.device_kind != PointerDeviceKind::Touch &&
-                m_enable_pointer_reveal && !m_disabled) {
+                (m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && !m_disabled) {
                 if (!m_reveal_active ||
                     std::abs(m_reveal_pos.x - e.local_position.x) > 0.01f ||
                     std::abs(m_reveal_pos.y - e.local_position.y) > 0.01f) {
@@ -559,7 +559,7 @@ public:
             ctx.draw_rect(Rect::from_xywh(0.0f, m_header_h, w, std::max(0.0f, h - m_header_h)), body_bg, 0.0f, 0.0f);
         }
 
-        if (m_enable_pointer_reveal && m_reveal_active && !m_disabled) {
+        if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && m_reveal_active && !m_disabled) {
             const Color surface = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f}
                                             : Color{0.0f, 0.0f, 0.0f, 0.05f};
             const Color edge = t.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.28f}
@@ -635,7 +635,7 @@ private:
             cursor_shape = over_hdr ? CursorShape::PointingHand : CursorShape::Arrow;
             bool need_paint = (over_hdr != m_header_hovered);
             m_header_hovered = over_hdr;
-            if (m_enable_pointer_reveal && e.type == PlatformEventType::PointerMove &&
+            if ((m_enable_pointer_reveal || ThemeContext::current().enable_pointer_reveal) && e.type == PlatformEventType::PointerMove &&
                 e.device_kind != PointerDeviceKind::Touch) {
                 if (over_hdr) {
                     if (!m_reveal_active ||
