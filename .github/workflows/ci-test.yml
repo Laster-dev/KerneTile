@@ -59,7 +59,7 @@ jobs:
       - name: Run CTest Suite (Windows)
         shell: pwsh
         run: |
-          ctest --test-dir build-ci-win --output-on-failure --exclude-regex "bench_4k_scenarios"
+          ctest --test-dir build-ci-win --output-on-failure
 
   # ============================================================================
   # Linux 单元测试套件 (Ubuntu 22.04 Clang + Inspector 开启)
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run CTest Suite (Linux)
         run: |
-          ctest --test-dir build-ci-linux --output-on-failure --exclude-regex "bench_4k_scenarios"
+          ctest --test-dir build-ci-linux --output-on-failure
 
   # ============================================================================
   # 单文件 SDK 回归冒烟测试 (Windows MSVC: kernetile.ixx + kernetile.hpp/cpp)

@@ -21,14 +21,13 @@ public:
         ID3D12DescriptorHeap* srv_uav_heap,
         uint32_t srv_uav_descriptor_size)
         : m_device(device),
-          m_allocator(allocator),
-          m_compute_root_sig(compute_root_sig),
           m_graphics_root_sig(graphics_root_sig),
           m_blit_pso(blit_pso),
           m_dispatch_cmd_sig(dispatch_cmd_sig),
           m_srv_uav_heap(srv_uav_heap),
           m_srv_uav_descriptor_size(srv_uav_descriptor_size)
     {
+        (void)compute_root_sig;
         if (device && allocator && throw_if_failed(
                 device->CreateCommandList(
                     0,
@@ -245,8 +244,6 @@ public:
 
 private:
     ID3D12Device* m_device;
-    ID3D12CommandAllocator* m_allocator;
-    ID3D12RootSignature* m_compute_root_sig;
     ID3D12RootSignature* m_graphics_root_sig;
     ID3D12PipelineState* m_blit_pso;
     ID3D12CommandSignature* m_dispatch_cmd_sig;

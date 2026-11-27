@@ -96,8 +96,10 @@ struct WindowDesc {
     bool always_on_top = false;
     WindowType type = WindowType::Normal;
     void* parent_handle = nullptr;
-    bool dithering_enabled = false;
-    bool pixel_snapping_enabled = false;
+    bool dithering_enabled = true;
+    bool pixel_snapping_enabled = true;
+    bool font_gamma_enabled = true;
+    bool acrylic_grain_enabled = false;
 };
 
 // 键盘修饰键状态

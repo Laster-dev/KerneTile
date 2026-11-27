@@ -101,6 +101,19 @@ public:
         theme.set(t);
     }
 
+    // 使用 OkLab 感知均匀色彩空间插值执行平滑主题渐变过渡
+    void set_theme_animated(const Theme& t, float duration_sec = 0.32f) {
+        Theme old_t = theme.get();
+        if (!(old_t == t)) {
+            for (auto& win : m_windows) {
+                if (win && !win->is_closed()) {
+                    win->start_theme_crossfade(old_t, t, duration_sec);
+                }
+            }
+        }
+        theme.set(t);
+    }
+
     // ==================== 核心子系统访问 ====================
     [[nodiscard]] Dispatcher& dispatcher() noexcept { return m_dispatcher; }
     [[nodiscard]] IPlatformBackend& backend() noexcept { return *m_backend; }

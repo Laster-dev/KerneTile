@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/strings.hpp>
+
 #include <ktui/pal/platform_types.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/widgets/widget.hpp>
@@ -106,8 +108,8 @@ struct NavigationViewData {
     bool is_back_enabled{false};
     bool is_settings_visible{true};
     bool is_search_box_visible{false};
-    std::string search_placeholder{"搜索控件"};
-    std::string settings_label{"设置"};
+    std::string search_placeholder{FrameworkStrings::current().nav_search_placeholder};
+    std::string settings_label{FrameworkStrings::current().nav_settings_label};
     std::string settings_id{"__settings__"};
 
     float open_pane_length{240.0f};             // 展开宽度 (WinUI 3 默认 240~320px)

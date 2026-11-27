@@ -191,6 +191,32 @@ WidgetPtr build_home_page(GalleryApp& app) {
                         }
                     }
                 }
+            }),
+            app.make_card(VStack {
+                .align_items = AlignItems::Stretch,
+                .spacing = 10.0f,
+                .content = {
+                    Text { .text = "质感交互 (Optical & Perceptual Polish)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Wrap {
+                        .spacing = 8.0f,
+                        .run_spacing = 8.0f,
+                        .content = {
+                            nav_chip(app, "文字光渗补偿 (Font Gamma)", "tactile_font_gamma", true),
+                            nav_chip(app, "方向性玻璃高光 (Directional Rim)", "tactile_directional_rim", true),
+                            nav_chip(app, "OkLab 色彩插值", "tactile_oklab", true),
+                            nav_chip(app, "零纹理亚克力微颗粒", "tactile_acrylic_grain", true),
+                            nav_chip(app, "解析高斯内阴影", "tactile_inset_shadow", true),
+                            nav_chip(app, "灵动岛液态融合", "tactile_metaballs", true),
+                            nav_chip(app, "列表边缘渐隐羽化", "tactile_scroll_feather", true),
+                            nav_chip(app, "跨页面共享元素转场", "tactile_hero_transition", true),
+                            nav_chip(app, "指针感知微倾斜与按压", "tactile_micro_tilt", true),
+                            nav_chip(app, "弹簧光滑输入光标", "tactile_spring_caret", true),
+                            nav_chip(app, "滚动吸顶与阻尼视差", "tactile_scroll_parallax", true),
+                            nav_chip(app, "翻滚数值与交叉切换", "tactile_rolling_counter", true),
+                            nav_chip(app, "同心嵌套圆角几何", "tactile_concentric_radius", true)
+                        }
+                    }
+                }
             })
         }
     });

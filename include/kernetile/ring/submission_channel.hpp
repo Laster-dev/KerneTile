@@ -59,6 +59,7 @@ public:
             PinnedPage page;
             bool ok_page = m_pool.acquire_page(page);
             assert(ok_page && "Page acquire must succeed after availability check");
+            (void)ok_page;
 
             // 2. 拷贝图元至固定内存页
             std::memcpy(page.data, primitives.data() + offset, byte_len);
@@ -67,6 +68,7 @@ public:
             uint16_t desc_id = 0;
             bool ok_desc = m_ring.allocate_desc(desc_id);
             assert(ok_desc && "Desc allocate must succeed after availability check");
+            (void)ok_desc;
 
             // 4. 配置 VirtIO 描述符
             auto& desc = m_ring.get_desc(desc_id);

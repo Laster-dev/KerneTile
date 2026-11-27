@@ -101,9 +101,9 @@ HeadlessWindow::HeadlessWindow(const WindowDesc& desc)
       m_min_size(desc.min_size),
       m_max_size(desc.max_size),
       m_position(desc.position.x < 0.0f ? Vec2{100.0f, 100.0f} : desc.position),
+      m_always_on_top(desc.always_on_top),
       m_resizable(desc.resizable),
-      m_decorated(desc.decorated),
-      m_always_on_top(desc.always_on_top) {
+      m_decorated(desc.decorated) {
     
     size_t pixel_count = static_cast<size_t>(std::max(1.0f, m_size.x) * std::max(1.0f, m_size.y));
     m_pixels.resize(pixel_count, 0x00000000);

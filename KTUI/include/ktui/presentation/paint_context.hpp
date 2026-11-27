@@ -27,7 +27,7 @@ class PaintContext {
 public:
     explicit PaintContext(kernetile::KerneTileRenderer* renderer = nullptr,
                           float render_scale = 1.0f,
-                          bool pixel_snapping = false) noexcept
+                          bool pixel_snapping = true) noexcept
         : m_renderer(renderer), m_render_scale(render_scale), m_pixel_snapping(pixel_snapping) {}
 
     void set_pixel_snapping(bool enabled) noexcept { m_pixel_snapping = enabled; }
@@ -117,11 +117,12 @@ public:
         m_primitive_count++;
     }
 
-    // 绘制线性渐变矩形或渐变边框 (支持 R1 IGN 抖动降噪与 R2 物理像素对齐)
+    // 绘制线性渐变矩形或渐变边框 (默认启用 OkLab 感知均匀色彩空间插值，消除高饱和对比色之间的灰暗浑浊带)
     KTUI_NOINLINE void draw_linear_gradient(Rect rect, Color start_color, Color end_color,
                                             PointF start_pt, PointF end_pt,
                                             float corner_radius = 0.0f,
-                                            float border_width = 0.0f) {
+                                            float border_width = 0.0f,
+                                            bool oklab = true) {
         Rect abs_rect = to_absolute_rect(rect);
         PointF abs_start = start_pt + m_current_offset;
         PointF abs_end = end_pt + m_current_offset;
@@ -135,7 +136,138 @@ public:
             m_renderer->draw_linear_gradient(
                 px, start_color, end_color,
                 abs_start * m_render_scale, abs_end * m_render_scale,
-                cr_px, bw_px);
+                cr_px, bw_px, oklab);
+        }
+        m_primitive_count++;
+    }
+
+    // 绘制方向性玻璃高光内描边 (Directional Fresnel Rim Highlight)
+    KTUI_NOINLINE void draw_directional_rim(Rect rect,
+                                            Color top_highlight,
+                                            Color bottom_shadow,
+                                            float corner_radius = 8.0f,
+                                            float border_width = 1.0f,
+                                            Vec2 light_dir = Vec2{0.0f, -1.0f},
+                                            float inner_glow = 0.35f) {
+        if (rect.is_empty() || (top_highlight.a <= 0.0005f && bottom_shadow.a <= 0.0005f)) return;
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            const float cr_px = corner_radius * m_render_scale;
+            const float bw_px = snap_stroke_px(border_width);
+            if (m_pixel_snapping) {
+                px = snap_rect_px(px, bw_px, cr_px);
+            }
+            m_renderer->draw_directional_rim(px, top_highlight, bottom_shadow, cr_px, bw_px, light_dir, inner_glow);
+        }
+        m_primitive_count++;
+    }
+
+    // 绘制带方向性玻璃高光内描边的玻璃态面板
+    KTUI_NOINLINE void draw_glass_panel(Rect rect,
+                                        Color fill,
+                                        float corner_radius = 8.0f,
+                                        bool is_dark = true,
+                                        Vec2 light_dir = Vec2{-0.18f, -0.98f},
+                                        float rim_intensity = 1.0f,
+                                        float inner_glow = 0.35f,
+                                        float border_width = 1.0f) {
+        if (fill.a > 0.001f) {
+            draw_rect(rect, fill, corner_radius, 0.0f);
+        }
+        const float k = std::clamp(rim_intensity, 0.0f, 2.0f);
+        if (k > 0.001f) {
+            Color top_rim = is_dark
+                ? Color{1.0f, 1.0f, 1.0f, std::clamp(0.32f * k, 0.0f, 1.0f)}
+                : Color{1.0f, 1.0f, 1.0f, std::clamp(0.85f * k, 0.0f, 1.0f)};
+            Color bot_rim = is_dark
+                ? Color{0.0f, 0.0f, 0.0f, std::clamp(0.34f * k, 0.0f, 1.0f)}
+                : Color{0.0f, 0.04f, 0.12f, std::clamp(0.14f * k, 0.0f, 1.0f)};
+            draw_directional_rim(rect, top_rim, bot_rim, corner_radius, border_width, light_dir, inner_glow);
+        }
+    }
+
+    // 零纹理亚克力微颗粒噪点表面 (Zero-Texture Acrylic Micro-Grain)
+    KTUI_NOINLINE void draw_acrylic_panel(Rect rect,
+                                          Color tint,
+                                          float corner_radius = 8.0f,
+                                          float grain_amount = 0.028f,
+                                          float grain_scale = 1.0f) {
+        if (rect.is_empty() || tint.a <= 0.0005f) return;
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            const float cr_px = corner_radius * m_render_scale;
+            if (m_pixel_snapping) {
+                px = snap_rect_px(px, 0.0f, cr_px);
+            }
+            m_renderer->draw_acrylic_panel(px, tint, cr_px, grain_amount, grain_scale);
+        }
+        m_primitive_count++;
+    }
+
+    // 解析高斯内阴影 (Analytic SDF Inset Shadow)
+    KTUI_NOINLINE void draw_inset_shadow(Rect rect,
+                                         Color shadow_color,
+                                         float corner_radius = 6.0f,
+                                         float blur_sigma = 6.0f,
+                                         float spread = 0.0f,
+                                         Vec2 offset = Vec2{0.0f, 2.0f}) {
+        if (rect.is_empty() || shadow_color.a <= 0.0005f) return;
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            const float cr_px = corner_radius * m_render_scale;
+            if (m_pixel_snapping) {
+                px = snap_rect_px(px, 0.0f, cr_px);
+            }
+            m_renderer->draw_inset_shadow(
+                px, shadow_color, cr_px,
+                blur_sigma * m_render_scale, spread * m_render_scale, offset * m_render_scale);
+        }
+        m_primitive_count++;
+    }
+
+    // 灵动岛式液态融合 (SDF Smooth-Minimum Metaballs) - 单色与双色平滑混合重载
+    KTUI_NOINLINE void draw_metaball(Rect rect_a,
+                                     float radius_a,
+                                     Rect rect_b,
+                                     float radius_b,
+                                     float smooth_k,
+                                     Color color,
+                                     float border_width = 0.0f) {
+        if (color.a <= 0.0005f) return;
+        Rect abs_a = to_absolute_rect(rect_a);
+        Rect abs_b = to_absolute_rect(rect_b);
+        if (m_renderer) {
+            const float bw_px = (border_width > 0.0f) ? (border_width * m_render_scale) : 0.0f;
+            m_renderer->draw_metaball(
+                to_pixels(abs_a), radius_a * m_render_scale,
+                to_pixels(abs_b), radius_b * m_render_scale,
+                smooth_k * m_render_scale,
+                color, color, false, bw_px);
+        }
+        m_primitive_count++;
+    }
+
+    KTUI_NOINLINE void draw_metaball(Rect rect_a,
+                                     float radius_a,
+                                     Rect rect_b,
+                                     float radius_b,
+                                     float smooth_k,
+                                     Color color_a,
+                                     Color color_b,
+                                     float border_width = 0.0f) {
+        if (color_a.a <= 0.0005f && color_b.a <= 0.0005f) return;
+        Rect abs_a = to_absolute_rect(rect_a);
+        Rect abs_b = to_absolute_rect(rect_b);
+        if (m_renderer) {
+            const float bw_px = (border_width > 0.0f) ? (border_width * m_render_scale) : 0.0f;
+            m_renderer->draw_metaball(
+                to_pixels(abs_a), radius_a * m_render_scale,
+                to_pixels(abs_b), radius_b * m_render_scale,
+                smooth_k * m_render_scale,
+                color_a, color_b, true, bw_px);
         }
         m_primitive_count++;
     }
@@ -221,11 +353,13 @@ public:
     // 绘制文本 (支持 WinUI 3 字重、斜体与自定义字体族，如 "monospace" / "Cascadia Mono" / "Consolas" 及等宽数字 tabular_nums)
     KTUI_NOINLINE void draw_text(std::string_view text, PointF pos, float font_size, Color color,
                    FontWeight weight = FontWeight::Regular, bool italic = false,
-                   std::string_view font_family = "", bool tabular_nums = false) {
+                   std::string_view font_family = "", bool tabular_nums = false,
+                   bool font_gamma = true) {
         PointF abs_pos = pos + m_current_offset;
         if (m_renderer) {
             m_renderer->draw_text_scaled(text, abs_pos.x, abs_pos.y, font_size, color,
-                                         m_render_scale, static_cast<uint16_t>(weight), italic, font_family, tabular_nums);
+                                         m_render_scale, static_cast<uint16_t>(weight), italic,
+                                         font_family, tabular_nums, font_gamma);
         }
         m_primitive_count++;
     }
@@ -351,6 +485,27 @@ public:
                 if (px.max_y < px.min_y + 1.0f) px.max_y = px.min_y + 1.0f;
             }
             m_renderer->push_clip(px, corner_radius * m_render_scale);
+        }
+        m_clip_stack.push_back(abs_rect);
+    }
+
+    // 推入带上下边缘渐隐羽化的裁剪矩形 (Scroll Edge Alpha Feathering)
+    KTUI_NOINLINE void push_feathered_clip(Rect rect, float corner_radius = 0.0f,
+                                           float top_feather = 0.0f, float bottom_feather = 0.0f) {
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            if (m_pixel_snapping && !abs_rect.is_empty()) {
+                px.min_x = std::round(px.min_x);
+                px.min_y = std::round(px.min_y);
+                px.max_x = std::round(px.max_x);
+                px.max_y = std::round(px.max_y);
+                if (px.max_x < px.min_x + 1.0f) px.max_x = px.min_x + 1.0f;
+                if (px.max_y < px.min_y + 1.0f) px.max_y = px.min_y + 1.0f;
+            }
+            m_renderer->push_feathered_clip(px, corner_radius * m_render_scale,
+                                            top_feather * m_render_scale,
+                                            bottom_feather * m_render_scale);
         }
         m_clip_stack.push_back(abs_rect);
     }

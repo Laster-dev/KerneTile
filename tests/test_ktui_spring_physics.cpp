@@ -1,7 +1,13 @@
 #include <ktui/animation/animation.hpp>
+#include <ktui/animation/hero_transition.hpp>
+#include <ktui/animation/spring_caret.hpp>
+#include <ktui/animation/tactile_press.hpp>
+#include <ktui/layout/flex_types.hpp>
 #include <ktui/widgets/scroll/smooth_scroll_physics.hpp>
 #include <iostream>
 #include <cassert>
+#define KTUI_CHECK(expr) do { if (!(expr)) { std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " #expr << "\n"; std::exit(1); } } while (0)
+
 #include <cstdlib>
 #include <vector>
 #include <cmath>
@@ -14,11 +20,11 @@ void test_critically_damped_zero_overshoot() {
     SpringConfig config = SpringConfig::with_damping_ratio(250.0f, 1.0f);
     SpringSolver solver(0.0f, config);
 
-    assert(solver.is_settled());
-    assert(solver.value() == 0.0f);
+    KTUI_CHECK(solver.is_settled());
+    KTUI_CHECK(solver.value() == 0.0f);
 
     solver.rebind(0.0f, 0.0f, 100.0f);
-    assert(!solver.is_settled());
+    KTUI_CHECK(!solver.is_settled());
 
     float prev_val = 0.0f;
     float max_val = 0.0f;
@@ -30,8 +36,8 @@ void test_critically_damped_zero_overshoot() {
         float current = solver.value();
 
         // 临界阻尼单调递增，且绝不允许超调超过 100.0001f
-        assert(current >= prev_val - 1e-4f);
-        assert(current <= 100.0001f);
+        KTUI_CHECK(current >= prev_val - 1e-4f);
+        KTUI_CHECK(current <= 100.0001f);
 
         if (current > max_val) {
             max_val = current;
@@ -41,10 +47,10 @@ void test_critically_damped_zero_overshoot() {
         frame_count++;
     }
 
-    assert(solver.is_settled());
-    assert(std::abs(solver.value() - 100.0f) < 1e-3f);
-    assert(solver.velocity() == 0.0f);
-    assert(max_val <= 100.0001f); // 严格零超调
+    KTUI_CHECK(solver.is_settled());
+    KTUI_CHECK(std::abs(solver.value() - 100.0f) < 1e-3f);
+    KTUI_CHECK(solver.velocity() == 0.0f);
+    KTUI_CHECK(max_val <= 100.0001f); // 严格零超调
 
     std::cout << "  -> 临界阻尼在第 " << frame_count << " 帧完美收敛，最大位移: " << max_val << " (无超调)!" << std::endl;
 }
@@ -66,19 +72,19 @@ void test_velocity_preservation_interruption() {
     float vel_before = solver.velocity();
 
     // 此时应当具有可观的前进正速度
-    assert(vel_before > 10.0f);
+    KTUI_CHECK(vel_before > 10.0f);
 
     // 突发事件：用户反向打断，将目标重置为 0.0f
     solver.rebind(pos_before, vel_before, 0.0f);
 
     // 检查打断瞬间的状态：位置与瞬时速度完全保真，连续无突变
-    assert(std::abs(solver.value() - pos_before) < 1e-5f);
-    assert(std::abs(solver.velocity() - vel_before) < 1e-5f);
+    KTUI_CHECK(std::abs(solver.value() - pos_before) < 1e-5f);
+    KTUI_CHECK(std::abs(solver.velocity() - vel_before) < 1e-5f);
 
     // 步进下一帧，由于惯性存在，下一帧位置应当继续短暂增加 (冲头)，随后在阻尼和反向拉力下减速回弹
     solver.update(dt);
     float pos_after = solver.value();
-    assert(pos_after > pos_before); // 惯性继续向前滑行
+    KTUI_CHECK(pos_after > pos_before); // 惯性继续向前滑行
 
     // 继续演化直到反向回到 0.0f 收敛
     int frames = 0;
@@ -87,8 +93,8 @@ void test_velocity_preservation_interruption() {
         frames++;
     }
 
-    assert(solver.is_settled());
-    assert(std::abs(solver.value() - 0.0f) < 1e-3f);
+    KTUI_CHECK(solver.is_settled());
+    KTUI_CHECK(std::abs(solver.value() - 0.0f) < 1e-3f);
     std::cout << "  -> 高速打断保真验证成功！初速度: " << vel_before << " px/s，无缝反向收敛于 " << frames << " 帧。" << std::endl;
 }
 
@@ -115,10 +121,10 @@ void test_underdamped_bouncy_oscillation() {
         frames++;
     }
 
-    assert(had_overshoot);
-    assert(max_overshoot > 105.0f); // 存在明显的弹性回弹超调
-    assert(solver.is_settled());
-    assert(std::abs(solver.value() - 100.0f) < 1e-3f);
+    KTUI_CHECK(had_overshoot);
+    KTUI_CHECK(max_overshoot > 105.0f); // 存在明显的弹性回弹超调
+    KTUI_CHECK(solver.is_settled());
+    KTUI_CHECK(std::abs(solver.value() - 100.0f) < 1e-3f);
 
     std::cout << "  -> 欠阻尼弹性震荡验证成功，峰值超调到达 " << max_overshoot << "，最终稳定归于 100.0f。" << std::endl;
 }
@@ -135,12 +141,12 @@ void test_overdamped_decay() {
     while (!solver.is_settled() && frames < 800) {
         solver.update(dt);
         // 过阻尼绝不能超调
-        assert(solver.value() <= 100.001f);
+        KTUI_CHECK(solver.value() <= 100.001f);
         frames++;
     }
 
-    assert(solver.is_settled());
-    assert(std::abs(solver.value() - 100.0f) < 1e-3f);
+    KTUI_CHECK(solver.is_settled());
+    KTUI_CHECK(std::abs(solver.value() - 100.0f) < 1e-3f);
     std::cout << "  -> 过阻尼无震荡单调衰减验证成功！" << std::endl;
 }
 
@@ -150,14 +156,14 @@ void test_multidimensional_animatables() {
     // 1. Vec2 动画
     AnimatedValue<Vec2> pos(Vec2{0.0f, 0.0f}, Springs::Snappy);
     pos = Vec2{100.0f, 200.0f};
-    assert(!pos.is_settled());
+    KTUI_CHECK(!pos.is_settled());
 
     for (int i = 0; i < 200 && !pos.is_settled(); ++i) {
         pos.update(1.0f / 60.0f);
     }
-    assert(pos.is_settled());
-    assert(std::abs(pos.get().x - 100.0f) < 1e-2f);
-    assert(std::abs(pos.get().y - 200.0f) < 1e-2f);
+    KTUI_CHECK(pos.is_settled());
+    KTUI_CHECK(std::abs(pos.get().x - 100.0f) < 1e-2f);
+    KTUI_CHECK(std::abs(pos.get().y - 200.0f) < 1e-2f);
 
     // 2. Color 动画
     AnimatedValue<Color> color(Color{0.0f, 0.0f, 0.0f, 1.0f}, Springs::Smooth);
@@ -165,11 +171,11 @@ void test_multidimensional_animatables() {
     for (int i = 0; i < 300 && !color.is_settled(); ++i) {
         color.update(1.0f / 60.0f);
     }
-    assert(color.is_settled());
-    assert(std::abs(color.get().r - 1.0f) < 1e-2f);
-    assert(std::abs(color.get().g - 0.5f) < 1e-2f);
-    assert(std::abs(color.get().b - 0.2f) < 1e-2f);
-    assert(std::abs(color.get().a - 0.8f) < 1e-2f);
+    KTUI_CHECK(color.is_settled());
+    KTUI_CHECK(std::abs(color.get().r - 1.0f) < 1e-2f);
+    KTUI_CHECK(std::abs(color.get().g - 0.5f) < 1e-2f);
+    KTUI_CHECK(std::abs(color.get().b - 0.2f) < 1e-2f);
+    KTUI_CHECK(std::abs(color.get().a - 0.8f) < 1e-2f);
 
     // 3. Rect 动画
     AnimatedValue<Rect> rect(Rect::from_xywh(0.0f, 0.0f, 50.0f, 50.0f), Springs::Default);
@@ -177,9 +183,9 @@ void test_multidimensional_animatables() {
     for (int i = 0; i < 300 && !rect.is_settled(); ++i) {
         rect.update(1.0f / 60.0f);
     }
-    assert(rect.is_settled());
-    assert(std::abs(rect.get().min_x - 10.0f) < 1e-2f);
-    assert(std::abs(rect.get().width() - 300.0f) < 1e-2f);
+    KTUI_CHECK(rect.is_settled());
+    KTUI_CHECK(std::abs(rect.get().min_x - 10.0f) < 1e-2f);
+    KTUI_CHECK(std::abs(rect.get().width() - 300.0f) < 1e-2f);
 
     std::cout << "  -> 多维类型 Vec2 / Color / Rect 多通道物理独立求解全部通过！" << std::endl;
 }
@@ -188,18 +194,18 @@ void test_animation_transaction_scope() {
     std::cout << "[Test 6] 事务级隐式动画 with_animation 测试..." << std::endl;
 
     AnimatedValue<float> width(100.0f, Springs::Smooth);
-    assert(width.config() == Springs::Smooth);
+    KTUI_CHECK(width.config() == Springs::Smooth);
 
     with_animation(Springs::Bouncy, [&] {
         width = 250.0f;
     });
 
     // 检查在 with_animation 内设置后，采用了 Bouncy 配置
-    assert(width.config() == Springs::Bouncy);
-    assert(!width.is_settled());
+    KTUI_CHECK(width.config() == Springs::Bouncy);
+    KTUI_CHECK(!width.is_settled());
 
     // 离开事务范围后，AnimationScope::is_active 应为 false
-    assert(!AnimationScope::is_active());
+    KTUI_CHECK(!AnimationScope::is_active());
 
     std::cout << "  -> with_animation 事务作用域传播与嵌套恢复正常！" << std::endl;
 }
@@ -208,39 +214,39 @@ void test_explicit_animation_controller() {
     std::cout << "[Test 7] 显式时间线控制器 AnimationController 测试..." << std::endl;
 
     AnimationController controller(0.5f); // 0.5 秒
-    assert(controller.status() == AnimationStatus::Dismissed);
-    assert(controller.value() == 0.0f);
+    KTUI_CHECK(controller.status() == AnimationStatus::Dismissed);
+    KTUI_CHECK(controller.value() == 0.0f);
 
     // 正向播放
     controller.forward();
-    assert(controller.status() == AnimationStatus::Forward);
-    assert(controller.is_animating());
+    KTUI_CHECK(controller.status() == AnimationStatus::Forward);
+    KTUI_CHECK(controller.is_animating());
 
     // 推进 0.25 秒 -> 应处于 0.5 左右
     controller.update(0.25f);
-    assert(std::abs(controller.value() - 0.5f) < 1e-3f);
-    assert(controller.status() == AnimationStatus::Forward);
+    KTUI_CHECK(std::abs(controller.value() - 0.5f) < 1e-3f);
+    KTUI_CHECK(controller.status() == AnimationStatus::Forward);
 
     // 推进 0.3 秒 -> 到达终点 1.0f，状态 Completed
     controller.update(0.3f);
-    assert(std::abs(controller.value() - 1.0f) < 1e-3f);
-    assert(controller.status() == AnimationStatus::Completed);
-    assert(!controller.is_animating());
+    KTUI_CHECK(std::abs(controller.value() - 1.0f) < 1e-3f);
+    KTUI_CHECK(controller.status() == AnimationStatus::Completed);
+    KTUI_CHECK(!controller.is_animating());
 
     // 往返循环测试
     controller.repeat(true /* reverse_cycle */);
-    assert(controller.is_animating());
+    KTUI_CHECK(controller.is_animating());
     controller.update(0.5f); // 运行到反向
-    assert(controller.status() == AnimationStatus::Reverse);
+    KTUI_CHECK(controller.status() == AnimationStatus::Reverse);
 
     // 停止测试
     controller.stop();
-    assert(!controller.is_animating());
+    KTUI_CHECK(!controller.is_animating());
 
     // 重置测试
     controller.reset();
-    assert(controller.status() == AnimationStatus::Dismissed);
-    assert(controller.value() == 0.0f);
+    KTUI_CHECK(controller.status() == AnimationStatus::Dismissed);
+    KTUI_CHECK(controller.value() == 0.0f);
 
     std::cout << "  -> AnimationController 正向/反向/循环/停止/重置全部通过！" << std::endl;
 }
@@ -260,11 +266,14 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
         ~VirtualClockGuard() { FrameClock::global().disable_virtual_time(); }
     } vclock_guard;
 
-    // 1. Default disabled: strict [0, max_scroll] clamping across drag, scroll_to, scroll_by, wheel, fling
+    // 1. Default enabled, manual disable: strict [0, max_scroll] clamping across drag, scroll_to, scroll_by, wheel, fling
     {
         SmoothScrollPhysics phys;
+        require(phys.is_rubber_band_enabled() && phys.rubber_band_enabled() && phys.rubber_band_overscroll,
+                "default rubber_band_overscroll must be true");
+        phys.set_rubber_band_enabled(false);
         require(!phys.is_rubber_band_enabled() && !phys.rubber_band_enabled() && !phys.rubber_band_overscroll,
-                "default rubber_band_overscroll must be false");
+                "manual disable rubber_band_overscroll must be false");
         phys.set_viewport_extent(320.0f);
         phys.set_max_scroll(400.0f);
 
@@ -502,6 +511,7 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
     // 9. Regression: max_scroll == 0.0f disabled clamps strictly, enabled overscrolls and rebounds
     {
         SmoothScrollPhysics phys;
+        phys.set_rubber_band_enabled(false);
         phys.set_viewport_extent(400.0f);
         phys.set_max_scroll(0.0f);
         phys.begin_touch_drag();
@@ -522,6 +532,113 @@ void test_smooth_scroll_rubber_band_and_spring_handoff() {
     std::cout << "  -> R4 橡皮筋公式、SpringSolver 速度保真交接、中断再抓与滚轮越界回弹全部通过！" << std::endl;
 }
 
+void test_tactile_press_and_hero_transition() {
+    std::cout << "[Test 9] 指针感知微倾斜/按压缩放物理 (TactilePressPhysics) 与 HeroCoordinator 跨页协调测试..." << std::endl;
+
+    // 1. TactilePressPhysics: off-center click produces directional lever shift, scale < 1, tilted light dir, and lower elevation
+    TactilePressPhysics phys(0.95f, 4.0f);
+    phys.set_enabled(true);
+    phys.on_enter();
+    const Vec2 sz{200.0f, 100.0f};
+    const Rect base = Rect::from_xywh(0.0f, 0.0f, sz.x, sz.y);
+    phys.on_down(PointF{180.0f, 80.0f}, sz); // bottom-right quadrant (+0.8, +0.6 lever)
+    for (int i = 0; i < 12; ++i) {
+        phys.step_for_test(1.0f / 60.0f);
+    }
+    const Rect deformed = phys.transform_rect(base);
+    KTUI_CHECK(phys.is_active());
+    KTUI_CHECK(deformed.width() < base.width() && deformed.height() < base.height());
+    KTUI_CHECK(deformed.min_x + deformed.max_x > base.min_x + base.max_x); // shifts right along +nx lever
+    KTUI_CHECK(deformed.min_y + deformed.max_y > base.min_y + base.max_y); // shifts down along +ny lever
+    KTUI_CHECK(phys.tilted_light_dir().x < -0.25f);
+    KTUI_CHECK(phys.elevation_scale() < 0.9f);
+
+    phys.on_up();
+    for (int i = 0; i < 180; ++i) {
+        if (!phys.step_for_test(1.0f / 60.0f)) break;
+    }
+    KTUI_CHECK(std::abs(phys.press_amount()) < 1e-2f);
+    phys.on_exit();
+    phys.reset();
+    KTUI_CHECK(!phys.is_active());
+
+    // Verify HeroCoordinator epoch transition + departure seeding & flight claim
+    auto& hc = HeroCoordinator::instance();
+    hc.clear();
+    HeroSnapshot src{};
+    src.tag = "hero_card_demo";
+    src.abs_bounds = Rect::from_xywh(20.0f, 40.0f, 160.0f, 100.0f);
+    src.corner_radius = 12.0f;
+    src.elevation = 6.0f;
+    src.route_epoch = hc.current_epoch();
+    hc.record(src);
+    hc.begin_route_transition();
+
+    HeroSnapshot dst{};
+    dst.tag = "hero_card_demo";
+    dst.abs_bounds = Rect::from_xywh(40.0f, 80.0f, 480.0f, 260.0f);
+    dst.corner_radius = 24.0f;
+    dst.elevation = 22.0f;
+    dst.route_epoch = hc.current_epoch();
+
+    HeroSnapshot claimed{};
+    KTUI_CHECK(hc.try_claim_flight("hero_card_demo", dst, claimed));
+    KTUI_CHECK(std::abs(claimed.abs_bounds.width() - 160.0f) < 1e-3f);
+    KTUI_CHECK(std::abs(claimed.corner_radius - 12.0f) < 1e-3f);
+    KTUI_CHECK(std::abs(claimed.elevation - 6.0f) < 1e-3f);
+
+    // Seed departure claim test
+    HeroSnapshot dep = dst;
+    hc.seed_departure(dep);
+    HeroSnapshot claimed_back{};
+    KTUI_CHECK(hc.try_claim_flight("hero_card_demo", src, claimed_back));
+    KTUI_CHECK(std::abs(claimed_back.abs_bounds.width() - 480.0f) < 1e-3f);
+
+    hc.clear();
+    std::cout << "  -> TactilePressPhysics 与 HeroCoordinator 物理转场协调验证通过！" << std::endl;
+}
+
+void test_spring_caret_rolling_and_concentric_radius() {
+    std::cout << "[Test 10] 平滑弹簧光标、滚动吸顶分隔线、翻滚数值与同心圆角几何推导测试..." << std::endl;
+
+    // 1. SpringCaretSolver: glide + stretch + breathing opacity
+    {
+        SpringCaretSolver caret;
+        caret.set_enabled(true);
+        auto f0 = caret.step_for_test(10.0f, 8.0f, 1.5f, 16.0f, 1.0f / 60.0f, 0.0f);
+        KTUI_CHECK(f0.visible && std::abs(f0.rect.min_x - 10.0f) < 1e-3f);
+        KTUI_CHECK(std::abs(f0.opacity - 1.0f) < 1e-4f);
+
+        auto f_jump = caret.step_for_test(180.0f, 8.0f, 1.5f, 16.0f, 1.0f / 60.0f, 0.0f);
+        KTUI_CHECK(caret.current_x() > 10.0f && caret.current_x() < 180.0f); // mid-glide
+        KTUI_CHECK(f_jump.rect.width() > 2.0f); // horizontal trailing smear pill on jump
+
+        // High-frequency critically damped lead spring reaches >= 96% within 8 frames (~133ms)
+        for (int i = 0; i < 8; ++i) {
+            caret.step_for_test(180.0f, 8.0f, 1.5f, 16.0f, 1.0f / 60.0f, 0.0f);
+        }
+        KTUI_CHECK(caret.current_x() > 170.0f);
+        for (int i = 0; i < 30; ++i) {
+            caret.step_for_test(180.0f, 8.0f, 1.5f, 16.0f, 1.0f / 60.0f, 0.0f);
+        }
+        KTUI_CHECK(std::abs(caret.current_x() - 180.0f) < 0.25f);
+
+        // Breathing idle dimming at midpoint of 1.08s cycle (0.32 + 0.54 = 0.86s)
+        auto f_dim = caret.step_for_test(180.0f, 8.0f, 1.5f, 16.0f, 1.0f / 60.0f, 0.86f);
+        KTUI_CHECK(f_dim.opacity < 0.30f && f_dim.opacity >= 0.13f);
+    }
+
+    // 2. Concentric Nested Corner Radius math
+    {
+        KTUI_CHECK(std::abs(ktui::concentric_radius(28.0f, 12.0f, 4.0f) - 16.0f) < 1e-4f);
+        KTUI_CHECK(std::abs(ktui::concentric_radius(10.0f, 14.0f, 3.0f) - 3.0f) < 1e-4f);
+        KTUI_CHECK(std::abs(ktui::concentric_radius(0.0f, 8.0f, 2.0f) - 0.0f) < 1e-4f);
+        KTUI_CHECK(std::abs(ktui::concentric_radius(24.0f, EdgeInsets(8.0f, 12.0f), 2.0f) - 16.0f) < 1e-4f);
+    }
+
+    std::cout << "  -> SpringCaret 与 ConcentricRadius 数学求解全部通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 3: SOTA 物理弹簧解析动画系统测试    " << std::endl;
@@ -535,6 +652,8 @@ int main() {
     test_animation_transaction_scope();
     test_explicit_animation_controller();
     test_smooth_scroll_rubber_band_and_spring_handoff();
+    test_tactile_press_and_hero_transition();
+    test_spring_caret_rolling_and_concentric_radius();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 3 物理弹簧动画全测试用例 100% 通过!   " << std::endl;

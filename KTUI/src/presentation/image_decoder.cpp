@@ -1,4 +1,4 @@
-#include <ktui/widgets/image.hpp>
+#include <ktui/widgets/image/image_logic.hpp>
 
 #include <algorithm>
 #include <cmath>

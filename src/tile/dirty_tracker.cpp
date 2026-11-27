@@ -41,9 +41,11 @@ const DirtyTrackingResult& DirtyTracker::update(
         uint32_t rad_bits = 0;
         std::memcpy(&rad_bits, &cl.corner_radius, sizeof(uint32_t));
         w2 = (static_cast<uint64_t>(cl.flags) << 32u) | static_cast<uint64_t>(rad_bits);
+        uint64_t w3 = static_cast<uint64_t>(cl.reserved);
         h = fnv1a_64_step(h, w0);
         h = fnv1a_64_step(h, w1);
         h = fnv1a_64_step(h, w2);
+        h = fnv1a_64_step(h, w3);
         m_clip_signatures[c] = h;
     }
 

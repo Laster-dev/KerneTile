@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <cassert>
+#define KTUI_CHECK(expr) do { if (!(expr)) { std::cerr << "[FAIL] " << __FILE__ << ":" << __LINE__ << ": " #expr << "\n"; std::exit(1); } } while (0)
+
 #include <string_view>
 #include <vector>
 
@@ -30,7 +32,7 @@ void test_renderer_api_lifecycle() {
     config.force_cpu_fallback = true; // 确保在 CI 和无显卡环境下均可 100% 运行
 
     auto renderer = KerneTileRenderer::create(config);
-    assert(renderer != nullptr);
+    KTUI_CHECK(renderer != nullptr);
 
     // 1. 开始第一帧
     renderer->begin_frame();
@@ -59,8 +61,8 @@ void test_renderer_api_lifecycle() {
               << ", Dirty Tiles=" << stats1.dirty_tiles 
               << ", Binning Time=" << stats1.cpu_binning_time_us << " us" << std::endl;
 
-    assert(stats1.total_primitives >= 3);
-    assert(stats1.dirty_tiles > 0);
+    KTUI_CHECK(stats1.total_primitives >= 3);
+    KTUI_CHECK(stats1.dirty_tiles > 0);
 
     // 2. 离屏渲染输出至内存
     std::vector<uint8_t> buffer(800 * 600 * 4, 0);
@@ -68,7 +70,7 @@ void test_renderer_api_lifecycle() {
 
     // 校验中心区域像素非空
     size_t center_idx = (200 * 800 + 250) * 4;
-    assert(buffer[center_idx + 3] == 255); // Alpha 完全不透明
+    KTUI_CHECK(buffer[center_idx + 3] == 255); // Alpha 完全不透明
 
     // 3. 测试窗口动态尺寸调整 (Resize)
     renderer->resize(1920, 1080);
@@ -77,7 +79,7 @@ void test_renderer_api_lifecycle() {
     renderer->end_frame();
 
     const auto& stats2 = renderer->get_last_frame_stats();
-    assert(stats2.total_tiles == (1920 / 16) * (1080 / 16 + 1)); // 120 * 68 = 8,160
+    KTUI_CHECK(stats2.total_tiles == (1920 / 16) * (1080 / 16 + 1)); // 120 * 68 = 8,160
 
     std::cout << "  -> KerneTileRenderer Lifecycle PASSED." << std::endl;
 }
@@ -86,16 +88,16 @@ void test_m1_2_opt_in_features() {
     std::cout << "[Test 2] Testing M1.2 Opt-In Defaults, Toggle Invalidation, R2 Snapping, R1/R3/R5 APIs..." << std::endl;
 
     RendererConfig default_cfg{};
-    KT_CHECK(default_cfg.enable_dithering == false);
-    KT_CHECK(default_cfg.enable_pixel_snapping == false);
+    KT_CHECK(default_cfg.enable_dithering == true);
+    KT_CHECK(default_cfg.enable_pixel_snapping == true);
     default_cfg.width = 256;
     default_cfg.height = 256;
     default_cfg.force_cpu_fallback = true;
 
     auto renderer = KerneTileRenderer::create(default_cfg);
     KT_CHECK(renderer != nullptr);
-    KT_CHECK(renderer->is_dithering_enabled() == false);
-    KT_CHECK(renderer->is_pixel_snapping_enabled() == false);
+    KT_CHECK(renderer->is_dithering_enabled() == true);
+    KT_CHECK(renderer->is_pixel_snapping_enabled() == true);
 
     // Static frame then settle to 0 dirty tiles
     auto draw_static = [&]() {
@@ -108,14 +110,19 @@ void test_m1_2_opt_in_features() {
     KT_CHECK(renderer->get_last_frame_stats().dirty_tiles == 0);
 
     // Toggling dithering must invalidate dirty tracker
-    renderer->set_dithering_enabled(true);
-    KT_CHECK(renderer->is_dithering_enabled() == true);
+    renderer->set_dithering_enabled(false);
+    KT_CHECK(renderer->is_dithering_enabled() == false);
     draw_static();
     KT_CHECK(renderer->get_last_frame_stats().dirty_tiles == renderer->get_last_frame_stats().total_tiles);
+    renderer->set_dithering_enabled(true);
+    KT_CHECK(renderer->is_dithering_enabled() == true);
 
     // Toggling pixel snapping must invalidate dirty tracker
     draw_static();
+    draw_static();
     KT_CHECK(renderer->get_last_frame_stats().dirty_tiles == 0);
+    renderer->set_pixel_snapping_enabled(false);
+    KT_CHECK(renderer->is_pixel_snapping_enabled() == false);
     renderer->set_pixel_snapping_enabled(true);
     KT_CHECK(renderer->is_pixel_snapping_enabled() == true);
 
@@ -247,7 +254,7 @@ void test_pointer_reveal_4k_dirty_tile_isolation() {
 void test_default_disabled_preservation_and_r2_r5() {
     std::cout << "[Test 4] Testing Default-Disabled Preservation (R1, R2, R3, R5) + 1.5x DPI & Skip Rules..." << std::endl;
 
-    // 1. R1 default false + true -> false bit-exact restoration
+    // 1. R1 default true + manual disable -> true -> false bit-exact restoration
     {
         const uint32_t w = 256, h = 64;
         RendererConfig cfg{};
@@ -256,6 +263,8 @@ void test_default_disabled_preservation_and_r2_r5() {
         cfg.force_cpu_fallback = true;
         auto renderer = KerneTileRenderer::create(cfg);
         KT_CHECK(renderer != nullptr);
+        KT_CHECK(renderer->is_dithering_enabled() == true);
+        renderer->set_dithering_enabled(false);
         KT_CHECK(renderer->is_dithering_enabled() == false);
 
         std::array<uint32_t, 16> mica_grid{};
@@ -304,7 +313,7 @@ void test_default_disabled_preservation_and_r2_r5() {
         KT_CHECK(fb_restored == fb_default);
     }
 
-    // 2. R2 default false fractional bleed + true -> false restoration + 1.5x DPI + skip rules
+    // 2. R2 default true + manual disable fractional bleed + true -> false restoration + 1.5x DPI + skip rules
     {
         const uint32_t w = 256, h = 256;
         RendererConfig cfg{};
@@ -313,6 +322,8 @@ void test_default_disabled_preservation_and_r2_r5() {
         cfg.force_cpu_fallback = true;
         auto renderer = KerneTileRenderer::create(cfg);
         KT_CHECK(renderer != nullptr);
+        KT_CHECK(renderer->is_pixel_snapping_enabled() == true);
+        renderer->set_pixel_snapping_enabled(false);
         KT_CHECK(renderer->is_pixel_snapping_enabled() == false);
 
         auto render_r2_bleed_scene = [&](std::vector<uint8_t>& out) {

@@ -4,6 +4,7 @@
 #else
 #define VK_USE_PLATFORM_XLIB_KHR
 #endif
+#include "kernetile/core/log.hpp"
 #include "ui_compute.hpp"
 #include <vulkan/vulkan.h>
 #include "ui_compute_spirv.hpp"
@@ -33,7 +34,7 @@ class VulkanBackend final : public Backend {
 public:
     bool check(VkResult result, const char* operation) noexcept {
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-            std::fprintf(stderr, "KerneTile Vulkan: %s (%d)\n", operation ? operation : "", static_cast<int>(result));
+            KT_LOG_ERR("Vulkan: %s (%d)", operation ? operation : "", static_cast<int>(result));
             m_failed = true;
             return false;
         }
@@ -248,7 +249,7 @@ private:
                 }
             }
         }
-        std::fprintf(stderr, "KerneTile Vulkan: No hardware Vulkan device with presentation\n");
+        KT_LOG_ERR("Vulkan: No hardware Vulkan device with presentation");
         m_failed = true;
     }
 

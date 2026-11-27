@@ -46,7 +46,7 @@ public:
         const auto status = D3DCompile(shader_source, sizeof(shader_source) - 1, "ui_compute_d3d12.hlsl",
             nullptr, nullptr, "compose", "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &binary, &errors);
         if (FAILED(status) && errors) {
-            std::fprintf(stderr, "%s\n", static_cast<const char*>(errors->GetBufferPointer()));
+            KT_LOG_ERR("D3D12 Shader: %s", static_cast<const char*>(errors->GetBufferPointer()));
         }
         throw_if_failed(status, "Compile UI tile shader");
         m_pipeline = m_device.create_compute_pipeline(
@@ -95,7 +95,14 @@ public:
         auto& back = *back_ptr;
         commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
         commands.resource_barrier(back, ResourceState::Present, ResourceState::CopyDst);
-        commands.get_native_list()->CopyResource(back.get_native_resource(), m_output->get_native_resource());
+        if (m_output->get_width() == frame.width && m_output->get_height() == frame.height) {
+            commands.get_native_list()->CopyResource(back.get_native_resource(), m_output->get_native_resource());
+        } else {
+            D3D12_TEXTURE_COPY_LOCATION src{m_output->get_native_resource(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+            D3D12_TEXTURE_COPY_LOCATION dst{back.get_native_resource(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+            D3D12_BOX box{0u, 0u, 0u, frame.width, frame.height, 1u};
+            commands.get_native_list()->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+        }
         commands.resource_barrier(back, ResourceState::CopyDst, ResourceState::Present);
         commands.close();
         m_device.execute_command_list(commands.get_native_list());
@@ -130,10 +137,18 @@ private:
         } else if (m_swapchain->get_width() != frame.width || m_swapchain->get_height() != frame.height) {
             wait_all_frames();
             m_swapchain->resize(frame.width, frame.height);
-            m_output.reset();
         }
-        if (!m_output) m_output = std::make_unique<D3D12Texture>(m_device.get_native_device(),
-            TextureDesc{frame.width, frame.height, TextureFormat::RGBA8_UNORM, true});
+        // 按 256px 步长向上对齐容量复用 m_output UAV 纹理，避免拖动缩放窗口时每变化 1px 就销毁重建 GPU 纹理
+        const bool need_output = !m_output ||
+            m_output->get_width() < frame.width ||
+            m_output->get_height() < frame.height;
+        if (need_output) {
+            if (m_output) wait_all_frames();
+            const uint32_t cap_w = ((frame.width + 255u) / 256u) * 256u;
+            const uint32_t cap_h = ((frame.height + 255u) / 256u) * 256u;
+            m_output = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                TextureDesc{cap_w, cap_h, TextureFormat::RGBA8_UNORM, true});
+        }
     }
 
     D3D12Buffer& upload_buffer(FrameSlot& slot, size_t index, size_t size) {

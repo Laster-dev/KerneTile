@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <chrono>
+#include <cstring>
+#include <type_traits>
+#include <utility>
 
 namespace kernetile::platform {
 
@@ -12,13 +14,44 @@ namespace kernetile::platform {
 // ============================================================================
 class PresentationSync {
 public:
-    using RenderFrameCallback = std::function<void(uint32_t width, uint32_t height)>;
+    // 零堆分配轻量回调（替代 std::function，无异常/无 RTTI/极小二进制体积）
+    class RenderFrameCallback {
+    public:
+        RenderFrameCallback() noexcept = default;
+        RenderFrameCallback(std::nullptr_t) noexcept {}
+
+        template <typename F,
+                  typename Decay = std::decay_t<F>,
+                  typename = std::enable_if_t<!std::is_same_v<Decay, RenderFrameCallback>>>
+        RenderFrameCallback(F&& f) noexcept {
+            static_assert(sizeof(Decay) <= sizeof(m_storage) && alignof(Decay) <= alignof(void*),
+                          "RenderFrameCallback capture exceeds 32-byte SBO");
+            static_assert(std::is_trivially_copyable_v<Decay>,
+                          "RenderFrameCallback requires trivially copyable callable");
+            std::memcpy(m_storage, &f, sizeof(Decay));
+            m_invoke = [](const void* raw, uint32_t w, uint32_t h) {
+                (*static_cast<const Decay*>(raw))(w, h);
+            };
+        }
+
+        explicit operator bool() const noexcept { return m_invoke != nullptr; }
+
+        void operator()(uint32_t width, uint32_t height) const {
+            if (m_invoke) {
+                m_invoke(m_storage, width, height);
+            }
+        }
+
+    private:
+        alignas(void*) unsigned char m_storage[32]{};
+        void (*m_invoke)(const void*, uint32_t, uint32_t){nullptr};
+    };
 
     PresentationSync() = default;
 
     // 设置渲染回调
-    void set_render_callback(RenderFrameCallback cb) {
-        m_render_callback = std::move(cb);
+    void set_render_callback(RenderFrameCallback cb) noexcept {
+        m_render_callback = cb;
     }
 
     // 处理 WM_ENTERSIZEMOVE: 用户按住窗口边框开始调整大小

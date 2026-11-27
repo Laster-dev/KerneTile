@@ -4,7 +4,7 @@ echo ===========================================================================
 echo  KerneTile / KTUI Web (WebAssembly) 本地快速启动器
 echo ==============================================================================
 
-set "ROOT_DIR=%~dp0"
+set "ROOT_DIR=%~dp0.."
 cd /d "%ROOT_DIR%"
 
 if not exist "build-web\ktui_gallery.html" (
@@ -31,15 +31,10 @@ echo.
 :: 自动调用浏览器打开网页
 start http://localhost:8080/ktui_gallery.html
 
-:: 启动本地静态 HTTP 服务 (优先系统 Python，次选 Emscripten 预置 Python)
+:: 启动本地静态 HTTP 服务 (优先系统 Python，次选内置 PowerShell)
 where python >nul 2>&1
 if not errorlevel 1 (
     python -m http.server 8080 --directory build-web
-    exit /b 0
-)
-
-if exist "C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\python\python.exe" (
-    "C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\python\python.exe" -m http.server 8080 --directory build-web
     exit /b 0
 )
 

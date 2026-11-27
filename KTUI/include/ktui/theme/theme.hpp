@@ -128,6 +128,14 @@ struct Theme {
         return t;
     }
 
+    [[nodiscard]] static Theme lerp(const Theme& a, const Theme& b, float t) noexcept {
+        if (t <= 0.0f) return a;
+        if (t >= 1.0f) return b;
+        Theme out = (t >= 0.5f) ? b : a;
+        out.colors = ColorPalette::lerp(a.colors, b.colors, t);
+        return out;
+    }
+
     bool operator==(const Theme&) const noexcept = default;
 };
 

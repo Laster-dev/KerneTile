@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/strings.hpp>
+
 #include <ktui/core/fn.hpp>
 #include <ktui/core/light_mutex.hpp>
 #include <atomic>
@@ -171,7 +173,7 @@ public:
         m_pResize    = reinterpret_cast<ResizePseudoConsoleFn>(::GetProcAddress(k32, "ResizePseudoConsole"));
         m_pClose     = reinterpret_cast<ClosePseudoConsoleFn>(::GetProcAddress(k32, "ClosePseudoConsole"));
         if (!pCreate || !m_pResize || !m_pClose) {
-            emit_error("\x1b[31m[ConPTY] 当前 Windows 版本不支持 CreatePseudoConsole (需 Win10 1809+)\x1b[0m\r\n");
+            emit_error(FrameworkStrings::current().term_conpty_unsupported);
             return false;
         }
 
@@ -198,7 +200,7 @@ public:
         if (FAILED(hr) || !hpc) {
             ::CloseHandle(pty_in_write);
             ::CloseHandle(pty_out_read);
-            emit_error("\x1b[31m[ConPTY] CreatePseudoConsole 失败\x1b[0m\r\n");
+            emit_error(FrameworkStrings::current().term_conpty_create_failed);
             return false;
         }
 
@@ -241,7 +243,7 @@ public:
             m_pClose(hpc);
             ::CloseHandle(pty_in_write);
             ::CloseHandle(pty_out_read);
-            emit_error("\x1b[31m[ConPTY] 启动子进程失败: " + m_command_line + "\x1b[0m\r\n");
+            emit_error(std::string(FrameworkStrings::current().term_conpty_spawn_failed_prefix) + m_command_line + "\x1b[0m\r\n");
             return false;
         }
 
@@ -402,7 +404,7 @@ public:
 
         emit("\x1b]0;KerneTile Terminal — DemoShell\x07");
         emit("\x1b[1;36mKerneTile Terminal\x1b[0m \x1b[90m(Windows Terminal Compatible • VT100/xterm-256/TrueColor)\x1b[0m\r\n");
-        emit("输入 \x1b[1;33mhelp\x1b[0m 查看内置命令，或点击上方工具栏切换真实 \x1b[1;32mConPTY (PowerShell / CMD)\x1b[0m 后端。\r\n\r\n");
+        emit("Type \x1b[1;33mhelp\x1b[0m for built-in commands, or switch to \x1b[1;32mConPTY (PowerShell / CMD)\x1b[0m in the toolbar.\r\n\r\n");
         prompt();
         return true;
     }
@@ -524,26 +526,26 @@ private:
         if (cmd.empty()) return;
 
         if (cmd == "help") {
-            emit("\x1b[1m内置演示命令:\x1b[0m\r\n");
-            emit("  \x1b[36mcolors\x1b[0m     测试 ANSI 16色 / 256色 / 24-bit TrueColor 渐变与 SGR 样式\r\n");
-            emit("  \x1b[36mneofetch\x1b[0m   展示系统与 KerneTile 引擎概览\r\n");
-            emit("  \x1b[36mls\x1b[0m         列出当前项目目录结构\r\n");
-            emit("  \x1b[36mprogress\x1b[0m   演示 Windows Terminal OSC 9;4 顶部进度条\r\n");
-            emit("  \x1b[36mecho ...\x1b[0m   回显任意文本（支持中文与 UTF-8）\r\n");
-            emit("  \x1b[36mdate\x1b[0m       显示当前本地时间\r\n");
-            emit("  \x1b[36mclear\x1b[0m      清屏 (或按 Ctrl+L)\r\n");
-            emit("  \x1b[36mexit\x1b[0m       结束当前 DemoShell 会话\r\n");
+            emit("\x1b[1mBuilt-in Demo Commands:\x1b[0m\r\n");
+            emit("  \x1b[36mcolors\x1b[0m     Test ANSI 16/256/24-bit TrueColor gradients and SGR styles\r\n");
+            emit("  \x1b[36mneofetch\x1b[0m   Show system and KerneTile engine overview\r\n");
+            emit("  \x1b[36mls\x1b[0m         List current project directory\r\n");
+            emit("  \x1b[36mprogress\x1b[0m   Demo Windows Terminal OSC 9;4 progress bar\r\n");
+            emit("  \x1b[36mecho ...\x1b[0m   Echo arbitrary UTF-8 text\r\n");
+            emit("  \x1b[36mdate\x1b[0m       Display current local time\r\n");
+            emit("  \x1b[36mclear\x1b[0m      Clear screen (or press Ctrl+L)\r\n");
+            emit("  \x1b[36mexit\x1b[0m       Exit current DemoShell session\r\n");
         } else if (cmd == "clear") {
             emit("\x1b[2J\x1b[H");
         } else if (cmd == "ls") {
             emit("\x1b[1;34mKTUI/\x1b[0m  \x1b[1;34minclude/\x1b[0m  \x1b[1;34msrc/\x1b[0m  \x1b[1;34mexamples/\x1b[0m  \x1b[1;34mtests/\x1b[0m  \x1b[32mCMakeLists.txt\x1b[0m  README.md\r\n");
         } else if (cmd == "colors") {
-            emit("\x1b[1mSGR 样式:\x1b[0m \x1b[1mBold\x1b[0m  \x1b[2mDim\x1b[0m  \x1b[3mItalic\x1b[0m  \x1b[4mUnderline\x1b[0m  \x1b[7mInverse\x1b[0m  \x1b[9mStrike\x1b[0m\r\n");
-            emit("\x1b[1mANSI 16色:\x1b[0m ");
+            emit("\x1b[1mSGR Styles:\x1b[0m \x1b[1mBold\x1b[0m  \x1b[2mDim\x1b[0m  \x1b[3mItalic\x1b[0m  \x1b[4mUnderline\x1b[0m  \x1b[7mInverse\x1b[0m  \x1b[9mStrike\x1b[0m\r\n");
+            emit("\x1b[1mANSI 16-Color:\x1b[0m ");
             for (int i = 0; i < 8; ++i) emit("\x1b[" + std::to_string(40 + i) + "m   \x1b[0m");
             emit(" ");
             for (int i = 0; i < 8; ++i) emit("\x1b[" + std::to_string(100 + i) + "m   \x1b[0m");
-            emit("\r\n\x1b[1m24-bit TrueColor 连续色带:\x1b[0m\r\n");
+            emit("\r\n\x1b[1m24-bit TrueColor Gradient:\x1b[0m\r\n");
             for (int i = 0; i < 48; ++i) {
                 int r = (i < 16) ? (255 - i * 16) : (i >= 32 ? (i - 32) * 16 : 0);
                 int g = (i < 16) ? (i * 16) : (i < 32 ? (255 - (i - 16) * 16) : 0);
@@ -560,10 +562,10 @@ private:
             emit("\x1b[1;36m  | . \\  __/ |  | | | |  __/  | | | | |  __/\x1b[0m  \x1b[1;33mGrid:\x1b[0m " + std::to_string(m_cols) + "x" + std::to_string(m_rows) + " cells\r\n");
             emit("\x1b[1;36m  |_|\\_\\___|_|  |_| |_|\\___|  |_| |_|_|\\___|\x1b[0m  \x1b[1;33mBackend:\x1b[0m Pluggable ITerminalBackend\r\n");
         } else if (cmd == "progress") {
-            emit("\x1b]9;4;1;68\x07已通过 \x1b[1;36mOSC 9;4;1;68\x1b[0m 设置 Windows Terminal 顶部进度条为 68%！\r\n");
-            emit("再次输入 \x1b[33mprogress off\x1b[0m 可清除进度条。\r\n");
+            emit("\x1b]9;4;1;68\x07Set OSC 9;4 progress bar to 68% via \x1b[1;36mOSC 9;4;1;68\x1b[0m.\r\n");
+            emit("Type \x1b[33mprogress off\x1b[0m to clear.\r\n");
         } else if (cmd == "progress off") {
-            emit("\x1b]9;4;0;0\x07已清除 OSC 9;4 进度条。\r\n");
+            emit("\x1b]9;4;0;0\x07Cleared OSC 9;4 progress bar.\r\n");
         } else if (cmd == "date") {
             std::time_t t = std::time(nullptr);
             char buf[64]{};
@@ -574,11 +576,11 @@ private:
         } else if (cmd.rfind("echo ", 0) == 0) {
             emit(cmd.substr(5) + "\r\n");
         } else if (cmd == "exit") {
-            emit("\x1b[90m[DemoShell 已退出，退出码 0]\x1b[0m\r\n");
+            emit("\x1b[90m[DemoShell exited with code 0]\x1b[0m\r\n");
             m_running = false;
             if (on_exit) on_exit(0);
         } else {
-            emit("\x1b[31m未知命令:\x1b[0m " + cmd + "  (输入 \x1b[33mhelp\x1b[0m 查看帮助)\r\n");
+            emit("\x1b[31mUnknown command:\x1b[0m " + cmd + "  (type \x1b[33mhelp\x1b[0m for help)\r\n");
         }
     }
 

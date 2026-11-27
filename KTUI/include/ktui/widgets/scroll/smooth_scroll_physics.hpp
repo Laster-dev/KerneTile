@@ -29,8 +29,8 @@ public:
 
     SmoothScrollPhysics() = default;
 
-    // R4 Opt-in 橡皮筋越界回弹开关 (默认 false: 严格钳制在 [0, max_scroll])
-    bool rubber_band_overscroll{false};
+    // R4 橡皮筋越界回弹开关 (默认 true，可手动关闭恢复严格钳制 [0, max_scroll])
+    bool rubber_band_overscroll{true};
 
     void set_rubber_band_enabled(bool enabled) noexcept {
         rubber_band_overscroll = enabled;

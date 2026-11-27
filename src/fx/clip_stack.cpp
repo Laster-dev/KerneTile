@@ -7,7 +7,8 @@ namespace kernetile::fx {
 uint32_t ClipStack::push_clip(
     math::Rect rect,
     float corner_radius,
-    uint32_t flags)
+    uint32_t flags,
+    uint32_t reserved)
 {
     core::ClipRect clip{};
     clip.min_x = rect.min_x;
@@ -20,7 +21,7 @@ uint32_t ClipStack::push_clip(
     clip.corner_radius = std::clamp(corner_radius, 0.0f, std::max(0.0f, max_r));
 
     clip.flags = flags;
-    clip.reserved = 0;
+    clip.reserved = reserved;
 
     if (!m_active_stack.empty()) {
         clip.parent_index = m_active_stack.back();

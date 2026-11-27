@@ -81,4 +81,19 @@ struct FlexItemData {
     bool operator==(const FlexItemData&) const noexcept = default;
 };
 
+// 同心嵌套圆角几何推导 (Concentric Nested Corner Radius)
+// outer_radius > 0 时保证内层圆角与外层圆角共用圆心中心点：inner_r = max(min_radius, outer_radius - inset)
+[[nodiscard]] constexpr float concentric_radius(float outer_radius, float inset, float min_radius = 2.0f) noexcept {
+    if (outer_radius <= 0.0f) return 0.0f;
+    const float clamped_inset = (inset > 0.0f) ? inset : 0.0f;
+    const float raw = outer_radius - clamped_inset;
+    return (raw > min_radius) ? raw : min_radius;
+}
+
+[[nodiscard]] constexpr float concentric_radius(float outer_radius, const EdgeInsets& pad, float min_radius = 2.0f) noexcept {
+    const float h = (pad.left < pad.right) ? pad.left : pad.right;
+    const float v = (pad.top < pad.bottom) ? pad.top : pad.bottom;
+    return concentric_radius(outer_radius, (h < v) ? h : v, min_radius);
+}
+
 } // namespace ktui

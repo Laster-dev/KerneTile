@@ -1,5 +1,6 @@
 #pragma once
 
+#include <kernetile/core/log.hpp>
 #include <ktui/pal/platform_backend.hpp>
 #include <mutex>
 #include <vector>
@@ -1023,13 +1024,13 @@ public:
         XSetErrorHandler([](Display* dpy, XErrorEvent* ev) -> int {
             char buf[256];
             XGetErrorText(dpy, ev->error_code, buf, sizeof(buf));
-            std::fprintf(stderr, "[LinuxBackend X11 Protocol Warning] Code %d (%s), Request: %d, Minor: %d\n",
-                         static_cast<int>(ev->error_code), buf,
-                         static_cast<int>(ev->request_code), static_cast<int>(ev->minor_code));
+            KT_LOG_WARN("[LinuxBackend X11 Protocol] Code %d (%s), Request: %d, Minor: %d",
+                        static_cast<int>(ev->error_code), buf,
+                        static_cast<int>(ev->request_code), static_cast<int>(ev->minor_code));
             return 0;
         });
         XSetIOErrorHandler([](Display*) -> int {
-            std::fprintf(stderr, "[LinuxBackend X11 IO Warning] Display server disconnected.\n");
+            KT_LOG_WARN("[LinuxBackend X11 IO] Display server disconnected.");
             return 0;
         });
         std::setlocale(LC_ALL, "");
@@ -1038,10 +1039,10 @@ public:
         if (disp_env && disp_env[0] != '\0') {
             m_display = XOpenDisplay(disp_env);
             if (m_display) {
-                std::printf("[LinuxBackend] Successfully connected to X11 Display Server: %s\n", disp_env);
+                KT_LOG_INFO("[LinuxBackend] Connected to X11 Display Server: %s", disp_env);
                 m_xim = XOpenIM(m_display, nullptr, nullptr, nullptr);
                 if (m_xim) {
-                    std::printf("[LinuxBackend] Successfully initialized XIM Input Method.\n");
+                    KT_LOG_INFO("[LinuxBackend] Initialized XIM Input Method.");
                 }
 
                 // 创建专用隐藏辅助窗口以稳定管理 X11 系统剪贴板

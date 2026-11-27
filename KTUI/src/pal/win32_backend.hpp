@@ -120,6 +120,10 @@ private:
     Vec2 m_min_size;
     Vec2 m_max_size;
     Vec2 m_position{100.0f, 100.0f};
+    Vec2 m_move_start_pos{100.0f, 100.0f};
+    bool m_in_size_move = false;
+    bool m_size_dirty_in_modal = false;
+    uint64_t m_last_size_paint_ms = 0;
     bool m_fullscreen = false;
     bool m_last_maximized = false;
     bool m_always_on_top = false;

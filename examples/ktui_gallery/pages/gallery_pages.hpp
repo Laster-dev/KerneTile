@@ -61,6 +61,21 @@ ktui::WidgetPtr build_toast_page(GalleryApp& app);
 ktui::WidgetPtr build_progress_bar_page(GalleryApp& app);
 ktui::WidgetPtr build_progress_ring_page(GalleryApp& app);
 
+// ==================== 质感交互 (Tactile & Optical Polish - 每种质感独立页面) ====================
+ktui::WidgetPtr build_tactile_font_gamma_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_directional_rim_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_oklab_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_acrylic_grain_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_inset_shadow_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_metaballs_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_scroll_feather_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_hero_transition_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_micro_tilt_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_spring_caret_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_scroll_parallax_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_rolling_counter_page(GalleryApp& app);
+ktui::WidgetPtr build_tactile_concentric_radius_page(GalleryApp& app);
+
 // ==================== 图形与矢量 (Media & Vector) ====================
 ktui::WidgetPtr build_polish_showcase_page(GalleryApp& app);
 ktui::WidgetPtr build_squircle_page(GalleryApp& app);

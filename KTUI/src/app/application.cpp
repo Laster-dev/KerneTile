@@ -300,6 +300,8 @@ std::shared_ptr<Window> Application::create_window(const WindowDesc& desc) {
     auto win = std::make_shared<Window>(m_next_window_id++, std::move(plat_win), show_titlebar);
     win->set_dithering_enabled(desc.dithering_enabled);
     win->set_pixel_snapping_enabled(desc.pixel_snapping_enabled);
+    win->set_font_gamma_enabled(desc.font_gamma_enabled);
+    win->set_acrylic_grain_enabled(desc.acrylic_grain_enabled);
     win->titlebar().on_theme_toggle = [this]() {
         set_theme(current_theme().is_dark ? Theme::light() : Theme::dark());
     };

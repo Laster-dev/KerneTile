@@ -56,6 +56,46 @@ public:
             pixel = lut[pixel];
         }
     }
+
+    // ========================================================================
+    // 暗色/亮色文字光渗补偿 (Irradiation Illusion Compensation / Font Gamma)
+    // - 深色背景浅字 (polarity > 0): 人眼视觉光渗使白字显得偏粗，施加 gamma > 1.0 抑制溢光
+    // - 浅色背景深字 (polarity < 0): 亮底向暗字笔画渗入使其偏细，施加 gamma < 1.0 增强笔画权重
+    // - 随字号增大在 12px..28px 间平滑收敛至 1.0，保障中英文小字观感与笔画粗细一致
+    // ========================================================================
+    [[nodiscard]] static inline float compute_irradiation_gamma(
+        float font_size_px,
+        float fg_luma,
+        float bg_luma,
+        float bg_alpha = 1.0f) noexcept
+    {
+        const float size_weight = std::clamp((28.0f - font_size_px) / 16.0f, 0.0f, 1.0f);
+        if (size_weight <= 0.001f) {
+            return 1.0f;
+        }
+        const float polarity = std::clamp(fg_luma - bg_luma, -1.0f, 1.0f) * std::clamp(bg_alpha, 0.0f, 1.0f);
+        if (polarity >= 0.0f) {
+            return 1.0f + 0.36f * size_weight * polarity;
+        }
+        return 1.0f / (1.0f + 0.48f * size_weight * (-polarity));
+    }
+
+    [[nodiscard]] static inline float evaluate_irradiation_coverage(
+        float cov,
+        float font_size_px,
+        float fg_luma,
+        float bg_luma,
+        float bg_alpha = 1.0f) noexcept
+    {
+        if (cov <= 0.0001f || cov >= 0.9999f) {
+            return cov;
+        }
+        const float gamma = compute_irradiation_gamma(font_size_px, fg_luma, bg_luma, bg_alpha);
+        if (std::abs(gamma - 1.0f) <= 0.001f) {
+            return cov;
+        }
+        return std::clamp(std::pow(cov, gamma), 0.0f, 1.0f);
+    }
 };
 
 } // namespace kernetile::text

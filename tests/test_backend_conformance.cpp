@@ -879,6 +879,147 @@ void test_warp_parity_r3_pointer_reveal(WarpComputeRunner& warp) {
     std::cout << "  -> R3 Pointer Reveal CPU vs WARP parity PASSED (differing_pixels=0)." << std::endl;
 }
 
+void test_warp_parity_directional_rim_and_oklab_gradient(WarpComputeRunner& warp) {
+    std::cout << "[Test 6] Testing CPU vs D3D12 WARP Parity: Directional Fresnel Rim & OkLab Gradient..." << std::endl;
+    const uint32_t w = 128, h = 128;
+    const TileGrid grid(w, h);
+    TileBinner binner;
+
+    // 1. Directional Fresnel Rim Highlight
+    UiPrimitive rim{};
+    rim.min_x = 16.0f; rim.min_y = 16.0f;
+    rim.max_x = 112.0f; rim.max_y = 112.0f;
+    rim.radius_top_left = rim.radius_top_right = rim.radius_bottom_right = rim.radius_bottom_left = 14.0f;
+    rim.color_r = 1.0f; rim.color_g = 1.0f; rim.color_b = 1.0f; rim.color_a = 0.9f;
+    rim.atlas_u0 = 0u; rim.atlas_v0 = 0u; rim.atlas_u1 = 0u; rim.atlas_v1 = pack_unorm16(0.8f);
+    rim.border_width = 1.5f;
+    rim.shadow_offset_x = -0.20f;
+    rim.shadow_offset_y = -0.98f;
+    rim.shadow_spread = 0.45f;
+    rim.flags = static_cast<uint16_t>(PrimitiveFlags::HasDirectionalRim | PrimitiveFlags::HasBorder);
+
+    // 2. OkLab Gradient background behind the rim
+    UiPrimitive grad{};
+    grad.min_x = 0.0f; grad.min_y = 0.0f;
+    grad.max_x = 128.0f; grad.max_y = 128.0f;
+    grad.color_r = 0.0f; grad.color_g = 0.40f; grad.color_b = 1.0f; grad.color_a = 1.0f;
+    grad.atlas_u0 = pack_unorm16(1.0f); grad.atlas_v0 = pack_unorm16(0.80f);
+    grad.atlas_u1 = pack_unorm16(0.0f); grad.atlas_v1 = pack_unorm16(1.0f);
+    grad.shadow_offset_x = 0.0f; grad.shadow_offset_y = 0.0f;
+    grad.shadow_blur = 128.0f; grad.shadow_spread = 0.0f;
+    grad.flags = static_cast<uint16_t>(PrimitiveFlags::HasLinearGradient | PrimitiveFlags::OkLabGradient);
+
+    std::vector<UiPrimitive> prims = {grad, rim};
+    auto bin_res = binner.bin_primitives(grid, prims);
+    auto cpu_fb = render_cpu(w, h, prims, bin_res, {}, false, {}, false);
+    auto gpu_fb = warp.render(w, h, prims, bin_res.indices, bin_res.headers, {}, false, {}, false);
+
+    const auto comp = ImageCompare::compare_rgba8(cpu_fb.data(), gpu_fb.data(), w, h);
+    std::cout << "  -> Directional Rim + OkLab Gradient CPU vs WARP: max_lsb_diff=" << comp.max_lsb_diff
+              << ", ssim=" << comp.ssim << std::endl;
+    KT_CHECK(comp.max_lsb_diff <= 1);
+    KT_CHECK(comp.ssim >= 0.999);
+}
+
+void test_warp_parity_acrylic_inset_metaballs(WarpComputeRunner& warp) {
+    std::cout << "[Test 7] Testing CPU vs D3D12 WARP Parity: Acrylic Grain, Inset Shadow, and Metaballs..." << std::endl;
+    const uint32_t w = 256, h = 128;
+    const TileGrid grid(w, h);
+    TileBinner binner;
+
+    // 1. Zero-Texture Acrylic Grain Panel
+    UiPrimitive acrylic{};
+    acrylic.min_x = 12.0f; acrylic.min_y = 12.0f; acrylic.max_x = 120.0f; acrylic.max_y = 60.0f;
+    acrylic.radius_top_left = acrylic.radius_top_right = acrylic.radius_bottom_right = acrylic.radius_bottom_left = 10.0f;
+    acrylic.color_r = 0.36f; acrylic.color_g = 0.42f; acrylic.color_b = 0.52f; acrylic.color_a = 0.85f;
+    acrylic.shadow_blur = 1.0f;
+    acrylic.shadow_spread = 0.045f;
+    acrylic.flags = static_cast<uint16_t>(PrimitiveFlags::HasAcrylicGrain);
+
+    // 2. Analytic SDF Inset Shadow
+    UiPrimitive inset{};
+    inset.min_x = 136.0f; inset.min_y = 12.0f; inset.max_x = 244.0f; inset.max_y = 60.0f;
+    inset.radius_top_left = inset.radius_top_right = inset.radius_bottom_right = inset.radius_bottom_left = 12.0f;
+    inset.color_r = 0.0f; inset.color_g = 0.0f; inset.color_b = 0.0f; inset.color_a = 0.72f;
+    inset.shadow_blur = 5.5f;
+    inset.shadow_spread = 1.0f;
+    inset.shadow_offset_x = 0.0f;
+    inset.shadow_offset_y = 2.5f;
+    inset.flags = static_cast<uint16_t>(PrimitiveFlags::HasInsetShadow);
+
+    // 3. Two-tone OkLab Metaball Pair
+    UiPrimitive mb{};
+    mb.min_x = 40.0f; mb.min_y = 64.0f; mb.max_x = 216.0f; mb.max_y = 124.0f;
+    mb.radius_top_left = 60.0f; mb.radius_top_right = 76.0f;
+    mb.radius_bottom_right = 124.0f; mb.radius_bottom_left = 112.0f;
+    const float bw = mb.max_x - mb.min_x, bh = mb.max_y - mb.min_y;
+    mb.atlas_u0 = pack_unorm16((134.0f - mb.min_x) / bw);
+    mb.atlas_v0 = pack_unorm16((76.0f - mb.min_y) / bh);
+    mb.atlas_u1 = pack_unorm16((186.0f - mb.min_x) / bw);
+    mb.atlas_v1 = pack_unorm16((112.0f - mb.min_y) / bh);
+    mb.color_r = 0.0f; mb.color_g = 0.48f; mb.color_b = 0.98f; mb.color_a = 0.98f;
+    mb.shadow_blur = 24.0f;
+    mb.shadow_spread = 18.0f;
+    mb.shadow_offset_x = 18.0f;
+    auto q6 = [](float v) -> uint32_t { return static_cast<uint32_t>(std::lround(v * 63.0f)) & 63u; };
+    uint32_t pk = q6(1.0f) | (q6(0.25f) << 6u) | (q6(0.60f) << 12u) | (q6(0.95f) << 18u);
+    mb.shadow_offset_y = static_cast<float>(pk + 1u);
+    mb.flags = static_cast<uint16_t>(PrimitiveFlags::IsMetaball);
+
+    std::vector<UiPrimitive> prims = {acrylic, inset, mb};
+    auto bin_res = binner.bin_primitives(grid, prims);
+    auto cpu_fb = render_cpu(w, h, prims, bin_res, {}, false, {}, false);
+    auto gpu_fb = warp.render(w, h, prims, bin_res.indices, bin_res.headers, {}, false, {}, false);
+
+    const auto comp = ImageCompare::compare_rgba8(cpu_fb.data(), gpu_fb.data(), w, h);
+    std::cout << "  -> Acrylic + Inset + Metaballs CPU vs WARP: max_lsb_diff=" << comp.max_lsb_diff
+              << ", ssim=" << comp.ssim << std::endl;
+    KT_CHECK(comp.max_lsb_diff <= 1);
+    KT_CHECK(comp.ssim >= 0.999);
+}
+
+void test_warp_parity_feathered_clip(WarpComputeRunner& warp) {
+    std::cout << "[Test 8] Testing CPU vs D3D12 WARP Parity: Scroll Edge Alpha Feathering..." << std::endl;
+    const uint32_t w = 128, h = 128;
+    const TileGrid grid(w, h);
+    TileBinner binner;
+
+    UiPrimitive card{};
+    card.min_x = 12.0f; card.min_y = 4.0f; card.max_x = 116.0f; card.max_y = 124.0f;
+    card.radius_top_left = card.radius_top_right = card.radius_bottom_right = card.radius_bottom_left = 12.0f;
+    card.color_r = 0.25f; card.color_g = 0.62f; card.color_b = 0.98f; card.color_a = 0.92f;
+    card.shadow_blur = 8.0f;
+    card.shadow_offset_y = 3.0f;
+    card.clip_index = 0u;
+
+    UiPrimitive rim = card;
+    rim.border_width = 1.5f;
+    rim.shadow_blur = 0.0f;
+    rim.shadow_offset_x = -0.2f;
+    rim.shadow_offset_y = -0.98f;
+    rim.shadow_spread = 0.35f;
+    rim.atlas_v1 = pack_unorm16(0.5f);
+    rim.flags = static_cast<uint16_t>(PrimitiveFlags::HasDirectionalRim | PrimitiveFlags::HasBorder);
+
+    ClipRect clip{};
+    clip.min_x = 8.0f; clip.min_y = 16.0f; clip.max_x = 120.0f; clip.max_y = 112.0f;
+    clip.corner_radius = 10.0f;
+    clip.flags = kClipFlagFeatherTop | kClipFlagFeatherBottom;
+    clip.reserved = (static_cast<uint32_t>(26.0f * 16.0f)) | (static_cast<uint32_t>(22.0f * 16.0f) << 16u);
+
+    std::vector<UiPrimitive> prims = {card, rim};
+    std::vector<ClipRect> clips = {clip};
+    auto bin_res = binner.bin_primitives(grid, prims);
+    auto cpu_fb = render_cpu(w, h, prims, bin_res, clips, false, {}, false);
+    auto gpu_fb = warp.render(w, h, prims, bin_res.indices, bin_res.headers, clips, false, {}, false);
+
+    const auto comp = ImageCompare::compare_rgba8(cpu_fb.data(), gpu_fb.data(), w, h);
+    std::cout << "  -> Feathered Clip CPU vs WARP: max_lsb_diff=" << comp.max_lsb_diff
+              << ", ssim=" << comp.ssim << std::endl;
+    KT_CHECK(comp.max_lsb_diff <= 1);
+    KT_CHECK(comp.ssim >= 0.999);
+}
+
 #endif // _WIN32 && KT_CONFORMANCE_ENABLE_D3D12 && !KERNETILE_PURE_GDI
 
 int main() {
@@ -893,6 +1034,9 @@ int main() {
     test_warp_parity_r1_ign_dithering(warp);
     test_warp_parity_r2_pixel_snapping(warp);
     test_warp_parity_r3_pointer_reveal(warp);
+    test_warp_parity_directional_rim_and_oklab_gradient(warp);
+    test_warp_parity_acrylic_inset_metaballs(warp);
+    test_warp_parity_feathered_clip(warp);
 #else
     std::cout << "[INFO] D3D12 WARP parity tests skipped (non-Windows or Pure-GDI/no-compute build)." << std::endl;
 #endif

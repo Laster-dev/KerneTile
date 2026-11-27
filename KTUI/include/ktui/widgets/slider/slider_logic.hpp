@@ -206,9 +206,13 @@ public:
             const float thumb_cy = (tick_step > 0.0f) ? std::max(thumb_r + 1.0f, size().y * 0.5f - 3.0f) : (size().y * 0.5f);
             const float track_y = thumb_cy - style.track_height * 0.5f;
 
-            // 1. 未激活底槽
-            ctx.draw_rect(Rect::from_xywh(track_x, track_y, track_w, style.track_height),
-                          style.track_inactive, style.track_height * 0.5f, 0.0f);
+            // 1. 未激活底槽 (可选凹槽解析高斯内阴影)
+            const Rect track_rect = Rect::from_xywh(track_x, track_y, track_w, style.track_height);
+            ctx.draw_rect(track_rect, style.track_inactive, style.track_height * 0.5f, 0.0f);
+            if (m_inset_shadow) {
+                const Color sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.45f} : Color{0.0f, 0.04f, 0.12f, 0.22f};
+                ctx.draw_inset_shadow(track_rect, sh, style.track_height * 0.5f, 2.5f, 0.3f, Vec2{0.0f, 1.0f});
+            }
 
             // 2. 激活高亮轨
             if (m_data.range_mode) {
@@ -268,8 +272,12 @@ public:
             const float thumb_cx = (tick_step > 0.0f) ? std::max(thumb_r + 1.0f, size().x * 0.5f - 3.0f) : (size().x * 0.5f);
             const float track_x = thumb_cx - style.track_height * 0.5f;
 
-            ctx.draw_rect(Rect::from_xywh(track_x, track_y, style.track_height, track_h),
-                          style.track_inactive, style.track_height * 0.5f, 0.0f);
+            const Rect vtrack_rect = Rect::from_xywh(track_x, track_y, style.track_height, track_h);
+            ctx.draw_rect(vtrack_rect, style.track_inactive, style.track_height * 0.5f, 0.0f);
+            if (m_inset_shadow) {
+                const Color sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.45f} : Color{0.0f, 0.04f, 0.12f, 0.22f};
+                ctx.draw_inset_shadow(vtrack_rect, sh, style.track_height * 0.5f, 2.5f, 0.3f, Vec2{1.0f, 0.0f});
+            }
 
             if (m_data.range_mode) {
                 float ns = (smooth_drag && m_active_thumb == 0) ? m_drag_norm : normalize_val(m_data.range_start);
@@ -517,6 +525,18 @@ private:
 
     SliderData m_data;
     SliderInteractiveState m_state;
+    bool m_inset_shadow{false};
+
+public:
+    void set_inset_shadow(bool enabled) noexcept {
+        if (m_inset_shadow != enabled) {
+            m_inset_shadow = enabled;
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool inset_shadow_enabled() const noexcept { return m_inset_shadow; }
+
+private:
     float m_drag_norm{0.0f};
     int m_active_thumb{0};
     int m_hovered_thumb{-1};
@@ -547,6 +567,7 @@ struct Slider : BindableMixin<Slider, RenderSlider> {
     bool range_mode{false};
     float range_start{20.0f};
     float range_end{80.0f};
+    bool inset_shadow{false};
     Fn<void(float, float)> on_range_changed{nullptr};
 
     operator WidgetPtr() const&;
@@ -602,6 +623,7 @@ private:
         node->set_extended_props(m_desc.orientation, m_desc.height, m_desc.tick_frequency,
                                  m_desc.show_ticks, m_desc.range_mode, m_desc.range_start,
                                  m_desc.range_end, m_desc.on_range_changed);
+        node->set_inset_shadow(m_desc.inset_shadow);
     }
 
     Slider m_desc;

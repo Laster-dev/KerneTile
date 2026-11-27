@@ -68,6 +68,11 @@ public:
         return constraints.constrain(Vec2{0.0f, 0.0f});
     }
 
+    // 返回当前装饰容器的物理圆角半径 (< 0 表示非装饰圆角表面，用于无 RTTI 的同心圆角推导)
+    [[nodiscard]] virtual float surface_corner_radius() const noexcept {
+        return -1.0f;
+    }
+
     // ==================== 命中测试 (Hit Testing) ====================
     // position 为相对于当前节点左上角的局部坐标
     virtual bool hit_test(HitTestResult& result, PointF position) {

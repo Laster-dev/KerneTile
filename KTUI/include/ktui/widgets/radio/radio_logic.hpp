@@ -13,8 +13,8 @@
 #include <ktui/event/event_types.hpp>
 #include <ktui/theme/theme_scope.hpp>
 #include <ktui/widgets/widget.hpp>
-#include <ktui/widgets/hstack.hpp>
-#include <ktui/widgets/vstack.hpp>
+#include <ktui/widgets/hstack/hstack_logic.hpp>
+#include <ktui/widgets/vstack/vstack_logic.hpp>
 
 #include <algorithm>
 #include <chrono>

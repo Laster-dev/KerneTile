@@ -40,7 +40,7 @@ public:
 
     // 从已有 ID3D12Resource (例如交换链后备缓冲) 构造
     D3D12Texture(ComPtr<ID3D12Resource> resource, const TextureDesc& desc, ResourceState init_state)
-        : m_resource(resource), m_desc(desc), m_current_state(init_state) {}
+        : m_desc(desc), m_current_state(init_state), m_resource(std::move(resource)) {}
 
     [[nodiscard]] uint32_t get_width() const noexcept override { return m_desc.width; }
     [[nodiscard]] uint32_t get_height() const noexcept override { return m_desc.height; }

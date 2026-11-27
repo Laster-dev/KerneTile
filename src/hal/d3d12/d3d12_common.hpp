@@ -1,11 +1,11 @@
 #pragma once
 
+#include "kernetile/core/log.hpp"
 #include "kernetile/hal/hal_types.hpp"
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <string>
-#include <cstdio>
 
 namespace kernetile::hal::d3d12 {
 
@@ -13,7 +13,7 @@ using Microsoft::WRL::ComPtr;
 
 inline bool throw_if_failed(HRESULT hr, const char* msg = "") noexcept {
     if (FAILED(hr)) {
-        std::fprintf(stderr, "D3D12 Error: %s (HRESULT 0x%08lX)\n", msg ? msg : "", static_cast<unsigned long>(hr));
+        KT_LOG_ERR("D3D12: %s (HRESULT 0x%08lX)", msg ? msg : "", static_cast<unsigned long>(hr));
         return false;
     }
     return true;

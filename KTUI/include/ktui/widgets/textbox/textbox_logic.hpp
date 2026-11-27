@@ -7,6 +7,7 @@
 #include "textbox_style.hpp"
 #include <ktui/animation/animation.hpp>
 #include <ktui/animation/cubic_bezier.hpp>
+#include <ktui/animation/spring_caret.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/text_measure.hpp>
@@ -285,221 +286,7 @@ public:
 
     // ==================== 绘制管线 (Painting Pipeline) ====================
 
-    void paint(PaintContext& context) override {
-        auto style = resolve_current_style();
-
-        // 1. 推进 Uiverse (WhiteNervosa/bad-mole-33) 风格四路平滑过渡动效：
-        //    - :after 2px 聚焦底条 scaleX (250ms cubic-bezier(0, 0, 0.2, 1))
-        //    - :before 1px 底线颜色过渡 (200ms cubic-bezier(0.4, 0, 0.2, 1))
-        //    - placeholder 聚焦渐隐透明度 (250ms cubic-bezier(0, 0, 0.2, 1))
-        //    - background-color 背景平滑过渡 (200ms cubic-bezier(0.25, 0.8, 0.25, 1))
-        auto now = std::chrono::steady_clock::now();
-        float dt = 0.0f;
-        if (m_last_tick_time.time_since_epoch().count() != 0) {
-            dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
-        }
-        m_last_tick_time = now;
-
-        // 检测目标背景色变更，启动 200ms cubic-bezier(0.25, 0.8, 0.25, 1) 背景过渡
-        if (!m_bg_initialized) {
-            m_bg_initialized = true;
-            m_bg_from = style.background;
-            m_bg_to = style.background;
-            m_bg_current = style.background;
-            m_bg_elapsed = kBgDurationSec;
-        } else if (m_bg_to.r != style.background.r || m_bg_to.g != style.background.g ||
-                   m_bg_to.b != style.background.b || m_bg_to.a != style.background.a) {
-            m_bg_from = m_bg_current;
-            m_bg_to = style.background;
-            m_bg_elapsed = 0.0f;
-        }
-
-        bool any_anim_active = false;
-        if (m_bg_elapsed < kBgDurationSec) {
-            m_bg_elapsed = std::min(kBgDurationSec, m_bg_elapsed + dt);
-            float t = kCurveBg.evaluate(m_bg_elapsed / kBgDurationSec);
-            m_bg_current = lerp_color(m_bg_from, m_bg_to, t);
-            if (m_bg_elapsed < kBgDurationSec) any_anim_active = true;
-        } else {
-            m_bg_current = m_bg_to;
-        }
-
-        if (m_focus_line_tween.is_active()) {
-            if (dt > 0.0f) m_focus_line_tween.tick(dt);
-            if (m_focus_line_tween.is_active()) any_anim_active = true;
-        }
-
-        if (m_before_elapsed < kBeforeDurationSec) {
-            m_before_elapsed = std::min(kBeforeDurationSec, m_before_elapsed + dt);
-            float t = kCurveBefore.evaluate(m_before_elapsed / kBeforeDurationSec);
-            m_before_progress = m_before_from + (m_before_to - m_before_from) * t;
-            if (m_before_elapsed < kBeforeDurationSec) any_anim_active = true;
-        } else {
-            m_before_progress = m_before_to;
-        }
-
-        if (m_after_elapsed < kAfterDurationSec) {
-            m_after_elapsed = std::min(kAfterDurationSec, m_after_elapsed + dt);
-            float t = kCurveAfter.evaluate(m_after_elapsed / kAfterDurationSec);
-            m_after_scale = m_after_from + (m_after_to - m_after_from) * t;
-            if (m_after_elapsed < kAfterDurationSec) any_anim_active = true;
-        } else {
-            m_after_scale = m_after_to;
-        }
-
-        if (m_placeholder_elapsed < kPlaceholderDurationSec) {
-            m_placeholder_elapsed = std::min(kPlaceholderDurationSec, m_placeholder_elapsed + dt);
-            float t = kCurveAfter.evaluate(m_placeholder_elapsed / kPlaceholderDurationSec);
-            m_placeholder_opacity = m_placeholder_from + (m_placeholder_to - m_placeholder_from) * t;
-            if (m_placeholder_elapsed < kPlaceholderDurationSec) any_anim_active = true;
-        } else {
-            m_placeholder_opacity = m_placeholder_to;
-        }
-
-        if (any_anim_active) {
-            mark_needs_paint();
-        }
-
-        // 2. 检查光标闪烁状态 (530ms 闪烁驱动)
-        update_blink_state(style.caret_blink_ms);
-
-        // 3. 绘制半透明顶部圆角底色 (5px 5px 0px 0px，无阴影无边框)
-        if (m_bg_current.a > 0.001f) {
-            context.draw_rounded_rect(bounds(), m_bg_current,
-                                      style.corner_radius, style.corner_radius, 0.0f, 0.0f);
-        }
-
-        // 4. 绘制四周描边 (仅当外部显式指定 custom_border 且 border_width > 0 时才绘制)
-        if (style.border_width > 0.0f && style.border.a > 0.001f) {
-            context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
-        }
-
-        // 4.1 底部全宽 1px 底线 (:before)，聚焦时 200ms 平滑过渡为主题强调色
-        float resting_line_y = bounds().max_y - style.underline_height;
-        Color before_col = m_state.is_disabled
-            ? style.underline
-            : lerp_color(style.underline, style.focus_indicator, m_before_progress);
-        if (!m_borderless_inline && before_col.a > 0.001f && style.underline_height > 0.0f) {
-            context.draw_rect(Rect::from_xywh(bounds().min_x, resting_line_y, bounds().width(), style.underline_height),
-                              before_col, 0.0f, 0.0f);
-        }
-
-        // 5. 计算文本内容区域并施加硬件裁剪保护 (严防内容溢出文本框外部)
-        float reveal_btn_w = (m_data.is_password && m_data.show_reveal_button) ? 22.0f : 0.0f;
-        Rect content_rect = Rect::from_xywh(
-            bounds().min_x + style.padding.left,
-            bounds().min_y + style.padding.top,
-            std::max(0.0f, bounds().width() - style.padding.horizontal() - reveal_btn_w),
-            std::max(0.0f, bounds().height() - style.padding.vertical())
-        );
-
-        context.push_clip(content_rect, 0.0f);
-
-        const std::string display_text = composed_display_text();
-        const size_t preedit_start = to_display_offset(m_cursor_index);
-        float font_sz = style.font_size;
-        float line_height = TextMeasure::measure(display_text, font_sz).y;
-        float text_y = content_rect.min_y + (content_rect.height() - line_height) * 0.5f;
-        float start_x = content_rect.min_x - m_scroll_offset_x;
-
-        // 6. 绘制主体文字或占位符 (聚焦时占位符 250ms 平滑淡出至 opacity: 0)
-        if (!display_text.empty()) {
-            context.draw_text(display_text, PointF{start_x, text_y}, font_sz, style.text);
-
-            // 7. WinUI 3 原生选中样式：实心强调色选区底块 + 裁剪反白前景文字 (#FFFFFF)
-            if (m_state.is_focused && has_selection() && m_ime_preedit.empty()) {
-                size_t sel_s = selection_start();
-                size_t sel_e = selection_end();
-                float sel_x1 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_s));
-                float sel_x2 = start_x + TextMeasure::cursor_x(display_text, font_sz, to_display_offset(sel_e));
-                float sel_h = std::min(content_rect.height(), std::max(line_height + 2.0f, font_sz + 4.0f));
-                float sel_y = content_rect.min_y + (content_rect.height() - sel_h) * 0.5f;
-                Rect sel_rect = Rect::from_xywh(
-                    std::min(sel_x1, sel_x2),
-                    sel_y,
-                    std::abs(sel_x2 - sel_x1),
-                    sel_h
-                );
-                if (sel_rect.width() > 0.0f) {
-                    context.draw_rect(sel_rect, style.selection, 0.0f, 0.0f);
-                    context.push_clip(sel_rect, 0.0f);
-                    context.draw_text(display_text, PointF{start_x, text_y}, font_sz, style.selection_text);
-                    context.pop_clip();
-                }
-            }
-        } else if (!m_data.placeholder.empty() && m_ime_preedit.empty() && m_placeholder_opacity > 0.005f) {
-            Color ph_col = style.placeholder;
-            ph_col.a *= m_placeholder_opacity;
-            context.draw_text(m_data.placeholder, PointF{start_x, text_y}, font_sz, ph_col);
-        }
-
-        // 7.5 增量式幽灵补全后缀 (紧跟真实文本之后，复用原生 TextBox 排版与裁剪)
-        if (!m_ghost_suffix.empty() && m_ime_preedit.empty() && !display_text.empty()) {
-            float ghost_x = start_x + TextMeasure::measure_width(display_text, font_sz);
-            Color ghost_col = style.placeholder;
-            ghost_col.a = std::min(ghost_col.a, 0.45f);
-            context.draw_text(m_ghost_suffix, PointF{ghost_x, text_y}, font_sz, ghost_col);
-        }
-
-        // 8. 绘制 IME 输入法预编辑组合态下划线 (如拼音 "nihao")
-        if (!m_ime_preedit.empty()) {
-            float preedit_start_x = start_x + TextMeasure::cursor_x(display_text, font_sz, preedit_start);
-            float preedit_end_x = start_x + TextMeasure::cursor_x(display_text, font_sz, preedit_start + m_ime_preedit.size());
-            float underline_y = bounds().max_y - style.padding.bottom - 1.0f;
-            context.draw_rect(Rect::from_xywh(std::min(preedit_start_x, preedit_end_x), underline_y, std::abs(preedit_end_x - preedit_start_x), 1.5f), style.focus_indicator, 0.0f, 0.0f);
-        }
-
-        // 9. 绘制精致 1.5px 闪烁光标
-        if (m_state.is_focused && m_blink_visible && !m_state.is_disabled) {
-            size_t visual_cursor = preedit_start + std::min(m_ime_preedit_cursor, m_ime_preedit.size());
-            float cursor_x = start_x + TextMeasure::cursor_x(display_text, font_sz, visual_cursor);
-            float caret_h = font_sz + 2.0f;
-            float caret_y = bounds().min_y + (bounds().height() - caret_h) * 0.5f;
-            context.draw_rect(Rect::from_xywh(cursor_x, caret_y, style.caret_width, caret_h), style.caret, 0.0f, 0.0f);
-        }
-
-        context.pop_clip();
-
-        // 10. 底部 2px 动态聚焦展开条 (:after, transform: scaleX(0) -> scaleX(1), 250ms)
-        if (!m_borderless_inline && m_after_scale > 0.001f && !m_state.is_disabled) {
-            float active_w = bounds().width() * m_after_scale;
-            float active_x = bounds().min_x + (bounds().width() - active_w) * 0.5f;
-            float line_y = bounds().max_y - style.focus_line_height;
-            context.draw_rect(Rect::from_xywh(active_x, line_y, active_w, style.focus_line_height), style.focus_indicator, 0.0f, 0.0f);
-        }
-
-        // 10.5 幽灵补全右侧按键提示胶囊 (如 "Tab 补词") 或状态指示圆点 (如 IP 校验状态)
-        if (!m_ghost_suffix.empty() && !m_ghost_badge.empty()) {
-            const Theme& t = ThemeContext::current();
-            Vec2 bs = TextMeasure::measure(m_ghost_badge, 10.5f, FontWeight::Medium);
-            float bw = bs.x + 12.0f;
-            Rect br = Rect::from_xywh(bounds().max_x - bw - 6.0f, (bounds().height() - 20.0f) * 0.5f, bw, 20.0f);
-            context.draw_rect(br, t.is_dark ? Color{1, 1, 1, 0.08f} : Color{0, 0, 0, 0.05f}, 4.0f, 0.0f);
-            context.draw_rect(br, t.is_dark ? Color{1, 1, 1, 0.14f} : Color{0, 0, 0, 0.12f}, 4.0f, 1.0f);
-            context.draw_text(m_ghost_badge,
-                              PointF{std::round(br.min_x + 6.0f), std::round(br.min_y + (20.0f - bs.y) * 0.5f)},
-                              10.5f, style.placeholder, FontWeight::Medium);
-        } else if (m_show_status_dot) {
-            float r = 3.5f;
-            float cx = bounds().max_x - 11.0f;
-            float cy = bounds().min_y + bounds().height() * 0.5f;
-            context.draw_rect(Rect::from_xywh(cx - r, cy - r, r * 2.0f, r * 2.0f), m_status_dot_color, r, 0.0f);
-        }
-
-        // 11. 密码模式显隐切换眼睛图标
-        if (m_data.is_password && m_data.show_reveal_button) {
-            float eye_cx = bounds().max_x - 12.0f;
-            float eye_cy = bounds().min_y + bounds().height() * 0.5f;
-            Color eye_col = style.placeholder;
-            Rect eye_rect = Rect::from_xywh(eye_cx - 6.0f, eye_cy - 4.0f, 12.0f, 8.0f);
-            context.draw_rect(eye_rect, eye_col, 4.0f, 1.0f);
-            context.draw_rect(Rect::from_xywh(eye_cx - 2.0f, eye_cy - 2.0f, 4.0f, 4.0f), eye_col, 2.0f, 0.0f);
-            if (!m_data.is_password_revealed) {
-                // 绘制斜线表示隐藏
-                context.draw_rect(Rect::from_xywh(eye_cx - 5.0f, eye_cy - 1.0f, 10.0f, 1.2f), eye_col, 0.0f, 0.0f);
-            }
-        }
-    }
+    void paint(PaintContext& context) override;
 
     // ==================== ITextInputClient 接口实现 (IME 支持) ====================
 
@@ -531,133 +318,7 @@ public:
     }
 
     // 外部或测试按键处理注入 (完整支持选区、快捷键、撤销、Shift导航)
-    void handle_text_key(const KeyEvent& ev) {
-        if (!m_state.is_focused || m_state.is_disabled) return;
-
-        if (ev.type == PlatformEventType::KeyDown) {
-            constexpr uint32_t kKeyBackspace = 8;
-            constexpr uint32_t kKeyEnter = 13;
-            constexpr uint32_t kKeyDelete = 46;
-            constexpr uint32_t kKeyLeft = 37;
-            constexpr uint32_t kKeyRight = 39;
-            constexpr uint32_t kKeyHome = 36;
-            constexpr uint32_t kKeyEnd = 35;
-
-            // Ctrl 快捷键
-            if (ev.modifiers.ctrl) {
-                uint32_t kc = ev.key_code;
-                if (kc == 'A' || kc == 'a') {
-                    select_all();
-                    return;
-                } else if (kc == 'C' || kc == 'c') {
-                    if (has_selection() && (!m_data.is_password || m_data.is_password_revealed)) {
-                        Clipboard::set_text(selected_text());
-                    }
-                    return;
-                } else if (kc == 'X' || kc == 'x') {
-                    if (has_selection() && !m_state.is_read_only && (!m_data.is_password || m_data.is_password_revealed)) {
-                        push_undo_snapshot();
-                        Clipboard::set_text(selected_text());
-                        delete_selection_internal();
-                        notify_changed();
-                    }
-                    return;
-                } else if (kc == 'V' || kc == 'v') {
-                    if (!m_state.is_read_only) {
-                        std::string clip = Clipboard::get_text();
-                        std::string filtered;
-                        for (char c : clip) {
-                            if (c != '\r' && c != '\n') filtered += c;
-                        }
-                        if (!filtered.empty()) {
-                            insert_text_internal(filtered);
-                        }
-                    }
-                    return;
-                } else if (kc == 'Z' || kc == 'z') {
-                    if (ev.modifiers.shift) redo();
-                    else undo();
-                    return;
-                } else if (kc == 'Y' || kc == 'y') {
-                    redo();
-                    return;
-                }
-            }
-
-            if (ev.key_code == kKeyBackspace) {
-                if (m_state.is_read_only) return;
-                if (has_selection()) {
-                    push_undo_snapshot();
-                    delete_selection_internal();
-                    notify_changed();
-                } else if (m_cursor_index > 0) {
-                    push_undo_snapshot();
-                    size_t prev = prev_utf8_char_index(m_data.text, m_cursor_index);
-                    m_data.text.erase(prev, m_cursor_index - prev);
-                    m_cursor_index = prev;
-                    m_selection_anchor = m_cursor_index;
-                    notify_changed();
-                }
-            } else if (ev.key_code == kKeyDelete) {
-                if (m_state.is_read_only) return;
-                if (has_selection()) {
-                    push_undo_snapshot();
-                    delete_selection_internal();
-                    notify_changed();
-                } else if (m_cursor_index < m_data.text.length()) {
-                    push_undo_snapshot();
-                    size_t next = next_utf8_char_index(m_data.text, m_cursor_index);
-                    m_data.text.erase(m_cursor_index, next - m_cursor_index);
-                    notify_changed();
-                }
-            } else if (ev.key_code == kKeyLeft) {
-                if (ev.modifiers.shift) {
-                    if (m_cursor_index > 0) {
-                        m_cursor_index = prev_utf8_char_index(m_data.text, m_cursor_index);
-                    }
-                } else {
-                    if (has_selection()) {
-                        m_cursor_index = selection_start();
-                        m_selection_anchor = m_cursor_index;
-                    } else if (m_cursor_index > 0) {
-                        m_cursor_index = prev_utf8_char_index(m_data.text, m_cursor_index);
-                        m_selection_anchor = m_cursor_index;
-                    }
-                }
-            } else if (ev.key_code == kKeyRight) {
-                if (ev.modifiers.shift) {
-                    if (m_cursor_index < m_data.text.length()) {
-                        m_cursor_index = next_utf8_char_index(m_data.text, m_cursor_index);
-                    }
-                } else {
-                    if (has_selection()) {
-                        m_cursor_index = selection_end();
-                        m_selection_anchor = m_cursor_index;
-                    } else if (m_cursor_index < m_data.text.length()) {
-                        m_cursor_index = next_utf8_char_index(m_data.text, m_cursor_index);
-                        m_selection_anchor = m_cursor_index;
-                    }
-                }
-            } else if (ev.key_code == kKeyHome) {
-                m_cursor_index = 0;
-                if (!ev.modifiers.shift) m_selection_anchor = 0;
-            } else if (ev.key_code == kKeyEnd) {
-                m_cursor_index = m_data.text.length();
-                if (!ev.modifiers.shift) m_selection_anchor = m_cursor_index;
-            } else if (ev.key_code == kKeyEnter) {
-                if (m_data.on_submit) m_data.on_submit(m_data.text);
-            }
-
-            m_blink_visible = true;
-            m_last_blink_time = std::chrono::steady_clock::now();
-            ensure_cursor_visible();
-            mark_needs_paint();
-        } else if (ev.type == PlatformEventType::ImeCommit) {
-            if (!m_state.is_read_only && !ev.text.empty()) {
-                insert_text_internal(ev.text);
-            }
-        }
-    }
+    void handle_text_key(const KeyEvent& ev);
 
     void apply_custom_overrides(std::optional<Color> bg,
                                 std::optional<Color> border,
@@ -680,140 +341,7 @@ public:
     }
 
 private:
-    void setup_behavior() {
-        on_focus = [this](FocusEvent& ev) {
-            m_state.is_focused = ev.gained_focus;
-            trigger_focus_animations(ev.gained_focus);
-            mark_needs_paint();
-        };
-
-        on_pointer_enter = [this](PointerEvent&) {
-            if (!m_state.is_disabled) {
-                m_state.is_hovered = true;
-                is_hovered = true;
-                mark_needs_paint();
-            }
-        };
-
-        on_pointer_exit = [this](PointerEvent&) {
-            if (!m_state.is_disabled) {
-                m_state.is_hovered = false;
-                is_hovered = false;
-                m_pending_touch_collapse = false;
-                m_state.is_dragging_selection = false;
-                mark_needs_paint();
-            }
-        };
-
-        on_pointer_down = [this](PointerEvent& ev) {
-            if (m_state.is_disabled) return;
-            if (ev.button == PointerButton::Secondary) {
-                m_pending_touch_collapse = false;
-                const bool is_touch = (ev.device_kind == PointerDeviceKind::Touch);
-                if (is_touch && !has_selection() && !m_data.text.empty()) {
-                    auto style = resolve_current_style();
-                    float start_x = style.padding.left - m_scroll_offset_x;
-                    float click_x = ev.local_position.x - start_x;
-                    select_word_at(click_x, get_display_text(), style.font_size);
-                }
-                open_context_menu(ev.position, is_touch);
-                ev.stop_propagation();
-                return;
-            }
-            if (ev.button != PointerButton::Primary) return;
-
-            auto now = std::chrono::steady_clock::now();
-            float dt_ms = std::chrono::duration<float, std::milli>(now - m_last_click_time).count();
-            if (dt_ms < 400.0f) {
-                m_click_count++;
-            } else {
-                m_click_count = 1;
-            }
-            m_last_click_time = now;
-
-            // 密码显示/隐藏眼睛按钮命中测试
-            if (m_data.is_password && m_data.show_reveal_button) {
-                float eye_x = bounds().max_x - 24.0f;
-                if (ev.local_position.x >= eye_x) {
-                    m_data.is_password_revealed = !m_data.is_password_revealed;
-                    mark_needs_paint();
-                    return;
-                }
-            }
-
-            auto style = resolve_current_style();
-            float start_x = style.padding.left - m_scroll_offset_x;
-            float click_x = ev.local_position.x - start_x;
-            std::string_view display_text = get_display_text();
-
-            if (m_click_count == 2) {
-                m_pending_touch_collapse = false;
-                select_word_at(click_x, display_text, style.font_size);
-                if (ev.device_kind == PointerDeviceKind::Touch && has_selection()) {
-                    open_context_menu(ev.position, true);
-                }
-            } else if (m_click_count >= 3) {
-                m_pending_touch_collapse = false;
-                select_all();
-                if (ev.device_kind == PointerDeviceKind::Touch && has_selection()) {
-                    open_context_menu(ev.position, true);
-                }
-            } else {
-                size_t new_index = get_char_index_at(click_x, display_text, style.font_size);
-                if (ev.device_kind == PointerDeviceKind::Touch) {
-                    if (has_selection()) {
-                        m_pending_touch_collapse = true;
-                        m_pending_touch_collapse_index = new_index;
-                    } else {
-                        m_pending_touch_collapse = false;
-                        m_cursor_index = new_index;
-                        m_selection_anchor = m_cursor_index;
-                    }
-                    m_state.is_dragging_selection = false;
-                } else {
-                    m_pending_touch_collapse = false;
-                    m_cursor_index = new_index;
-                    if (!ev.modifiers.shift) {
-                        m_selection_anchor = m_cursor_index;
-                    }
-                    m_state.is_dragging_selection = true;
-                }
-            }
-
-            m_blink_visible = true;
-            m_last_blink_time = std::chrono::steady_clock::now();
-            ensure_cursor_visible();
-            mark_needs_paint();
-        };
-
-        on_pointer_move = [this](PointerEvent& ev) {
-            if (m_state.is_dragging_selection && !m_state.is_disabled) {
-                auto style = resolve_current_style();
-                float start_x = style.padding.left - m_scroll_offset_x;
-                float click_x = ev.local_position.x - start_x;
-                std::string_view display_text = get_display_text();
-                m_cursor_index = get_char_index_at(click_x, display_text, style.font_size);
-                ensure_cursor_visible();
-                mark_needs_paint();
-            }
-        };
-
-        on_pointer_up = [this](PointerEvent&) {
-            m_state.is_dragging_selection = false;
-            if (m_pending_touch_collapse) {
-                m_pending_touch_collapse = false;
-                m_cursor_index = std::min(m_pending_touch_collapse_index, m_data.text.size());
-                m_selection_anchor = m_cursor_index;
-                ensure_cursor_visible();
-                mark_needs_paint();
-            }
-        };
-
-        on_key = [this](KeyEvent& ev) {
-            if (m_key_intercept && m_key_intercept(ev)) return;
-            handle_text_key(ev);
-        };
-    }
+    void setup_behavior();
 
     bool tick_cursor_blink() override {
         if (!m_state.is_focused) {
@@ -1164,9 +692,34 @@ public:
     }
     void set_key_intercept(Fn<bool(KeyEvent&)> cb) { m_key_intercept = std::move(cb); }
     void set_borderless_inline(bool v) { if (m_borderless_inline != v) { m_borderless_inline = v; mark_needs_paint(); } }
+    void set_smooth_caret(bool enabled) noexcept {
+        if (m_smooth_caret != enabled) {
+            m_smooth_caret = enabled;
+            if (!enabled) m_spring_caret.reset();
+            mark_needs_paint();
+        }
+    }
+    void set_inset_shadow(bool enabled) noexcept {
+        if (m_inset_shadow != enabled) {
+            m_inset_shadow = enabled;
+            mark_needs_paint();
+        }
+    }
+    void jump_caret_to(size_t index) noexcept {
+        m_cursor_index = std::min(index, m_data.text.size());
+        m_selection_anchor = m_cursor_index;
+        m_state.is_focused = true;
+        m_blink_visible = true;
+        m_spring_caret.notify_activity();
+        ensure_cursor_visible();
+        mark_needs_paint();
+    }
 
 private:
     bool m_borderless_inline{false};
+    bool m_smooth_caret{true};
+    bool m_inset_shadow{false};
+    SpringCaretSolver m_spring_caret;
     float m_preferred_width{120.0f};
     std::string m_ghost_suffix;
     std::string m_ghost_badge;
@@ -1175,118 +728,8 @@ private:
     Fn<bool(KeyEvent&)> m_key_intercept;
 };
 
-class TextBoxWidget;
-
-// C++20 指定初始化器声明式单行文本框 (TextBox DSL Wrapper - 零开销原生字段 + 链式 .bind/.bind_two_way)
-struct TextBox : BindableMixin<TextBox, RenderTextBox> {
-    std::string text{""};
-    std::string placeholder{""};
-
-    float height{0.0f};           // 0 表示按主题解析默认值 28px
-    float corner_radius{0.0f};    // 0 表示按主题解析默认值 3px
-    EdgeInsets padding{EdgeInsets(-1.0f, -1.0f)}; // 负值代表采用主题解析默认值
-    Color background_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color focused_border_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color text_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    Color placeholder_color{Color{-1.0f, -1.0f, -1.0f, -1.0f}};
-    float font_size{0.0f};
-
-    bool is_password{false};
-    bool is_read_only{false};
-    bool disabled{false};
-    bool show_reveal_button{false};
-
-    Fn<void(const std::string&)> on_change{nullptr};
-    Fn<void(const std::string&)> on_submit{nullptr};
-
-    operator WidgetPtr() const&;
-
-    operator WidgetPtr() &&;
-};
-
-inline void ktui_bind_two_way(const std::shared_ptr<RenderTextBox>& node, Property<std::string>& prop, BindingGroup& bg) {
-    auto guard = std::make_shared<bool>(false);
-    node->set_text(prop.get());
-    std::weak_ptr<RenderTextBox> weak = node;
-    bg.subscribe(prop, [weak, guard](const std::string& v) {
-        if (!*guard) {
-            if (auto n = weak.lock()) n->set_text(v);
-        }
-    });
-    auto prev = node->data().on_change;
-    Property<std::string>* p = &prop;
-    node->set_on_change([prev = std::move(prev), p, guard](const std::string& val) {
-        *guard = true;
-        p->set(val);
-        if (prev) prev(val);
-        *guard = false;
-    });
-}
-
-// TextBoxWidget 声明式包装组件
-class TextBoxWidget : public Widget {
-public:
-    explicit TextBoxWidget(const TextBox& desc) : m_desc(desc) {}
-    explicit TextBoxWidget(TextBox&& desc) noexcept : m_desc(std::move(desc)) {}
-    ~TextBoxWidget() override = default;
-
-    std::shared_ptr<RenderBox> create_render_node() override {
-        auto node = make_render_node<RenderTextBox>();
-        apply_desc_to_node(node);
-        return node;
-    }
-
-    void update_render_node(std::shared_ptr<RenderBox> node) override {
-        if (auto box = std::static_pointer_cast<RenderTextBox>(node)) {
-            apply_desc_to_node(box);
-        }
-    }
-
-    [[nodiscard]] const TextBox& desc() const noexcept { return m_desc; }
-
-private:
-    void apply_desc_to_node(const std::shared_ptr<RenderTextBox>& node) {
-        node->set_text(m_desc.text);
-        node->set_placeholder(m_desc.placeholder);
-        node->set_is_password(m_desc.is_password);
-        node->set_read_only(m_desc.is_read_only);
-        node->set_disabled(m_desc.disabled);
-        node->set_show_reveal_button(m_desc.show_reveal_button);
-
-        std::optional<Color> bg = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
-        std::optional<Color> border = (m_desc.border_color.r >= 0.0f) ? std::optional<Color>(m_desc.border_color) : std::nullopt;
-        std::optional<Color> focus_border = (m_desc.focused_border_color.r >= 0.0f) ? std::optional<Color>(m_desc.focused_border_color) : std::nullopt;
-        std::optional<Color> txt = (m_desc.text_color.r >= 0.0f) ? std::optional<Color>(m_desc.text_color) : std::nullopt;
-        std::optional<Color> ph = (m_desc.placeholder_color.r >= 0.0f) ? std::optional<Color>(m_desc.placeholder_color) : std::nullopt;
-        std::optional<float> h = (m_desc.height > 0.0f) ? std::optional<float>(m_desc.height) : std::nullopt;
-        std::optional<float> radius = (m_desc.corner_radius > 0.0f) ? std::optional<float>(m_desc.corner_radius) : std::nullopt;
-        std::optional<EdgeInsets> pad = (m_desc.padding.left >= 0.0f) ? std::optional<EdgeInsets>(m_desc.padding) : std::nullopt;
-        std::optional<float> font_sz = (m_desc.font_size > 0.0f) ? std::optional<float>(m_desc.font_size) : std::nullopt;
-
-        node->apply_custom_overrides(bg, border, focus_border, txt, ph, h, radius, pad, font_sz);
-
-        node->set_properties(m_desc.text, m_desc.placeholder,
-                             h.value_or(28.0f), radius.value_or(5.0f),
-                             pad.value_or(EdgeInsets(4.0f, 8.0f)),
-                             m_desc.background_color, m_desc.border_color, m_desc.focused_border_color,
-                             m_desc.text_color, m_desc.placeholder_color,
-                             font_sz.value_or(13.0f), m_desc.on_change, m_desc.on_submit);
-    }
-
-    TextBox m_desc;
-};
-
-inline TextBox::operator WidgetPtr() const& {
-    return make_widget<TextBoxWidget>(*this);
-}
-inline TextBox::operator WidgetPtr() && {
-    return make_widget<TextBoxWidget>(std::move(*this));
-}
-
-// ==================== 100% 向后兼容别名 (Type Aliases) ====================
-using TextInput = TextBox;
-using RenderTextInput = RenderTextBox;
-using TextInputWidget = TextBoxWidget;
-
 } // namespace ktui
+
+#include "textbox_paint.hpp"
+#include "textbox_behavior.hpp"
+#include "textbox_widget.hpp"

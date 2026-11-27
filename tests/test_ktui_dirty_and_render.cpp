@@ -13,11 +13,11 @@
 #include <ktui/app/window_titlebar.hpp>
 #include <ktui/presentation/text_measure.hpp>
 #include <ktui/theme/theme_scope.hpp>
-#include <ktui/widgets/button.hpp>
+#include <ktui/widgets/button/button_logic.hpp>
 #include <ktui/widgets/checkbox/checkbox_logic.hpp>
-#include <ktui/widgets/navigation_view.hpp>
-#include <ktui/widgets/settings_card.hpp>
-#include <ktui/widgets/text.hpp>
+#include <ktui/widgets/navigation_view/navigation_view_logic.hpp>
+#include <ktui/widgets/settings_card/settings_card_logic.hpp>
+#include <ktui/widgets/text/text_logic.hpp>
 #include "../KTUI/src/pal/headless_backend.hpp"
 #include <kernetile/renderer.hpp>
 #include <algorithm>
@@ -95,20 +95,20 @@ void test_hit_testing_depth_path() {
     // 点击在按钮内部: 绝对坐标 (130, 130)
     HitTestResult result;
     bool hit = root->hit_test(result, PointF{130.0f, 130.0f});
-    assert(hit);
-    assert(!result.is_empty());
+    KTUI_CHECK(hit);
+    KTUI_CHECK(!result.is_empty());
 
     // 路径首项必须为按钮 (最深层叶子，拥有最高事件捕获优先级)
-    assert(result.first_target() == button.get());
+    KTUI_CHECK(result.first_target() == button.get());
 
     // 按钮自身局部坐标应当是 (130 - 120, 130 - 120) = (10, 10)
-    assert(result.path().front().local_position == PointF(10.0f, 10.0f));
+    KTUI_CHECK(result.path().front().local_position == PointF(10.0f, 10.0f));
 
     // 点击在容器内部但按钮外部: (110, 110)
     HitTestResult result_outside_btn;
     hit = root->hit_test(result_outside_btn, PointF{110.0f, 110.0f});
-    assert(hit);
-    assert(result_outside_btn.first_target() == container.get());
+    KTUI_CHECK(hit);
+    KTUI_CHECK(result_outside_btn.first_target() == container.get());
 
     std::cout << "  -> 深度递归命中测试与局部相对坐标解算完全正确！" << std::endl;
 }
@@ -142,8 +142,8 @@ void test_event_bubble_and_stop_propagation() {
     PointerEvent down_event(PlatformEventType::PointerDown, PointF{60.0f, 60.0f}, PointerButton::Primary);
     dispatcher.dispatch_pointer_event(container.get(), down_event);
 
-    assert(button_clicked == true);
-    assert(container_clicked == false); // 容器未被触发！
+    KTUI_CHECK(button_clicked == true);
+    KTUI_CHECK(container_clicked == false); // 容器未被触发！
 
     // 场景 B: 按钮不调用 stop_propagation()，事件正常向上冒泡至容器
     button_clicked = false;
@@ -155,8 +155,8 @@ void test_event_bubble_and_stop_propagation() {
 
     PointerEvent down_event2(PlatformEventType::PointerDown, PointF{60.0f, 60.0f}, PointerButton::Primary);
     dispatcher.dispatch_pointer_event(container.get(), down_event2);
-    assert(button_clicked == true);
-    assert(container_clicked == true); // 容器成功捕获冒泡事件！
+    KTUI_CHECK(button_clicked == true);
+    KTUI_CHECK(container_clicked == true); // 容器成功捕获冒泡事件！
 
     std::cout << "  -> 事件沿渲染树逐层冒泡与 stop_propagation 阻断验证成功！" << std::endl;
 }
@@ -178,20 +178,20 @@ void test_hover_state_tracking() {
     button->on_pointer_enter = [&](PointerEvent& e) { (void)e; entered = true; };
     button->on_pointer_exit = [&](PointerEvent& e) { (void)e; exited = true; };
 
-    assert(!button->is_hovered);
+    KTUI_CHECK(!button->is_hovered);
 
     // 1. 移动到按钮内部 (60, 60)
     PointerEvent move_in(PlatformEventType::PointerMove, PointF{60.0f, 60.0f});
     dispatcher.dispatch_pointer_event(container.get(), move_in);
-    assert(button->is_hovered == true);
-    assert(entered == true);
-    assert(exited == false);
+    KTUI_CHECK(button->is_hovered == true);
+    KTUI_CHECK(entered == true);
+    KTUI_CHECK(exited == false);
 
     // 2. 移动出按钮外部 (10, 10)
     PointerEvent move_out(PlatformEventType::PointerMove, PointF{10.0f, 10.0f});
     dispatcher.dispatch_pointer_event(container.get(), move_out);
-    assert(button->is_hovered == false);
-    assert(exited == true);
+    KTUI_CHECK(button->is_hovered == false);
+    KTUI_CHECK(exited == true);
 
     std::cout << "  -> :hover 状态集差集计算与 Enter/Exit 状态机自动流转正确！" << std::endl;
 }
@@ -213,7 +213,7 @@ void test_focus_manager_tab_navigation() {
     root->append_child(inputC.get());
 
     FocusManager focus_mgr;
-    assert(focus_mgr.focused_node() == nullptr);
+    KTUI_CHECK(focus_mgr.focused_node() == nullptr);
 
     int a_focus_events = 0;
     inputA->on_focus = [&](FocusEvent& e) {
@@ -222,22 +222,22 @@ void test_focus_manager_tab_navigation() {
 
     // 聚焦 A -> B -> C -> A，验证焦点事件与清空
     focus_mgr.request_focus(inputA.get());
-    assert(focus_mgr.focused_node() == inputA.get());
-    assert(a_focus_events == 1);
+    KTUI_CHECK(focus_mgr.focused_node() == inputA.get());
+    KTUI_CHECK(a_focus_events == 1);
 
     focus_mgr.request_focus(inputB.get());
-    assert(focus_mgr.focused_node() == inputB.get());
+    KTUI_CHECK(focus_mgr.focused_node() == inputB.get());
 
     focus_mgr.request_focus(inputC.get());
-    assert(focus_mgr.focused_node() == inputC.get());
+    KTUI_CHECK(focus_mgr.focused_node() == inputC.get());
 
     focus_mgr.request_focus(inputA.get());
-    assert(focus_mgr.focused_node() == inputA.get());
-    assert(a_focus_events == 2);
+    KTUI_CHECK(focus_mgr.focused_node() == inputA.get());
+    KTUI_CHECK(a_focus_events == 2);
 
     // 清空焦点
     focus_mgr.clear_focus();
-    assert(focus_mgr.focused_node() == nullptr);
+    KTUI_CHECK(focus_mgr.focused_node() == nullptr);
 
     std::cout << "  -> Tab / Shift+Tab 环形焦点循环流转与回调通知完全正确！" << std::endl;
 }
@@ -251,13 +251,13 @@ void test_compositor_dirty_union_and_tile_snapping() {
 
     // 1. 联合测试
     Rect united = UICompositor::union_rect(old_bounds, new_bounds);
-    assert(united.min_x == 10.0f && united.max_x == 250.0f);
-    assert(united.min_y == 10.0f && united.max_y == 110.0f);
+    KTUI_CHECK(united.min_x == 10.0f && united.max_x == 250.0f);
+    KTUI_CHECK(united.min_y == 10.0f && united.max_y == 110.0f);
 
     // 2. 阴影外扩测试: margin = 3 * 10 = 30px
     Rect inflated = UICompositor::inflate_shadow(united, 10.0f, 0.0f);
-    assert(inflated.min_x == -20.0f && inflated.max_x == 280.0f);
-    assert(inflated.min_y == -20.0f && inflated.max_y == 140.0f);
+    KTUI_CHECK(inflated.min_x == -20.0f && inflated.max_x == 280.0f);
+    KTUI_CHECK(inflated.min_y == -20.0f && inflated.max_y == 140.0f);
 
     // 3. 16x16 瓦片吸附对齐测试
     // min_x = floor(-20 / 16) * 16 = -2 * 16 = -32.0f
@@ -265,19 +265,19 @@ void test_compositor_dirty_union_and_tile_snapping() {
     // min_y = floor(-20 / 16) * 16 = -32.0f
     // max_y = ceil(140 / 16) * 16 = 9 * 16 = 144.0f
     Rect snapped = UICompositor::snap_to_tile_grid(inflated, 16.0f);
-    assert(snapped.min_x == -32.0f && snapped.max_x == 288.0f);
-    assert(snapped.min_y == -32.0f && snapped.max_y == 144.0f);
+    KTUI_CHECK(snapped.min_x == -32.0f && snapped.max_x == 288.0f);
+    KTUI_CHECK(snapped.min_y == -32.0f && snapped.max_y == 144.0f);
 
     // 验证吸附后宽高均为 16 的严格整数倍
-    assert(static_cast<int>(snapped.width()) % 16 == 0);
-    assert(static_cast<int>(snapped.height()) % 16 == 0);
+    KTUI_CHECK(static_cast<int>(snapped.width()) % 16 == 0);
+    KTUI_CHECK(static_cast<int>(snapped.height()) % 16 == 0);
 
     // 4. UICompositor 综合调度
     UICompositor compositor;
     compositor.mark_node_dirty(old_bounds, new_bounds, 10.0f, 0.0f);
-    assert(compositor.dirty_rects().size() == 1);
-    assert(compositor.dirty_rects()[0] == snapped);
-    assert(compositor.estimate_dirty_tile_count() == (320 / 16) * (176 / 16)); // 20 * 11 = 220 块
+    KTUI_CHECK(compositor.dirty_rects().size() == 1);
+    KTUI_CHECK(compositor.dirty_rects()[0] == snapped);
+    KTUI_CHECK(compositor.estimate_dirty_tile_count() == (320 / 16) * (176 / 16)); // 20 * 11 = 220 块
 
     std::cout << "  -> 几何联合防残影、3*sigma 外扩与 16x16 瓦片对齐算法完全吻合！" << std::endl;
 }
@@ -292,7 +292,7 @@ void test_paint_context_and_kernetile_integration() {
     cfg.force_cpu_fallback = true;
 
     auto renderer = kernetile::KerneTileRenderer::create(cfg);
-    assert(renderer != nullptr);
+    KTUI_CHECK(renderer != nullptr);
 
     // 构建测试 UI 树
     auto root = std::make_unique<RenderFlex>(FlexDirection::Column, JustifyContent::FlexStart, AlignItems::FlexStart, 16.0f);
@@ -313,7 +313,7 @@ void test_paint_context_and_kernetile_integration() {
     renderer->end_frame();
 
     // 验证图元计数发射 (card 本体 1 + button 本体 1 = 2)
-    assert(paint_ctx.primitive_count() >= 2);
+    KTUI_CHECK(paint_ctx.primitive_count() >= 2);
 
     // 验证离屏渲染缓冲区导出
     std::vector<uint8_t> rgba_buffer(400 * 300 * 4, 0);
@@ -327,7 +327,7 @@ void test_paint_context_and_kernetile_integration() {
             break;
         }
     }
-    assert(has_drawn_pixels);
+    KTUI_CHECK(has_drawn_pixels);
 
     std::cout << "  -> KerneTile 2D 计算/光栅底座完整闭环，图元发射与像素渲染验证成功！" << std::endl;
 }
@@ -347,11 +347,11 @@ void test_overlay_requests_followup_frames() {
     manager.show({.content = overlay});
     PaintContext context;
     for (int i = 0; i < 3; ++i) {
-        assert(manager.needs_redraw());
+        KTUI_CHECK(manager.needs_redraw());
         manager.layout_and_paint(context, {100.0f, 100.0f});
     }
-    assert(overlay->frames == 3);
-    assert(!manager.needs_redraw());
+    KTUI_CHECK(overlay->frames == 3);
+    KTUI_CHECK(!manager.needs_redraw());
 }
 
 void test_checkbox_animation_survives_zero_and_large_dt() {
@@ -364,13 +364,13 @@ void test_checkbox_animation_survives_zero_and_large_dt() {
     // 立即在同一时刻重绘（模拟 Web 粗粒度时钟或同步重绘下 dt == 0）
     cb.clear_dirty_recursive();
     cb.paint(ctx);
-    assert(cb.needs_paint() && "Checkbox animation must stay dirty when dt == 0");
+    KTUI_CHECK(cb.needs_paint() && "Checkbox animation must stay dirty when dt == 0");
 
     // 模拟 250ms 浏览器卡顿（dt >= 0.2s），动效不应被丢弃冻结
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
     cb.clear_dirty_recursive();
     cb.paint(ctx);
-    assert(cb.needs_paint() && "Checkbox animation must survive frame hitches >= 0.2s");
+    KTUI_CHECK(cb.needs_paint() && "Checkbox animation must survive frame hitches >= 0.2s");
 
     // 继续推进直到动效完整收敛
     int frames = 0;
@@ -380,50 +380,50 @@ void test_checkbox_animation_survives_zero_and_large_dt() {
         cb.paint(ctx);
         ++frames;
     }
-    assert(!cb.needs_paint() && "Checkbox animation must settle cleanly");
+    KTUI_CHECK(!cb.needs_paint() && "Checkbox animation must settle cleanly");
     std::cout << "  -> Checkbox 动效零卡帧、完整收敛测试通过！" << std::endl;
 }
 
 void test_frameless_titlebar_hittest_and_buttons() {
     std::cout << "[Test 8] CUI.Core 对齐无边框标题栏命中测试、Win11 Snap 优先级与全部按钮交互测试..." << std::endl;
     WindowDesc desc;
-    assert(desc.decorated == false && "Default window must be frameless");
-    assert(desc.custom_titlebar == true);
+    KTUI_CHECK(desc.decorated == false && "Default window must be frameless");
+    KTUI_CHECK(desc.custom_titlebar == true);
 
     WindowTitlebar tb;
     // 默认关闭置顶与主题切换按钮，需由调用方按需手动开启
-    assert(!tb.is_pin_button_visible());
-    assert(!tb.is_theme_button_visible());
+    KTUI_CHECK(!tb.is_pin_button_visible());
+    KTUI_CHECK(!tb.is_theme_button_visible());
     tb.set_pin_button_visible(true);
     tb.set_theme_button_visible(true);
-    assert(tb.is_pin_button_visible());
-    assert(tb.is_theme_button_visible());
+    KTUI_CHECK(tb.is_pin_button_visible());
+    KTUI_CHECK(tb.is_theme_button_visible());
 
     int action_hits = 0;
     tb.add_action("+", "新建", [&]() { ++action_hits; });
     const Vec2 sz{500.0f, 360.0f};
 
     // 边缘拉伸命中
-    assert(tb.hit_test({1.0f, 1.0f}, sz, true, false) == TitlebarHitTest::BorderTopLeft);
-    assert(tb.hit_test({499.0f, 359.0f}, sz, true, false) == TitlebarHitTest::BorderBottomRight);
-    assert(tb.hit_test({2.0f, 180.0f}, sz, true, false) == TitlebarHitTest::BorderLeft);
+    KTUI_CHECK(tb.hit_test({1.0f, 1.0f}, sz, true, false) == TitlebarHitTest::BorderTopLeft);
+    KTUI_CHECK(tb.hit_test({499.0f, 359.0f}, sz, true, false) == TitlebarHitTest::BorderBottomRight);
+    KTUI_CHECK(tb.hit_test({2.0f, 180.0f}, sz, true, false) == TitlebarHitTest::BorderLeft);
     // 最大化后边缘不再触发拉伸
-    assert(tb.hit_test({1.0f, 1.0f}, sz, true, true) == TitlebarHitTest::Caption);
+    KTUI_CHECK(tb.hit_test({1.0f, 1.0f}, sz, true, true) == TitlebarHitTest::Caption);
 
     // 标题栏按钮优先于顶部/右侧缩放边框 (Win11 Snap Layout 要求顶部边缘也命中 HTMAXBUTTON)
     // 500px 宽，按钮宽 46px：Close=[454,500], Max=[408,454], Min=[362,408], Theme=[316,362], Pin=[270,316], Action0=[224,270]
-    assert(tb.hit_test({430.0f, 1.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
-    assert(tb.hit_test({475.0f, 16.0f}, sz, true, false) == TitlebarHitTest::CloseBtn);
-    assert(tb.hit_test({430.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
-    assert(tb.hit_test({385.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MinimizeBtn);
+    KTUI_CHECK(tb.hit_test({430.0f, 1.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
+    KTUI_CHECK(tb.hit_test({475.0f, 16.0f}, sz, true, false) == TitlebarHitTest::CloseBtn);
+    KTUI_CHECK(tb.hit_test({430.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MaximizeBtn);
+    KTUI_CHECK(tb.hit_test({385.0f, 16.0f}, sz, true, false) == TitlebarHitTest::MinimizeBtn);
     // Theme / Pin / Action 属于交互按钮，返回 Client 并由 is_interactive_button_hit 标识
-    assert(tb.hit_test({338.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Client);
-    assert(tb.is_interactive_button_hit({338.0f, 16.0f}, sz, true));
-    assert(tb.is_interactive_button_hit({292.0f, 16.0f}, sz, true));
-    assert(tb.is_interactive_button_hit({246.0f, 16.0f}, sz, true));
+    KTUI_CHECK(tb.hit_test({338.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Client);
+    KTUI_CHECK(tb.is_interactive_button_hit({338.0f, 16.0f}, sz, true));
+    KTUI_CHECK(tb.is_interactive_button_hit({292.0f, 16.0f}, sz, true));
+    KTUI_CHECK(tb.is_interactive_button_hit({246.0f, 16.0f}, sz, true));
     // 中间留白拖拽区
-    assert(tb.hit_test({150.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Caption);
-    assert(tb.hit_test({100.0f, 80.0f}, sz, true, false) == TitlebarHitTest::Client);
+    KTUI_CHECK(tb.hit_test({150.0f, 16.0f}, sz, true, false) == TitlebarHitTest::Caption);
+    KTUI_CHECK(tb.hit_test({100.0f, 80.0f}, sz, true, false) == TitlebarHitTest::Client);
 
     // 全部按钮点击回调验证 (Close / Max / Min / Theme / Pin / Custom Action)
     int min_hits = 0, max_hits = 0, close_hits = 0, pin_hits = 0, theme_hits = 0;
@@ -435,15 +435,15 @@ void test_frameless_titlebar_hittest_and_buttons() {
 
     auto click = [&](PointF pt) {
         bool dirty = false;
-        assert(tb.handle_pointer_down(pt, PointerButton::Primary, sz, true, false, dirty));
-        assert(tb.handle_pointer_up(pt, PointerButton::Primary, sz, true, dirty));
+        KTUI_CHECK(tb.handle_pointer_down(pt, PointerButton::Primary, sz, true, false, dirty));
+        KTUI_CHECK(tb.handle_pointer_up(pt, PointerButton::Primary, sz, true, dirty));
     };
-    click({475.0f, 16.0f}); assert(close_hits == 1);
-    click({430.0f, 16.0f}); assert(max_hits == 1);
-    click({385.0f, 16.0f}); assert(min_hits == 1);
-    click({338.0f, 16.0f}); assert(theme_hits == 1);
-    click({292.0f, 16.0f}); assert(pin_hits == 1);
-    click({246.0f, 16.0f}); assert(action_hits == 1);
+    click({475.0f, 16.0f}); KTUI_CHECK(close_hits == 1);
+    click({430.0f, 16.0f}); KTUI_CHECK(max_hits == 1);
+    click({385.0f, 16.0f}); KTUI_CHECK(min_hits == 1);
+    click({338.0f, 16.0f}); KTUI_CHECK(theme_hits == 1);
+    click({292.0f, 16.0f}); KTUI_CHECK(pin_hits == 1);
+    click({246.0f, 16.0f}); KTUI_CHECK(action_hits == 1);
 
     std::cout << "  -> CUI.Core 标题栏布局、Win11 Snap 优先级与全部按钮交互验证通过！" << std::endl;
 }
@@ -529,14 +529,14 @@ int find_drawn_max_x(const std::vector<uint8_t>& rgba, uint32_t w, uint32_t h) {
 } // namespace
 
 void test_m21_default_disabled_preservation() {
-    std::cout << "[M2.1 Test 9] 默认禁用状态保持与 WindowDesc/Window/PaintContext 往返一致性..." << std::endl;
+    std::cout << "[M2.1 Test 9] 默认画质开启与手动关闭往返一致性 (WindowDesc/Window/PaintContext)..." << std::endl;
 
     WindowDesc default_desc;
-    KTUI_CHECK(default_desc.dithering_enabled == false);
-    KTUI_CHECK(default_desc.pixel_snapping_enabled == false);
+    KTUI_CHECK(default_desc.dithering_enabled == true);
+    KTUI_CHECK(default_desc.pixel_snapping_enabled == true);
 
     PaintContext default_ctx;
-    KTUI_CHECK(default_ctx.pixel_snapping() == false);
+    KTUI_CHECK(default_ctx.pixel_snapping() == true);
 
     Text default_text;
     KTUI_CHECK(default_text.tabular_nums == false);
@@ -551,18 +551,22 @@ void test_m21_default_disabled_preservation() {
     win_desc.decorated = true;
     auto win = app.create_window(win_desc);
     KTUI_CHECK(win != nullptr);
-    KTUI_CHECK(win->dithering_enabled() == false);
-    KTUI_CHECK(win->pixel_snapping_enabled() == false);
+    KTUI_CHECK(win->dithering_enabled() == true);
+    KTUI_CHECK(win->pixel_snapping_enabled() == true);
 
-    // 验证 WindowDesc 显式开启字段透传到 Window
-    WindowDesc opt_in_desc = win_desc;
-    opt_in_desc.dithering_enabled = true;
-    opt_in_desc.pixel_snapping_enabled = true;
-    auto opt_win = app.create_window(opt_in_desc);
+    // 验证 WindowDesc 显式关闭字段透传到 Window
+    WindowDesc opt_out_desc = win_desc;
+    opt_out_desc.dithering_enabled = false;
+    opt_out_desc.pixel_snapping_enabled = false;
+    auto opt_win = app.create_window(opt_out_desc);
     KTUI_CHECK(opt_win != nullptr);
-    KTUI_CHECK(opt_win->dithering_enabled() == true);
-    KTUI_CHECK(opt_win->pixel_snapping_enabled() == true);
+    KTUI_CHECK(opt_win->dithering_enabled() == false);
+    KTUI_CHECK(opt_win->pixel_snapping_enabled() == false);
     opt_win->close();
+
+    // 显式关闭后测试关闭 -> 开启 -> 关闭往返按位一致
+    win->set_dithering_enabled(false);
+    win->set_pixel_snapping_enabled(false);
 
     auto* hw = static_cast<HeadlessWindow*>(win->platform_window());
     KTUI_CHECK(hw != nullptr);
@@ -733,6 +737,7 @@ void test_m21_fractional_dpi_pixel_snapping() {
         auto win = app.create_window(desc);
         KTUI_CHECK(win != nullptr);
         win->set_backdrop(WindowBackdrop::None);
+        win->set_dithering_enabled(false);
 
         auto* hw = static_cast<HeadlessWindow*>(win->platform_window());
         KTUI_CHECK(hw != nullptr);
@@ -791,6 +796,7 @@ void test_m21_dithering_gradient_and_pointer_reveal() {
         auto win = app.create_window(desc);
         KTUI_CHECK(win != nullptr);
         win->set_backdrop(WindowBackdrop::None);
+        win->set_dithering_enabled(false);
 
         auto* hw = static_cast<HeadlessWindow*>(win->platform_window());
         KTUI_CHECK(hw != nullptr);
@@ -1462,6 +1468,140 @@ void test_m22_headless_window_pointer_reveal() {
     std::cout << "  -> HeadlessWindow 全栈 R3 交互、主题对比、禁用阻断与 1.5x DPI 对齐测试通过！" << std::endl;
 }
 
+void test_tactile_polish_tier789_widgets() {
+    std::cout << "[Test 16] 列表羽化、Hero、微倾斜、滚动吸顶、翻滚数值与同心圆角集成测试..." << std::endl;
+
+    // 1. Concentric Nested Corner Radius hierarchy deduction (no RTTI / /GR- safe)
+    {
+        auto outer = std::make_shared<RenderDecoratedBox>();
+        outer->set_properties(200.0f, 120.0f, Color::transparent(), Color::transparent(), 0.0f, 28.0f, EdgeInsets(12.0f));
+        auto inner = std::make_shared<RenderDecoratedBox>();
+        inner->set_properties(-1.0f, 40.0f, Color::transparent(), Color::transparent(), 0.0f, 0.0f, EdgeInsets::zero());
+        inner->set_concentric_inner(true, 4.0f);
+        outer->set_child_box(inner);
+        outer->layout(BoxConstraints::loose(Vec2{200.0f, 120.0f}), true);
+        KTUI_CHECK(std::abs(inner->resolve_effective_corner_radius() - 16.0f) < 1e-3f);
+    }
+
+    // 2. StickyParallaxScrollView header hairline alpha progression & RollingNumber / CrossfadeText activation
+    {
+        RenderStickyParallaxScrollView sv;
+        sv.set_properties(320.0f, 200.0f, 100.0f, 0.42f, 18.0f, false, 0.0f);
+        auto body = std::make_shared<RenderDecoratedBox>();
+        body->set_properties(320.0f, 400.0f, Color::transparent(), Color::transparent(), 0.0f, 0.0f, EdgeInsets::zero());
+        sv.set_children(nullptr, nullptr, body);
+        sv.layout(BoxConstraints::tight(Vec2{320.0f, 200.0f}), true);
+        KTUI_CHECK(std::abs(sv.header_hairline_alpha() - 0.0f) < 1e-4f);
+        sv.jump_to(9.0f);
+        KTUI_CHECK(std::abs(sv.header_hairline_alpha() - 0.5f) < 1e-3f);
+        sv.jump_to(36.0f);
+        KTUI_CHECK(std::abs(sv.header_hairline_alpha() - 1.0f) < 1e-4f);
+
+        RenderRollingNumber rn;
+        KTUI_CHECK(!(RollingNumber{}.show_delta_flash));
+        rn.set_properties(100.0, 0, "", "", 24.0f, FontWeight::Bold, Color{-1, -1, -1, -1}, true, 320.0f, 28.0f);
+        KTUI_CHECK(!rn.is_animating());
+        rn.set_value(137.0);
+        KTUI_CHECK(rn.is_animating());
+
+        RenderCrossfadeText cf;
+        cf.set_properties("Idle", 14.0f, FontWeight::SemiBold, Color{-1, -1, -1, -1});
+        cf.set_text("Active");
+        cf.layout(BoxConstraints::loose(Vec2{200.0f, 40.0f}), true);
+        KTUI_CHECK(cf.size().x > 0.0f && cf.size().y > 0.0f);
+    }
+
+    // 3. Pixel-level verification: RollingNumber & CrossfadeText must never clip glyph bottom pixels near settlement tail
+    {
+        struct InkBBox {
+            int min_x;
+            int min_y;
+            int max_x;
+            int max_y;
+        };
+        auto render_node_row_bounds = [](RenderBox& node, uint32_t w, uint32_t h, PointF origin) -> InkBBox {
+            kernetile::RendererConfig cfg;
+            cfg.width = w;
+            cfg.height = h;
+            cfg.force_cpu_fallback = true;
+            auto renderer = kernetile::KerneTileRenderer::create(cfg);
+            renderer->begin_frame();
+            renderer->draw_rect(kernetile::math::Rect{0.0f, 0.0f, float(w), float(h)},
+                                kernetile::math::Color{0.0f, 0.0f, 0.0f, 1.0f}, 0.0f, 0.0f);
+            PaintContext ctx(renderer.get());
+            {
+                PaintContext::OffsetScope offset_guard(ctx, origin);
+                node.paint(ctx);
+            }
+            renderer->end_frame();
+            std::vector<uint8_t> rgba(size_t(w) * h * 4u, 0u);
+            renderer->render_to_rgba8(rgba.data());
+
+            InkBBox box{static_cast<int>(w), static_cast<int>(h), -1, -1};
+            for (uint32_t y = 0; y < h; ++y) {
+                for (uint32_t x = 0; x < w; ++x) {
+                    const size_t idx = (size_t(y) * w + x) * 4u;
+                    if (rgba[idx] > 4 || rgba[idx + 1] > 4 || rgba[idx + 2] > 4) {
+                        box.min_y = std::min(box.min_y, static_cast<int>(y));
+                        box.max_y = std::max(box.max_y, static_cast<int>(y));
+                        box.min_x = std::min(box.min_x, static_cast<int>(x));
+                        box.max_x = std::max(box.max_x, static_cast<int>(x));
+                    }
+                }
+            }
+            return box;
+        };
+
+        // 3a. RollingNumber settling tail vs settled ("#4128" at 32px)
+        RenderRollingNumber rn_steady;
+        rn_steady.set_properties(4128.0, 0, "#", "", 32.0f, FontWeight::Bold, Color{1, 1, 1, 1}, false, 480.0f, 44.0f);
+        rn_steady.layout(BoxConstraints::loose(Vec2{320.0f, 140.0f}), true);
+        const auto steady_box = render_node_row_bounds(rn_steady, 320u, 140u, PointF{20.0f, 30.0f});
+        KTUI_CHECK(steady_box.max_y > steady_box.min_y && (steady_box.max_y - steady_box.min_y) >= 18);
+
+        // Verify RollingNumber uses non-italic metrics & keeps settled ink unclipped across transition tail frames
+        RenderRollingNumber rn_tail;
+        rn_tail.set_properties(3991.0, 0, "#", "", 32.0f, FontWeight::Bold, Color{1, 1, 1, 1}, false, 480.0f, 44.0f);
+        rn_tail.set_value(4128.0);
+        rn_tail.layout(BoxConstraints::loose(Vec2{320.0f, 140.0f}), true);
+        InkBBox tail_box{};
+        for (int frame = 0; frame < 14; ++frame) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            tail_box = render_node_row_bounds(rn_tail, 320u, 140u, PointF{20.0f, 30.0f});
+            if (frame >= 5) {
+                KTUI_CHECK((tail_box.max_y - tail_box.min_y) >= (steady_box.max_y - steady_box.min_y));
+            }
+        }
+        KTUI_CHECK(tail_box.max_y >= steady_box.max_y);
+        KTUI_CHECK(tail_box.min_y <= steady_box.min_y + 4);
+        KTUI_CHECK(tail_box.min_x >= 0 && tail_box.max_x >= steady_box.max_x);
+
+        // 3b. CrossfadeText ("Ready 就绪待命" at 16px) settling tail vs settled
+        RenderCrossfadeText cf_steady;
+        cf_steady.set_properties("Ready 就绪待命", 16.0f, FontWeight::SemiBold, Color{1, 1, 1, 1});
+        cf_steady.layout(BoxConstraints::loose(Vec2{320.0f, 120.0f}), true);
+        const auto cf_steady_box = render_node_row_bounds(cf_steady, 320u, 120u, PointF{20.0f, 30.0f});
+        KTUI_CHECK(cf_steady_box.max_y > cf_steady_box.min_y);
+
+        RenderCrossfadeText cf_tail;
+        cf_tail.set_properties("GPU Compute Running", 16.0f, FontWeight::SemiBold, Color{1, 1, 1, 1});
+        cf_tail.set_text("Ready 就绪待命");
+        cf_tail.layout(BoxConstraints::loose(Vec2{320.0f, 120.0f}), true);
+        InkBBox cf_tail_box{};
+        for (int frame = 0; frame < 14; ++frame) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            cf_tail_box = render_node_row_bounds(cf_tail, 320u, 120u, PointF{20.0f, 30.0f});
+            if (frame >= 5) {
+                KTUI_CHECK((cf_tail_box.max_y - cf_tail_box.min_y) >= (cf_steady_box.max_y - cf_steady_box.min_y) - 1);
+            }
+        }
+        KTUI_CHECK(cf_tail_box.max_y >= cf_steady_box.max_y);
+        KTUI_CHECK(cf_tail_box.min_x >= 0);
+    }
+
+    std::cout << "  -> 扩展质感交互组件 (ConcentricRadius / StickyParallax / RollingNumber / CrossfadeText) 验证通过！" << std::endl;
+}
+
 int main() {
     configure_test_environment();
     std::cout << "==================================================" << std::endl;
@@ -1483,6 +1623,7 @@ int main() {
     test_m21_tabular_nums_text_measure_and_widget();
     test_m22_pointer_reveal_dirty_tile_isolation();
     test_m22_headless_window_pointer_reveal();
+    test_tactile_polish_tier789_widgets();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 6 双级脏区与渲染闭环 100% 测试通过!  " << std::endl;

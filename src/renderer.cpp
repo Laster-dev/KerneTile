@@ -88,6 +88,27 @@ public:
         return m_clip_stack.push_clip(rect, corner_radius);
     }
 
+    uint32_t push_feathered_clip(
+        math::Rect rect,
+        float corner_radius,
+        float top_feather_px,
+        float bottom_feather_px) override
+    {
+        uint32_t flags = 0u;
+        uint32_t top_q = 0u;
+        uint32_t bot_q = 0u;
+        if (top_feather_px > 0.1f) {
+            flags |= core::kClipFlagFeatherTop;
+            top_q = static_cast<uint32_t>(std::lround(std::clamp(top_feather_px, 0.0f, 4095.0f) * 16.0f)) & 0xFFFFu;
+        }
+        if (bottom_feather_px > 0.1f) {
+            flags |= core::kClipFlagFeatherBottom;
+            bot_q = static_cast<uint32_t>(std::lround(std::clamp(bottom_feather_px, 0.0f, 4095.0f) * 16.0f)) & 0xFFFFu;
+        }
+        const uint32_t reserved = top_q | (bot_q << 16u);
+        return m_clip_stack.push_clip(rect, corner_radius, flags, reserved);
+    }
+
     void pop_clip() override {
         m_clip_stack.pop_clip();
     }
@@ -167,7 +188,7 @@ public:
     void draw_text_scaled(std::string_view text, float x, float y, float font_size,
                           math::Color color, float scale, uint16_t font_weight = 400,
                           bool italic = false, std::string_view font_family = "",
-                          bool tabular_nums = false) override {
+                          bool tabular_nums = false, bool font_gamma = true) override {
         if (!m_text_streamer) return;
         uint16_t clip_idx = (m_clip_stack.depth() > 0) 
             ? static_cast<uint16_t>(m_clip_stack.current_clip_index()) 
@@ -175,7 +196,7 @@ public:
 
         m_text_streamer->stream_text(
             text, x, y, font_size, color,
-            m_primitives, clip_idx, scale, font_weight, italic, font_family, tabular_nums);
+            m_primitives, clip_idx, scale, font_weight, italic, font_family, tabular_nums, font_gamma);
     }
 
     void set_dithering_enabled(bool enabled) override {
@@ -208,6 +229,36 @@ public:
         return m_config.enable_pixel_snapping;
     }
 
+    void set_font_gamma_enabled(bool enabled) override {
+        if (m_config.enable_font_gamma != enabled) {
+            m_config.enable_font_gamma = enabled;
+            m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
+            m_gpu_full_frame = true;
+        }
+    }
+
+    bool is_font_gamma_enabled() const noexcept override {
+        return m_config.enable_font_gamma;
+    }
+
+    void set_acrylic_grain_enabled(bool enabled) override {
+        if (m_config.enable_acrylic_grain != enabled) {
+            m_config.enable_acrylic_grain = enabled;
+            m_dirty_tracker.reset();
+#if !defined(NDEBUG)
+            m_scene_dirty_tracker.reset();
+#endif
+            m_gpu_full_frame = true;
+        }
+    }
+
+    bool is_acrylic_grain_enabled() const noexcept override {
+        return m_config.enable_acrylic_grain;
+    }
+
     void draw_linear_gradient(
         math::Rect rect,
         math::Color start_color,
@@ -215,7 +266,8 @@ public:
         math::Vec2 start_pt,
         math::Vec2 end_pt,
         float corner_radius = 0.0f,
-        float border_width = 0.0f) override
+        float border_width = 0.0f,
+        bool oklab = true) override
     {
         auto pack_unorm16 = [](float v) noexcept -> uint16_t {
             return static_cast<uint16_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f));
@@ -252,10 +304,202 @@ public:
         prim.shadow_blur = end_pt.x;
         prim.shadow_spread = end_pt.y;
         prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient);
+        if (oklab) {
+            prim.flags |= static_cast<uint16_t>(core::PrimitiveFlags::OkLabGradient);
+        }
         if (border_width > 0.0f) {
             prim.flags |= static_cast<uint16_t>(core::PrimitiveFlags::HasBorder);
         }
 
+        push_primitive(prim);
+    }
+
+    void draw_directional_rim(
+        math::Rect rect,
+        math::Color top_highlight,
+        math::Color bottom_shadow,
+        float corner_radius = 8.0f,
+        float border_width = 1.0f,
+        math::Vec2 light_dir = {0.0f, -1.0f},
+        float inner_glow = 0.35f) override
+    {
+        if (rect.is_empty() || (top_highlight.a <= 0.0005f && bottom_shadow.a <= 0.0005f)) {
+            return;
+        }
+        auto pack_unorm16 = [](float v) noexcept -> uint16_t {
+            return static_cast<uint16_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f));
+        };
+
+        float lx = light_dir.x;
+        float ly = light_dir.y;
+        const float len = std::hypot(lx, ly);
+        if (len > 1e-4f) {
+            lx /= len;
+            ly /= len;
+        } else {
+            lx = 0.0f;
+            ly = -1.0f;
+        }
+
+        core::UiPrimitive prim{};
+        prim.min_x = rect.min_x;
+        prim.min_y = rect.min_y;
+        prim.max_x = rect.max_x;
+        prim.max_y = rect.max_y;
+
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+
+        prim.color_r = top_highlight.r * top_highlight.a;
+        prim.color_g = top_highlight.g * top_highlight.a;
+        prim.color_b = top_highlight.b * top_highlight.a;
+        prim.color_a = top_highlight.a;
+
+        const float br = bottom_shadow.r * bottom_shadow.a;
+        const float bg = bottom_shadow.g * bottom_shadow.a;
+        const float bb = bottom_shadow.b * bottom_shadow.a;
+        const float ba = bottom_shadow.a;
+        prim.atlas_u0 = pack_unorm16(br);
+        prim.atlas_v0 = pack_unorm16(bg);
+        prim.atlas_u1 = pack_unorm16(bb);
+        prim.atlas_v1 = pack_unorm16(ba);
+
+        prim.border_width = std::max(0.5f, border_width);
+        prim.shadow_blur = 0.0f;
+        prim.shadow_spread = std::max(0.0f, inner_glow);
+        prim.shadow_offset_x = lx;
+        prim.shadow_offset_y = ly;
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim | core::PrimitiveFlags::HasBorder);
+
+        push_primitive(prim);
+    }
+
+    void draw_acrylic_panel(
+        math::Rect rect,
+        math::Color tint,
+        float corner_radius = 8.0f,
+        float grain_amount = 0.028f,
+        float grain_scale = 1.0f) override
+    {
+        if (rect.is_empty() || tint.a <= 0.0005f) return;
+        core::UiPrimitive prim{};
+        prim.min_x = rect.min_x;
+        prim.min_y = rect.min_y;
+        prim.max_x = rect.max_x;
+        prim.max_y = rect.max_y;
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+        prim.color_r = tint.r * tint.a;
+        prim.color_g = tint.g * tint.a;
+        prim.color_b = tint.b * tint.a;
+        prim.color_a = tint.a;
+        prim.border_width = 0.0f;
+        prim.shadow_blur = std::max(grain_scale, 1.0f);
+        prim.shadow_spread = std::clamp(grain_amount, 0.0f, 0.25f);
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain);
+        push_primitive(prim);
+    }
+
+    void draw_inset_shadow(
+        math::Rect rect,
+        math::Color shadow_color,
+        float corner_radius = 6.0f,
+        float blur_sigma = 6.0f,
+        float spread = 0.0f,
+        math::Vec2 offset = {0.0f, 2.0f}) override
+    {
+        if (rect.is_empty() || shadow_color.a <= 0.0005f) return;
+        core::UiPrimitive prim{};
+        prim.min_x = rect.min_x;
+        prim.min_y = rect.min_y;
+        prim.max_x = rect.max_x;
+        prim.max_y = rect.max_y;
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+        prim.color_r = shadow_color.r * shadow_color.a;
+        prim.color_g = shadow_color.g * shadow_color.a;
+        prim.color_b = shadow_color.b * shadow_color.a;
+        prim.color_a = shadow_color.a;
+        prim.border_width = 0.0f;
+        prim.shadow_blur = std::max(blur_sigma, 0.25f);
+        prim.shadow_spread = spread;
+        prim.shadow_offset_x = offset.x;
+        prim.shadow_offset_y = offset.y;
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow);
+        push_primitive(prim);
+    }
+
+    void draw_metaball(
+        math::Rect rect_a,
+        float radius_a,
+        math::Rect rect_b,
+        float radius_b,
+        float smooth_k,
+        math::Color color_a,
+        math::Color color_b = {},
+        bool two_tone = false,
+        float border_width = 0.0f) override
+    {
+        const float k = std::max(smooth_k, 0.0f);
+        const float pad = k * 0.5f + 2.0f + std::max(0.0f, border_width) * 0.5f;
+        const float bx0 = std::min(rect_a.min_x, rect_b.min_x) - pad;
+        const float by0 = std::min(rect_a.min_y, rect_b.min_y) - pad;
+        const float bx1 = std::max(rect_a.max_x, rect_b.max_x) + pad;
+        const float by1 = std::max(rect_a.max_y, rect_b.max_y) + pad;
+        const float bw = bx1 - bx0;
+        const float bh = by1 - by0;
+        if (bw <= 0.001f || bh <= 0.001f) return;
+        const float max_a = two_tone ? std::max(color_a.a, color_b.a) : color_a.a;
+        if (max_a <= 0.0005f) return;
+
+        auto pack_unorm16 = [](float v) noexcept -> uint16_t {
+            return static_cast<uint16_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f));
+        };
+        auto q6 = [](float v) noexcept -> uint32_t {
+            return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 63.0f)) & 63u;
+        };
+
+        core::UiPrimitive prim{};
+        prim.min_x = bx0;
+        prim.min_y = by0;
+        prim.max_x = bx1;
+        prim.max_y = by1;
+
+        prim.radius_top_left = rect_a.min_x;
+        prim.radius_top_right = rect_a.min_y;
+        prim.radius_bottom_right = rect_a.max_x;
+        prim.radius_bottom_left = rect_a.max_y;
+
+        prim.atlas_u0 = pack_unorm16((rect_b.min_x - bx0) / bw);
+        prim.atlas_v0 = pack_unorm16((rect_b.min_y - by0) / bh);
+        prim.atlas_u1 = pack_unorm16((rect_b.max_x - bx0) / bw);
+        prim.atlas_v1 = pack_unorm16((rect_b.max_y - by0) / bh);
+
+        prim.color_r = color_a.r * color_a.a;
+        prim.color_g = color_a.g * color_a.a;
+        prim.color_b = color_a.b * color_a.a;
+        prim.color_a = color_a.a;
+
+        prim.border_width = std::max(0.0f, border_width);
+        prim.shadow_blur = k;
+        prim.shadow_spread = std::max(0.0f, radius_a);
+        prim.shadow_offset_x = std::max(0.0f, radius_b);
+        if (two_tone) {
+            const uint32_t pk = q6(color_b.r) | (q6(color_b.g) << 6u) | (q6(color_b.b) << 12u) | (q6(color_b.a) << 18u);
+            prim.shadow_offset_y = static_cast<float>(pk + 1u);
+        } else {
+            prim.shadow_offset_y = -1.0f;
+        }
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball);
+        if (border_width > 0.0f) {
+            prim.flags |= static_cast<uint16_t>(core::PrimitiveFlags::HasBorder);
+        }
         push_primitive(prim);
     }
 
@@ -535,7 +779,23 @@ public:
     bool compute_ready() const noexcept override { return m_backend && m_backend->ready(); }
 
     void set_mica_backdrop(bool enabled, const std::array<uint32_t, 16>& grid) override {
-        if (m_mica_enabled != enabled || (enabled && m_mica_grid != grid)) {
+        bool changed = (m_mica_enabled != enabled);
+        if (!changed && enabled) {
+            for (size_t i = 0; i < 16; ++i) {
+                const uint32_t a = m_mica_grid[i];
+                const uint32_t b = grid[i];
+                if (a == b) continue;
+                auto ch_diff = [](uint32_t x, uint32_t y, unsigned shift) noexcept {
+                    int dx = static_cast<int>((x >> shift) & 0xFFu) - static_cast<int>((y >> shift) & 0xFFu);
+                    return dx < 0 ? -dx : dx;
+                };
+                if (ch_diff(a, b, 0) > 2 || ch_diff(a, b, 8) > 2 || ch_diff(a, b, 16) > 2 || ch_diff(a, b, 24) > 2) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (changed) {
             m_mica_enabled = enabled;
             m_mica_grid = grid;
             m_dirty_tracker.reset();
@@ -549,6 +809,7 @@ public:
     bool present_computed_frame(bool force_present) override {
         if (compute_ready()) {
             const auto& dirty = m_last_dirty_result.dirty_tiles;
+            if (!m_gpu_full_frame && dirty.empty() && m_gpu_active) return true;
             if (!m_gpu_full_frame && dirty.empty() && !force_present) return m_gpu_active;
             m_compute_tiles.clear();
             auto append = [this](uint32_t x, uint32_t y, uint32_t id) {
@@ -573,7 +834,10 @@ public:
             const std::span<const atlas::RectU32> color_atlas_updates = m_color_atlas
                 ? m_color_atlas->get_dirty_rects()
                 : std::span<const atlas::RectU32>{};
-            const uint32_t render_flags = m_config.enable_dithering ? compute::kRenderFlagIgnDithering : 0u;
+            const uint32_t render_flags =
+                (m_config.enable_dithering ? compute::kRenderFlagIgnDithering : 0u) |
+                (m_config.enable_font_gamma ? compute::kRenderFlagFontGamma : 0u) |
+                (m_config.enable_acrylic_grain ? compute::kRenderFlagAcrylicGrain : 0u);
             const compute::Frame frame{m_config.width, m_config.height, m_primitives,
                 m_last_binning.indices, m_compute_tiles, m_clip_stack.get_clips(),
                 {m_atlas.get_pixels(), size_t(atlas_width) * atlas_height}, atlas_width,
@@ -659,6 +923,8 @@ public:
         params.mica_enabled = m_mica_enabled;
         params.mica_grid = m_mica_grid;
         params.enable_dithering = m_config.enable_dithering;
+        params.enable_font_gamma = m_config.enable_font_gamma;
+        params.enable_acrylic_grain = m_config.enable_acrylic_grain;
 
         cpu::CpuTileRasterizer::render(params, dst_buffer);
 
@@ -721,11 +987,15 @@ private:
         constexpr uint16_t kSkipMask =
             static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph) |
             static_cast<uint16_t>(core::PrimitiveFlags::IsIcon) |
-            static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal);
+            static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal) |
+            static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball);
         if ((p.flags & kSkipMask) != 0) return;
 
         const bool is_gradient = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0;
-        if (!is_gradient && p.shadow_blur > 0.0f) return;
+        const bool is_rim = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim)) != 0;
+        const bool is_acrylic = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain)) != 0;
+        const bool is_inset = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow)) != 0;
+        if (!is_gradient && !is_rim && !is_acrylic && !is_inset && p.shadow_blur > 0.0f) return;
 
         const float w_orig = p.max_x - p.min_x;
         const float h_orig = p.max_y - p.min_y;

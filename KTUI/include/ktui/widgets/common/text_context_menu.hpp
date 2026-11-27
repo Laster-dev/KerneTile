@@ -1,8 +1,10 @@
 #pragma once
 
+#include <ktui/core/strings.hpp>
+
 #include <ktui/app/window.hpp>
 #include <ktui/pal/clipboard.hpp>
-#include <ktui/widgets/menu_flyout.hpp>
+#include <ktui/widgets/menu_flyout/menu_flyout_logic.hpp>
 
 #include <functional>
 #include <string>
@@ -53,7 +55,7 @@ inline uint64_t show_winui_text_context_menu(Vec2 client_pos, const TextContextM
     std::vector<MenuFlyoutItem> items;
     if (actions.on_undo) {
         items.push_back(MenuFlyoutItem{
-            .label = "撤销",
+            .label = FrameworkStrings::current().undo,
             .shortcut = "Ctrl+Z",
             .svg_path = kSvgUndo,
             .disabled = !actions.can_undo,
@@ -62,7 +64,7 @@ inline uint64_t show_winui_text_context_menu(Vec2 client_pos, const TextContextM
     }
     if (actions.on_redo) {
         items.push_back(MenuFlyoutItem{
-            .label = "重做",
+            .label = FrameworkStrings::current().redo,
             .shortcut = "Ctrl+Y",
             .svg_path = kSvgRedo,
             .disabled = !actions.can_redo,
@@ -74,21 +76,21 @@ inline uint64_t show_winui_text_context_menu(Vec2 client_pos, const TextContextM
     }
 
     items.push_back(MenuFlyoutItem{
-        .label = "剪切",
+        .label = FrameworkStrings::current().cut,
         .shortcut = "Ctrl+X",
         .svg_path = kSvgCut,
         .disabled = !actions.can_cut || !actions.on_cut,
         .on_click = actions.on_cut
     });
     items.push_back(MenuFlyoutItem{
-        .label = "复制",
+        .label = FrameworkStrings::current().copy,
         .shortcut = "Ctrl+C",
         .svg_path = kSvgCopy,
         .disabled = !actions.can_copy || !actions.on_copy,
         .on_click = actions.on_copy
     });
     items.push_back(MenuFlyoutItem{
-        .label = "粘贴",
+        .label = FrameworkStrings::current().paste,
         .shortcut = "Ctrl+V",
         .svg_path = kSvgPaste,
         .disabled = !actions.can_paste || !actions.on_paste,
@@ -96,7 +98,7 @@ inline uint64_t show_winui_text_context_menu(Vec2 client_pos, const TextContextM
     });
     if (actions.on_delete) {
         items.push_back(MenuFlyoutItem{
-            .label = "删除",
+            .label = FrameworkStrings::current().del,
             .shortcut = "Del",
             .svg_path = kSvgDelete,
             .disabled = !actions.can_delete,
@@ -106,7 +108,7 @@ inline uint64_t show_winui_text_context_menu(Vec2 client_pos, const TextContextM
 
     items.push_back(MenuFlyoutItem::separator());
     items.push_back(MenuFlyoutItem{
-        .label = "全选",
+        .label = FrameworkStrings::current().select_all,
         .shortcut = "Ctrl+A",
         .svg_path = kSvgSelectAll,
         .disabled = !actions.can_select_all || !actions.on_select_all,

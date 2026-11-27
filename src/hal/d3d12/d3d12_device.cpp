@@ -11,20 +11,6 @@
 
 namespace kernetile::hal::d3d12 {
 
-static std::vector<uint8_t> read_binary_file(const std::string& path) {
-    std::FILE* fp = std::fopen(path.c_str(), "rb");
-    if (!fp) return {};
-    if (std::fseek(fp, 0, SEEK_END) != 0) { std::fclose(fp); return {}; }
-    long sz = std::ftell(fp);
-    if (sz <= 0) { std::fclose(fp); return {}; }
-    std::rewind(fp);
-    std::vector<uint8_t> buffer(static_cast<size_t>(sz));
-    size_t read = std::fread(buffer.data(), 1, buffer.size(), fp);
-    std::fclose(fp);
-    if (read == buffer.size()) return buffer;
-    return {};
-}
-
 D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit, void* target_window) {
     UINT dxgi_flags = 0;
 #ifdef _DEBUG
@@ -87,7 +73,7 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit, void
         // 如果未找到硬件适配器，自动降级至 WARP
         if (!m_adapter) {
             if (!allow_warp) return;
-            std::printf("[D3D12] Hardware GPU unavailable, falling back to WARP software adapter.\n");
+            KT_LOG_INFO("[D3D12] Hardware GPU unavailable, falling back to WARP software adapter.");
             if (!throw_if_failed(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&m_adapter)), "EnumWarpAdapter fallback failed")) return;
         }
     }
@@ -119,7 +105,7 @@ D3D12Device::D3D12Device(bool prefer_warp, bool allow_warp, bool init_blit, void
     if (!throw_if_failed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence failed")) return;
     m_fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!m_fence_event) {
-        std::fprintf(stderr, "D3D12 Error: CreateEvent for D3D12 fence failed\n");
+        KT_LOG_ERR("D3D12: CreateEvent for D3D12 fence failed");
         return;
     }
 

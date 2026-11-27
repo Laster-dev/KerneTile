@@ -1,4 +1,6 @@
 #include "kernetile/cpu/cpu_rasterizer.hpp"
+#include "kernetile/math/color_space.hpp"
+#include "kernetile/text/stem_darkening.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -205,16 +207,17 @@ inline float eval_squircle_box_distance(float abs_dx, float abs_dy,
     return d_circle + (d_squircle - d_circle) * squircle_t;
 }
 
-// 单点级联裁剪测试
-inline bool is_point_clipped(float p_x, float p_y, uint16_t first_clip,
+// 单点级联裁剪与渐隐羽化系数计算 (0.0 = 剔除, 0..1 = 列表边缘平滑衰减系数)
+inline float eval_clip_alpha(float p_x, float p_y, uint16_t first_clip,
                              std::span<const core::ClipRect> clip_rects) noexcept {
     uint32_t curr_clip = first_clip;
     uint32_t safety = 0;
+    float alpha = 1.0f;
     while (curr_clip != core::INVALID_INDEX_U32 && curr_clip < clip_rects.size() && safety < 64) {
         ++safety;
         const auto& clip = clip_rects[curr_clip];
         if (p_x < clip.min_x || p_x > clip.max_x || p_y < clip.min_y || p_y > clip.max_y) {
-            return true;
+            return 0.0f;
         }
         if (clip.corner_radius > 0.0f) {
             float ccx = (clip.min_x + clip.max_x) * 0.5f;
@@ -222,12 +225,28 @@ inline bool is_point_clipped(float p_x, float p_y, uint16_t first_clip,
             float chx = (clip.max_x - clip.min_x) * 0.5f;
             float chy = (clip.max_y - clip.min_y) * 0.5f;
             if (eval_squircle_box_distance(std::abs(p_x - ccx), std::abs(p_y - ccy), chx, chy, clip.corner_radius) > 0.0f) {
-                return true;
+                return 0.0f;
+            }
+        }
+        if ((clip.flags & 6u) != 0u) {
+            if ((clip.flags & core::kClipFlagFeatherTop) != 0u) {
+                const float top_f = static_cast<float>(clip.reserved & 0xFFFFu) * (1.0f / 16.0f);
+                if (top_f > 0.05f) {
+                    const float u = std::clamp((p_y - clip.min_y) / top_f, 0.0f, 1.0f);
+                    alpha *= u * u * (3.0f - 2.0f * u);
+                }
+            }
+            if ((clip.flags & core::kClipFlagFeatherBottom) != 0u) {
+                const float bot_f = static_cast<float>((clip.reserved >> 16u) & 0xFFFFu) * (1.0f / 16.0f);
+                if (bot_f > 0.05f) {
+                    const float u = std::clamp((clip.max_y - p_y) / bot_f, 0.0f, 1.0f);
+                    alpha *= u * u * (3.0f - 2.0f * u);
+                }
             }
         }
         curr_clip = clip.parent_index;
     }
-    return false;
+    return alpha;
 }
 
 inline void sample_mica_corner(float p_x, float p_y, float inv_w, float inv_h,
@@ -266,6 +285,18 @@ inline float eval_ign(uint32_t px, uint32_t py) noexcept {
     const float f1 = d - std::floor(d);
     const float t = 52.9829189f * f1;
     return t - std::floor(t);
+}
+
+inline float eval_acrylic_grain(float p_x, float p_y, float scale) noexcept {
+    const float sc = std::max(scale, 1.0f);
+    const uint32_t gx = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(std::floor(p_x / sc))));
+    const uint32_t gy = static_cast<uint32_t>(std::max(0, static_cast<int32_t>(std::floor(p_y / sc))));
+    uint32_t h = gx * 747796405u + gy * 2891336453u + 277803737u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    const float u0 = static_cast<float>(h & 65535u) * (1.0f / 65535.0f);
+    const float u1 = static_cast<float>((h >> 16u) & 65535u) * (1.0f / 65535.0f);
+    return (u0 + u1) - 1.0f;
 }
 
 } // namespace
@@ -314,7 +345,9 @@ void CpuTileRasterizer::render_tile(
     const uint8_t* color_atlas_pixels,
     uint32_t color_atlas_width,
     uint32_t color_atlas_height,
-    bool enable_dithering)
+    bool enable_dithering,
+    bool enable_font_gamma,
+    bool enable_acrylic_grain)
 {
     if (tile_id >= tile_headers.size()) return;
 
@@ -355,14 +388,20 @@ void CpuTileRasterizer::render_tile(
             float al = a00 + (a01 - a00) * ty, ar = a10 + (a11 - a10) * ty;
             float dr = (rr - rl) * inv_tw, dg = (gr - gl) * inv_tw, db = (br - bl) * inv_tw, da = (ar - al) * inv_tw;
             uint8_t* row_dst = dst_framebuffer + (static_cast<size_t>(start_y + ly) * width + start_x) * 4;
-            if (enable_dithering) {
+            if (enable_dithering || enable_acrylic_grain) {
                 const uint32_t py = start_y + ly;
                 constexpr float kInv255 = 1.0f / 255.0f;
                 for (uint32_t lx = 0; lx < tile_w; ++lx) {
-                    const float dither = (al > 0.0f) ? ((eval_ign(start_x + lx, py) - 0.5f) * kInv255) : 0.0f;
-                    row_dst[0] = static_cast<uint8_t>(std::clamp(rl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
-                    row_dst[1] = static_cast<uint8_t>(std::clamp(gl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
-                    row_dst[2] = static_cast<uint8_t>(std::clamp(bl + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    const float g_off = enable_acrylic_grain
+                        ? (eval_acrylic_grain(static_cast<float>(start_x + lx) + 0.5f, static_cast<float>(py) + 0.5f, 1.0f) * 0.018f * al)
+                        : 0.0f;
+                    const float dither = (enable_dithering && al > 0.0f) ? ((eval_ign(start_x + lx, py) - 0.5f) * kInv255) : 0.0f;
+                    const float base_r = std::clamp(rl + g_off, 0.0f, al);
+                    const float base_g = std::clamp(gl + g_off, 0.0f, al);
+                    const float base_b = std::clamp(bl + g_off, 0.0f, al);
+                    row_dst[0] = static_cast<uint8_t>(std::clamp(base_r + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    row_dst[1] = static_cast<uint8_t>(std::clamp(base_g + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
+                    row_dst[2] = static_cast<uint8_t>(std::clamp(base_b + dither, 0.0f, 1.0f) * 255.0f + 0.5f);
                     row_dst[3] = static_cast<uint8_t>(std::clamp(al, 0.0f, 1.0f) * 255.0f + 0.5f);
                     rl += dr; gl += dg; bl += db; al += da;
                     row_dst += 4;
@@ -406,10 +445,20 @@ void CpuTileRasterizer::render_tile(
         bool is_glyph{false};
         bool is_icon{false};
         bool is_gradient{false};
+        bool is_oklab_gradient{false};
         bool is_reveal{false};
+        bool is_rim{false};
+        bool is_acrylic{false};
+        bool is_inset{false};
+        bool is_metaball{false};
+        bool apply_font_gamma{false};
         bool full_tile_cover{false}; // 内接无圆角矩形完全覆盖本 16x16 瓦片 (cov == 1.0)
         float inv_pw{0.0f}, inv_ph{0.0f};
         float ax0{0.0f}, ay0{0.0f}, dax{0.0f}, day{0.0f};
+        float font_px{13.0f};
+        float fg_luma{0.0f};
+        math::OkLab lab0{};
+        math::OkLab lab1{};
         uint8_t clip_mode{0};
     };
 
@@ -439,7 +488,8 @@ void CpuTileRasterizer::render_tile(
                                           tile_f_end_x <= clip.max_x &&
                                           tile_f_start_y >= clip.min_y &&
                                           tile_f_end_y <= clip.max_y &&
-                                          clip.corner_radius <= 0.0f);
+                                          clip.corner_radius <= 0.0f &&
+                                          (clip.flags & 6u) == 0u);
                 if (!tile_fully_inside) {
                     clip_mode = 1;
                 }
@@ -468,14 +518,50 @@ void CpuTileRasterizer::render_tile(
         const bool is_glyph = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph)) != 0;
         const bool is_icon = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsIcon)) != 0;
         const bool is_reveal = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal)) != 0;
+        const bool is_rim = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim)) != 0;
+        const bool is_acrylic = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain)) != 0) &&
+                                !is_glyph && !is_icon;
+        const bool is_inset = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow)) != 0) &&
+                              !is_glyph && !is_icon;
+        const bool is_metaball = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball)) != 0) &&
+                                 !is_glyph && !is_icon;
         const bool is_gradient = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0) &&
-                                 !is_glyph && !is_icon && !is_reveal;
+                                 !is_glyph && !is_icon && !is_reveal && !is_rim &&
+                                 !is_acrylic && !is_inset && !is_metaball;
         p.is_glyph = is_glyph;
         p.is_icon = is_icon;
         p.is_reveal = is_reveal;
+        p.is_rim = is_rim;
+        p.is_acrylic = is_acrylic;
+        p.is_inset = is_inset;
+        p.is_metaball = is_metaball;
         p.is_gradient = is_gradient;
+        p.is_oklab_gradient = is_gradient &&
+                              ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::OkLabGradient)) != 0);
 
-        if (!is_gradient && !is_reveal && prim.shadow_blur > 0.0f) {
+        if (p.is_oklab_gradient) {
+            const math::Color s0 = (prim.color_a > 1e-4f)
+                ? math::Color{std::clamp(prim.color_r / prim.color_a, 0.0f, 1.0f),
+                              std::clamp(prim.color_g / prim.color_a, 0.0f, 1.0f),
+                              std::clamp(prim.color_b / prim.color_a, 0.0f, 1.0f), prim.color_a}
+                : math::Color{0.0f, 0.0f, 0.0f, 0.0f};
+            const float c1r_p = static_cast<float>(prim.atlas_u0) * (1.0f / 65535.0f);
+            const float c1g_p = static_cast<float>(prim.atlas_v0) * (1.0f / 65535.0f);
+            const float c1b_p = static_cast<float>(prim.atlas_u1) * (1.0f / 65535.0f);
+            const float c1a_p = static_cast<float>(prim.atlas_v1) * (1.0f / 65535.0f);
+            const math::Color s1 = (c1a_p > 1e-4f)
+                ? math::Color{std::clamp(c1r_p / c1a_p, 0.0f, 1.0f),
+                              std::clamp(c1g_p / c1a_p, 0.0f, 1.0f),
+                              std::clamp(c1b_p / c1a_p, 0.0f, 1.0f), c1a_p}
+                : math::Color{0.0f, 0.0f, 0.0f, 0.0f};
+            const math::Color eff0 = (s0.a <= 1e-4f && s1.a > 1e-4f) ? s1 : s0;
+            const math::Color eff1 = (s1.a <= 1e-4f && s0.a > 1e-4f) ? s0 : s1;
+            p.lab0 = math::srgb_to_oklab(eff0);
+            p.lab1 = math::srgb_to_oklab(eff1);
+        }
+
+        if (!is_gradient && !is_reveal && !is_glyph && !is_icon && !is_rim &&
+            !is_acrylic && !is_inset && !is_metaball && prim.shadow_blur > 0.0f) {
             p.has_shadow = true;
             p.s_min_x = prim.min_x - prim.shadow_spread + prim.shadow_offset_x;
             p.s_min_y = prim.min_y - prim.shadow_spread + prim.shadow_offset_y;
@@ -485,6 +571,15 @@ void CpuTileRasterizer::render_tile(
         }
 
         if (is_glyph || is_icon) {
+            if (is_glyph) {
+                p.apply_font_gamma = enable_font_gamma &&
+                    ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::StemDarkening)) != 0);
+                p.font_px = (prim.border_width > 0.5f) ? prim.border_width : 13.0f;
+                const float inv_a = (prim.color_a > 1e-4f) ? (1.0f / prim.color_a) : 0.0f;
+                p.fg_luma = std::clamp(
+                    (0.2126f * prim.color_r + 0.7152f * prim.color_g + 0.0722f * prim.color_b) * inv_a,
+                    0.0f, 1.0f);
+            }
             float pw = prim.max_x - prim.min_x;
             float ph = prim.max_y - prim.min_y;
             const uint8_t* src_atlas = is_icon ? color_atlas_pixels : atlas_pixels;
@@ -500,7 +595,8 @@ void CpuTileRasterizer::render_tile(
                 p.dax = ax1 - p.ax0;
                 p.day = ay1 - p.ay0;
             }
-        } else if (!is_gradient && !is_reveal && clip_mode == 0 && !p.has_shadow && prim.border_width <= 0.0f) {
+        } else if (!is_gradient && !is_reveal && !is_rim && !is_acrylic && !is_inset && !is_metaball &&
+                   clip_mode == 0 && !p.has_shadow && prim.border_width <= 0.0f) {
             // 判定是否完全覆盖本 16x16 瓦片 (内缩 max_r + 0.5px 保证所有像素 SDF <= -0.5 -> cov == 1.0)
             const float margin = p.max_r + 0.5f;
             if (prim.min_x + margin <= tile_f_start_x + 0.5f &&
@@ -528,18 +624,28 @@ void CpuTileRasterizer::render_tile(
         return;
     }
 
-    // 1.5 若最后一个有效图元就是完全覆盖本瓦片的实心不透明矩形，直接 memset 级填充早出 (开启抖动时跳过，改走逐像素抖动写回)
-    if (!enable_dithering && last_opaque_cover == static_cast<int32_t>(active_prim_count - 1)) {
+    // 1.5 若最后一个有效图元就是完全覆盖本瓦片的实心不透明矩形，直接 memset 级填充早出
+    // (开启抖动时，仅当三通道均接近精确 8-bit 整数值时才走快路径，保证亚量化半色阶仍受 IGN 抖动保护)
+    if (last_opaque_cover == static_cast<int32_t>(active_prim_count - 1)) {
         const auto& prim = *prepared_prims[last_opaque_cover].prim;
-        uint32_t r = static_cast<uint32_t>(std::clamp(prim.color_r * 255.0f + 0.5f, 0.0f, 255.0f));
-        uint32_t g = static_cast<uint32_t>(std::clamp(prim.color_g * 255.0f + 0.5f, 0.0f, 255.0f));
-        uint32_t b = static_cast<uint32_t>(std::clamp(prim.color_b * 255.0f + 0.5f, 0.0f, 255.0f));
-        uint32_t pixel_val = r | (g << 8) | (b << 16) | (255u << 24);
-        for (uint32_t py = start_y; py < end_y; ++py) {
-            uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
-            std::fill_n(row_dst, tile_w, pixel_val);
+        const float rf = prim.color_r * 255.0f;
+        const float gf = prim.color_g * 255.0f;
+        const float bf = prim.color_b * 255.0f;
+        const bool exact_u8 = !enable_dithering ||
+            (std::abs(rf - std::round(rf)) < 0.01f &&
+             std::abs(gf - std::round(gf)) < 0.01f &&
+             std::abs(bf - std::round(bf)) < 0.01f);
+        if (exact_u8) {
+            uint32_t r = static_cast<uint32_t>(std::clamp(rf + 0.5f, 0.0f, 255.0f));
+            uint32_t g = static_cast<uint32_t>(std::clamp(gf + 0.5f, 0.0f, 255.0f));
+            uint32_t b = static_cast<uint32_t>(std::clamp(bf + 0.5f, 0.0f, 255.0f));
+            uint32_t pixel_val = r | (g << 8) | (b << 16) | (255u << 24);
+            for (uint32_t py = start_y; py < end_y; ++py) {
+                uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
+                std::fill_n(row_dst, tile_w, pixel_val);
+            }
+            return;
         }
-        return;
     }
 
     // 2. L1 缓存驻留的 16x16 瓦片 SoA 累加器 (4 KB，完美适配 AVX2/SSE2/NEON 自动向量化)
@@ -578,10 +684,18 @@ void CpuTileRasterizer::render_tile(
             float al = a00 + (a01 - a00) * ty, ar = a10 + (a11 - a10) * ty;
             float dr = (rr - rl) * inv_tw, dg = (gr - gl) * inv_tw, db = (br - bl) * inv_tw, da = (ar - al) * inv_tw;
             const uint32_t row_off = ly * 16u;
+            const float py_c = tile_f_start_y + static_cast<float>(ly) + 0.5f;
             for (uint32_t lx = 0; lx < tile_w; ++lx) {
-                tile_r[row_off + lx] = rl;
-                tile_g[row_off + lx] = gl;
-                tile_b[row_off + lx] = bl;
+                float mr = rl, mg = gl, mb = bl;
+                if (enable_acrylic_grain) {
+                    const float g_off = eval_acrylic_grain(tile_f_start_x + static_cast<float>(lx) + 0.5f, py_c, 1.0f) * 0.018f * al;
+                    mr = std::clamp(mr + g_off, 0.0f, al);
+                    mg = std::clamp(mg + g_off, 0.0f, al);
+                    mb = std::clamp(mb + g_off, 0.0f, al);
+                }
+                tile_r[row_off + lx] = mr;
+                tile_g[row_off + lx] = mg;
+                tile_b[row_off + lx] = mb;
                 tile_a[row_off + lx] = al;
                 rl += dr; gl += dg; bl += db; al += da;
             }
@@ -673,14 +787,23 @@ void CpuTileRasterizer::render_tile(
                     for (uint32_t lx = lx0; lx < lx1; ++lx) {
                         const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
                         if (p_x < prim.min_x || p_x > prim.max_x) continue;
-                        if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                        const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                        if (clip_a <= 0.0001f) continue;
                         int32_t sx = std::clamp(sx_base + static_cast<int32_t>(lx), 0, aw_m1);
                         uint8_t cov_u8 = arow[sx];
                         if (cov_u8 == 0) continue;
-                        const float cov = static_cast<float>(cov_u8) * (1.0f / 255.0f);
+                        float cov = static_cast<float>(cov_u8) * (1.0f / 255.0f);
+                        const uint32_t idx = row_off + lx;
+                        if (prep.apply_font_gamma && cov_u8 < 255) {
+                            const float dst_a = tile_a[idx];
+                            const float bg_luma = (dst_a > 1e-4f)
+                                ? std::clamp((0.2126f * tile_r[idx] + 0.7152f * tile_g[idx] + 0.0722f * tile_b[idx]) / dst_a, 0.0f, 1.0f)
+                                : 0.5f;
+                            cov = text::StemDarkener::evaluate_irradiation_coverage(cov, prep.font_px, prep.fg_luma, bg_luma, dst_a);
+                        }
+                        cov *= clip_a;
                         const float sa = ca * cov;
                         const float one_minus_sa = 1.0f - sa;
-                        const uint32_t idx = row_off + lx;
                         tile_r[idx] = cr * cov + tile_r[idx] * one_minus_sa;
                         tile_g[idx] = cg * cov + tile_g[idx] * one_minus_sa;
                         tile_b[idx] = cb * cov + tile_b[idx] * one_minus_sa;
@@ -698,7 +821,8 @@ void CpuTileRasterizer::render_tile(
                     for (uint32_t lx = lx0; lx < lx1; ++lx, fx += step_x) {
                         const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
                         if (p_x < prim.min_x || p_x > prim.max_x) continue;
-                        if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                        const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                        if (clip_a <= 0.0001f) continue;
                         const int32_t ax0_i = fast_floor_i32(fx);
                         const float tx = fx - static_cast<float>(ax0_i);
                         const int32_t sx0 = std::clamp(ax0_i, 0, aw_m1);
@@ -707,9 +831,17 @@ void CpuTileRasterizer::render_tile(
                         float c1 = static_cast<float>(arow1[sx0]) + tx * static_cast<float>(static_cast<int32_t>(arow1[sx1]) - static_cast<int32_t>(arow1[sx0]));
                         float cov = (c0 + ty * (c1 - c0)) * (1.0f / 255.0f);
                         if (cov <= 0.0001f) continue;
+                        const uint32_t idx = row_off + lx;
+                        if (prep.apply_font_gamma && cov < 0.9999f) {
+                            const float dst_a = tile_a[idx];
+                            const float bg_luma = (dst_a > 1e-4f)
+                                ? std::clamp((0.2126f * tile_r[idx] + 0.7152f * tile_g[idx] + 0.0722f * tile_b[idx]) / dst_a, 0.0f, 1.0f)
+                                : 0.5f;
+                            cov = text::StemDarkener::evaluate_irradiation_coverage(cov, prep.font_px, prep.fg_luma, bg_luma, dst_a);
+                        }
+                        cov *= clip_a;
                         const float sa = ca * cov;
                         const float one_minus_sa = 1.0f - sa;
-                        const uint32_t idx = row_off + lx;
                         tile_r[idx] = cr * cov + tile_r[idx] * one_minus_sa;
                         tile_g[idx] = cg * cov + tile_g[idx] * one_minus_sa;
                         tile_b[idx] = cb * cov + tile_b[idx] * one_minus_sa;
@@ -746,7 +878,8 @@ void CpuTileRasterizer::render_tile(
                 for (uint32_t lx = lx0; lx < lx1; ++lx, fx += step_x) {
                     const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
                     if (p_x < prim.min_x || p_x > prim.max_x) continue;
-                    if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
 
                     float geom_cov = 1.0f;
                     if (has_radius) {
@@ -775,7 +908,7 @@ void CpuTileRasterizer::render_tile(
                     float tb = ((p00[2] + tx * (p10[2] - p00[2])) * omt + (p01[2] + tx * (p11[2] - p01[2])) * ty) * kInv255;
                     float ta = ((p00[3] + tx * (p10[3] - p00[3])) * omt + (p01[3] + tx * (p11[3] - p01[3])) * ty) * kInv255;
 
-                    const float factor = ta * geom_cov;
+                    const float factor = ta * geom_cov * clip_a;
                     const float src_r = tr * factor * prim.color_r;
                     const float src_g = tg * factor * prim.color_g;
                     const float src_b = tb * factor * prim.color_b;
@@ -792,7 +925,9 @@ void CpuTileRasterizer::render_tile(
         }
 
         // 通道 D: 无圆角无描边无阴影轴对齐矩形极速通道 (零 sqrt、零四象限分支)
-        if (!prep.is_gradient && !prep.is_reveal && prep.max_r <= 0.0f && prim.border_width <= 0.0f && !prep.has_shadow) {
+        if (!prep.is_gradient && !prep.is_reveal && !prep.is_rim &&
+            !prep.is_acrylic && !prep.is_inset && !prep.is_metaball &&
+            prep.max_r <= 0.0f && prim.border_width <= 0.0f && !prep.has_shadow) {
             const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
             for (uint32_t ly = ly0; ly < ly1; ++ly) {
                 const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
@@ -802,9 +937,10 @@ void CpuTileRasterizer::render_tile(
                 const uint32_t row_off = ly * 16u;
                 for (uint32_t lx = lx0; lx < lx1; ++lx) {
                     const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
-                    if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
                     const float dx = std::abs(p_x - prep.center_x) - prep.half_w;
-                    const float cov = std::min(cov_y, std::clamp(0.5f - dx, 0.0f, 1.0f));
+                    const float cov = std::min(cov_y, std::clamp(0.5f - dx, 0.0f, 1.0f)) * clip_a;
                     if (cov <= 0.0001f) continue;
                     const float sa = ca * cov;
                     const float one_minus_sa = 1.0f - sa;
@@ -863,7 +999,8 @@ void CpuTileRasterizer::render_tile(
                 for (uint32_t lx = lx0; lx < lx1; ++lx) {
                     const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
                     if (p_x < prim.min_x || p_x > prim.max_x) continue;
-                    if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
                     const float dx_r = p_x - cursor_x;
                     const float dist_r = std::sqrt(dx_r * dx_r + dy_r * dy_r);
                     if (dist_r >= reveal_radius) continue;
@@ -875,7 +1012,7 @@ void CpuTileRasterizer::render_tile(
                         dist = std::abs(dist + half_b) - half_b;
                     }
                     const float geom_cov = evaluate_coverage(dist);
-                    const float cov = std::clamp(geom_cov * radial * intensity, 0.0f, 1.0f);
+                    const float cov = std::clamp(geom_cov * radial * intensity, 0.0f, 1.0f) * clip_a;
                     if (cov > 0.0001f) {
                         const float sa = ca * cov;
                         const float one_minus_sa = 1.0f - sa;
@@ -890,10 +1027,262 @@ void CpuTileRasterizer::render_tile(
             continue;
         }
 
-        // 通道 E: 通用圆角 SDF / 描边 / 解析高斯阴影 / 线性渐变通道 (仅遍历包围盒内有效像素)
+        // 通道 Rim: 方向性玻璃高光内描边 (Directional Fresnel Rim Highlight)
+        if (prep.is_rim) {
+            const float rim_w = std::max(prim.border_width, 1.0f);
+            const float half_rim = rim_w * 0.5f;
+            const float fresnel_glow = std::max(prim.shadow_spread, 0.0f);
+            float lx_dir = prim.shadow_offset_x;
+            float ly_dir = prim.shadow_offset_y;
+            const float l_len = std::hypot(lx_dir, ly_dir);
+            if (l_len > 1e-4f) {
+                lx_dir /= l_len;
+                ly_dir /= l_len;
+            } else {
+                lx_dir = 0.0f;
+                ly_dir = -1.0f;
+            }
+            const float tr = prim.color_r, tg = prim.color_g, tb = prim.color_b, ta = prim.color_a;
+            const float br = static_cast<float>(prim.atlas_u0) * (1.0f / 65535.0f);
+            const float bg = static_cast<float>(prim.atlas_v0) * (1.0f / 65535.0f);
+            const float bb = static_cast<float>(prim.atlas_u1) * (1.0f / 65535.0f);
+            const float ba = static_cast<float>(prim.atlas_v1) * (1.0f / 65535.0f);
+
+            auto sample_dist = [&](float px, float py) noexcept -> float {
+                const float r = (px > prep.center_x)
+                    ? ((py > prep.center_y) ? prep.r_br : prep.r_tr)
+                    : ((py > prep.center_y) ? prep.r_bl : prep.r_tl);
+                return eval_squircle_box_distance(
+                    std::abs(px - prep.center_x), std::abs(py - prep.center_y),
+                    prep.half_w, prep.half_h, r);
+            };
+
+            for (uint32_t ly = ly0; ly < ly1; ++ly) {
+                const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
+                const uint32_t row_off = ly * 16u;
+                for (uint32_t lx = lx0; lx < lx1; ++lx) {
+                    const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
+
+                    const float d = sample_dist(p_x, p_y);
+                    const float d_rim = std::abs(d + half_rim) - half_rim;
+                    const float stroke_cov = evaluate_coverage(d_rim);
+                    const float glow_cov = (d <= 0.0f && fresnel_glow > 0.001f)
+                        ? std::exp(d * 0.55f) * fresnel_glow * 0.35f
+                        : 0.0f;
+                    if (stroke_cov <= 0.0001f && glow_cov <= 0.0001f) continue;
+
+                    const float nx_raw = sample_dist(p_x + 0.5f, p_y) - sample_dist(p_x - 0.5f, p_y);
+                    const float ny_raw = sample_dist(p_x, p_y + 0.5f) - sample_dist(p_x, p_y - 0.5f);
+                    const float n_len = std::hypot(nx_raw, ny_raw);
+                    const float nx = (n_len > 1e-5f) ? (nx_raw / n_len) : 0.0f;
+                    const float ny = (n_len > 1e-5f) ? (ny_raw / n_len) : -1.0f;
+
+                    const float ndotl = std::clamp(nx * lx_dir + ny * ly_dir, -1.0f, 1.0f);
+                    const float top_factor = std::pow(std::clamp(ndotl * 0.5f + 0.5f, 0.0f, 1.0f), 1.8f);
+                    const float grazing = 1.0f - std::abs(ndotl);
+                    const float top_w = std::clamp(top_factor + 0.22f * grazing * std::clamp(ndotl + 0.35f, 0.0f, 1.0f), 0.0f, 1.0f);
+                    const float bot_w = std::pow(std::clamp(-ndotl, 0.0f, 1.0f), 1.4f);
+
+                    const float rim_a = std::clamp(ta * top_w + ba * bot_w, 0.0f, 1.0f);
+                    const float rim_r = std::clamp(tr * top_w + br * bot_w, 0.0f, rim_a);
+                    const float rim_g = std::clamp(tg * top_w + bg * bot_w, 0.0f, rim_a);
+                    const float rim_b = std::clamp(tb * top_w + bb * bot_w, 0.0f, rim_a);
+
+                    const float st_r = rim_r * stroke_cov;
+                    const float st_g = rim_g * stroke_cov;
+                    const float st_b = rim_b * stroke_cov;
+                    const float st_a = rim_a * stroke_cov;
+
+                    const float gl_f = std::clamp(ndotl, 0.0f, 1.0f) * glow_cov;
+                    const float gl_a = std::clamp(ta * gl_f, 0.0f, 1.0f);
+                    const float gl_r = std::clamp(tr * gl_f, 0.0f, gl_a);
+                    const float gl_g = std::clamp(tg * gl_f, 0.0f, gl_a);
+                    const float gl_b = std::clamp(tb * gl_f, 0.0f, gl_a);
+
+                    const float oma_st = 1.0f - st_a;
+                    const float base_a = std::clamp(st_a + gl_a * oma_st, 0.0f, 1.0f);
+                    const float base_r = std::clamp(st_r + gl_r * oma_st, 0.0f, base_a);
+                    const float base_g = std::clamp(st_g + gl_g * oma_st, 0.0f, base_a);
+                    const float base_b = std::clamp(st_b + gl_b * oma_st, 0.0f, base_a);
+                    const float src_a = base_a * clip_a;
+                    const float src_r = base_r * clip_a;
+                    const float src_g = base_g * clip_a;
+                    const float src_b = base_b * clip_a;
+
+                    const float one_minus_sa = 1.0f - src_a;
+                    const uint32_t idx = row_off + lx;
+                    tile_r[idx] = src_r + tile_r[idx] * one_minus_sa;
+                    tile_g[idx] = src_g + tile_g[idx] * one_minus_sa;
+                    tile_b[idx] = src_b + tile_b[idx] * one_minus_sa;
+                    tile_a[idx] = src_a + tile_a[idx] * one_minus_sa;
+                }
+            }
+            continue;
+        }
+
+        // 通道 InsetShadow: 解析高斯内阴影 (Analytic SDF Inset Shadow)
+        if (prep.is_inset) {
+            const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
+            const float ox = prim.shadow_offset_x;
+            const float oy = prim.shadow_offset_y;
+            const float spread = prim.shadow_spread;
+            const float inv_s = 1.0f / (std::max(prim.shadow_blur, 0.25f) * 1.41421356f);
+
+            auto sample_dist = [&](float px, float py) noexcept -> float {
+                const float r = (px > prep.center_x)
+                    ? ((py > prep.center_y) ? prep.r_br : prep.r_tr)
+                    : ((py > prep.center_y) ? prep.r_bl : prep.r_tl);
+                return eval_squircle_box_distance(
+                    std::abs(px - prep.center_x), std::abs(py - prep.center_y),
+                    prep.half_w, prep.half_h, r);
+            };
+            auto sample_shifted = [&](float px, float py) noexcept -> float {
+                const float dx = px - ox - prep.center_x;
+                const float dy = py - oy - prep.center_y;
+                const float r = (dx > 0.0f)
+                    ? ((dy > 0.0f) ? prep.r_br : prep.r_tr)
+                    : ((dy > 0.0f) ? prep.r_bl : prep.r_tl);
+                return eval_squircle_box_distance(
+                    std::abs(dx), std::abs(dy), prep.half_w, prep.half_h, r);
+            };
+
+            for (uint32_t ly = ly0; ly < ly1; ++ly) {
+                const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
+                const uint32_t row_off = ly * 16u;
+                for (uint32_t lx = lx0; lx < lx1; ++lx) {
+                    const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
+
+                    const float cov_outer = evaluate_coverage(sample_dist(p_x, p_y));
+                    if (cov_outer <= 0.0001f) continue;
+
+                    const float d_in = sample_shifted(p_x, p_y) + spread;
+                    const float erfv = erf_approx(d_in * inv_s);
+                    const float inset_a = std::clamp(0.5f * (1.0f + erfv), 0.0f, 1.0f) * cov_outer * clip_a;
+                    if (inset_a <= 0.0001f) continue;
+
+                    const float sa = ca * inset_a;
+                    const float one_minus_sa = 1.0f - sa;
+                    const uint32_t idx = row_off + lx;
+                    tile_r[idx] = cr * inset_a + tile_r[idx] * one_minus_sa;
+                    tile_g[idx] = cg * inset_a + tile_g[idx] * one_minus_sa;
+                    tile_b[idx] = cb * inset_a + tile_b[idx] * one_minus_sa;
+                    tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                }
+            }
+            continue;
+        }
+
+        // 通道 Metaball: 灵动岛式液态融合 (SDF Smooth-Minimum Metaballs)
+        if (prep.is_metaball) {
+            const float ax0 = prim.radius_top_left;
+            const float ay0 = prim.radius_top_right;
+            const float ax1 = prim.radius_bottom_right;
+            const float ay1 = prim.radius_bottom_left;
+            const float acx = (ax0 + ax1) * 0.5f;
+            const float acy = (ay0 + ay1) * 0.5f;
+            const float ahw = std::max(0.0f, (ax1 - ax0) * 0.5f);
+            const float ahh = std::max(0.0f, (ay1 - ay0) * 0.5f);
+
+            const float pw = prim.max_x - prim.min_x;
+            const float ph = prim.max_y - prim.min_y;
+            const float bx0 = prim.min_x + (static_cast<float>(prim.atlas_u0) * (1.0f / 65535.0f)) * pw;
+            const float by0 = prim.min_y + (static_cast<float>(prim.atlas_v0) * (1.0f / 65535.0f)) * ph;
+            const float bx1 = prim.min_x + (static_cast<float>(prim.atlas_u1) * (1.0f / 65535.0f)) * pw;
+            const float by1 = prim.min_y + (static_cast<float>(prim.atlas_v1) * (1.0f / 65535.0f)) * ph;
+            const float bcx = (bx0 + bx1) * 0.5f;
+            const float bcy = (by0 + by1) * 0.5f;
+            const float bhw = std::max(0.0f, (bx1 - bx0) * 0.5f);
+            const float bhh = std::max(0.0f, (by1 - by0) * 0.5f);
+
+            const float ra = std::max(prim.shadow_spread, 0.0f);
+            const float rb = std::max(prim.shadow_offset_x, 0.0f);
+            const float k = std::max(prim.shadow_blur, 0.0f);
+            const float bw = prim.border_width;
+            const float half_bw = bw * 0.5f;
+
+            const bool two_tone = (prim.shadow_offset_y > 0.5f);
+            math::OkLab meta_lab_a{}, meta_lab_b{};
+            float ba_srgb = prim.color_a;
+            if (two_tone) {
+                const uint32_t pk = static_cast<uint32_t>(std::lround(prim.shadow_offset_y)) - 1u;
+                ba_srgb = static_cast<float>((pk >> 18u) & 63u) * (1.0f / 63.0f);
+                const math::Color s_b{
+                    static_cast<float>(pk & 63u) * (1.0f / 63.0f),
+                    static_cast<float>((pk >> 6u) & 63u) * (1.0f / 63.0f),
+                    static_cast<float>((pk >> 12u) & 63u) * (1.0f / 63.0f),
+                    ba_srgb
+                };
+                const math::Color s_a = (prim.color_a > 1e-4f)
+                    ? math::Color{std::clamp(prim.color_r / prim.color_a, 0.0f, 1.0f),
+                                  std::clamp(prim.color_g / prim.color_a, 0.0f, 1.0f),
+                                  std::clamp(prim.color_b / prim.color_a, 0.0f, 1.0f), prim.color_a}
+                    : math::Color{0.0f, 0.0f, 0.0f, 0.0f};
+                const math::Color eff_a = (s_a.a <= 1e-4f && s_b.a > 1e-4f) ? s_b : s_a;
+                const math::Color eff_b = (s_b.a <= 1e-4f && s_a.a > 1e-4f) ? s_a : s_b;
+                meta_lab_a = math::srgb_to_oklab(eff_a);
+                meta_lab_b = math::srgb_to_oklab(eff_b);
+            }
+
+            const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
+            for (uint32_t ly = ly0; ly < ly1; ++ly) {
+                const float p_y = tile_f_start_y + static_cast<float>(ly) + 0.5f;
+                const uint32_t row_off = ly * 16u;
+                const float ady = std::abs(p_y - acy);
+                const float bdy = std::abs(p_y - bcy);
+                for (uint32_t lx = lx0; lx < lx1; ++lx) {
+                    const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
+
+                    const float dA = eval_squircle_box_distance(std::abs(p_x - acx), ady, ahw, ahh, ra);
+                    const float dB = eval_squircle_box_distance(std::abs(p_x - bcx), bdy, bhw, bhh, rb);
+                    const float h = (k > 0.001f)
+                        ? std::clamp(0.5f + 0.5f * (dB - dA) / k, 0.0f, 1.0f)
+                        : ((dA <= dB) ? 1.0f : 0.0f);
+                    float d_fused = dB + (dA - dB) * h - k * h * (1.0f - h);
+                    if (bw > 0.0f) {
+                        d_fused = std::abs(d_fused + half_bw) - half_bw;
+                    }
+                    const float cov = evaluate_coverage(d_fused) * clip_a;
+                    if (cov <= 0.0001f) continue;
+
+                    float sr, sg, sb, sa_base;
+                    if (two_tone) {
+                        sa_base = std::clamp(ba_srgb + (ca - ba_srgb) * h, 0.0f, 1.0f);
+                        const math::OkLab mid_lab{
+                            meta_lab_b.L + (meta_lab_a.L - meta_lab_b.L) * h,
+                            meta_lab_b.a + (meta_lab_a.a - meta_lab_b.a) * h,
+                            meta_lab_b.b + (meta_lab_a.b - meta_lab_b.b) * h
+                        };
+                        const math::Color mid_srgb = math::oklab_to_srgb(mid_lab, sa_base);
+                        sr = mid_srgb.r * sa_base;
+                        sg = mid_srgb.g * sa_base;
+                        sb = mid_srgb.b * sa_base;
+                    } else {
+                        sr = cr; sg = cg; sb = cb; sa_base = ca;
+                    }
+                    const float sa = sa_base * cov;
+                    const float one_minus_sa = 1.0f - sa;
+                    const uint32_t idx = row_off + lx;
+                    tile_r[idx] = sr * cov + tile_r[idx] * one_minus_sa;
+                    tile_g[idx] = sg * cov + tile_g[idx] * one_minus_sa;
+                    tile_b[idx] = sb * cov + tile_b[idx] * one_minus_sa;
+                    tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                }
+            }
+            continue;
+        }
+
+        // 通道 E: 通用圆角 SDF / 描边 / 解析高斯阴影 / 线性渐变 / 亚克力微颗粒通道 (仅遍历包围盒内有效像素)
         const bool has_border = (prim.border_width > 0.0f);
         const float half_border = prim.border_width * 0.5f;
         const float cr = prim.color_r, cg = prim.color_g, cb = prim.color_b, ca = prim.color_a;
+        const float acrylic_scale = prep.is_acrylic ? std::max(prim.shadow_blur, 1.0f) : 1.0f;
+        const float acrylic_amp = prep.is_acrylic ? std::clamp(prim.shadow_spread, 0.0f, 0.25f) : 0.0f;
 
         float gx0 = prim.shadow_offset_x, gy0 = prim.shadow_offset_y;
         float dx_g = prim.shadow_blur - gx0;
@@ -936,13 +1325,14 @@ void CpuTileRasterizer::render_tile(
 
             // 圆角矩形中部直边带极速路径：留足 1.36x 超椭圆延伸过渡带，远离上下圆角区时直接退化为 1D 水平覆盖率
             const float corner_reach = std::min(std::min(prep.half_w, prep.half_h), prep.max_r * 1.36f);
-            if (!prep.is_gradient && !prep.has_shadow && !has_border &&
+            if (!prep.is_gradient && !prep.is_acrylic && !prep.has_shadow && !has_border &&
                 p_y >= prim.min_y + corner_reach + 0.5f && p_y <= prim.max_y - corner_reach - 0.5f)
             {
                 for (uint32_t lx = lx0; lx < lx1; ++lx) {
                     const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
-                    if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
-                    const float geom_cov = std::clamp(0.5f - (std::abs(p_x - prep.center_x) - prep.half_w), 0.0f, 1.0f);
+                    const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                    if (clip_a <= 0.0001f) continue;
+                    const float geom_cov = std::clamp(0.5f - (std::abs(p_x - prep.center_x) - prep.half_w), 0.0f, 1.0f) * clip_a;
                     if (geom_cov <= 0.0001f) continue;
                     const float sa = ca * geom_cov;
                     const float one_minus_sa = 1.0f - sa;
@@ -957,13 +1347,14 @@ void CpuTileRasterizer::render_tile(
 
             for (uint32_t lx = lx0; lx < lx1; ++lx) {
                 const float p_x = tile_f_start_x + static_cast<float>(lx) + 0.5f;
-                if (need_clip && is_point_clipped(p_x, p_y, prim.clip_index, clip_rects)) continue;
+                const float clip_a = need_clip ? eval_clip_alpha(p_x, p_y, prim.clip_index, clip_rects) : 1.0f;
+                if (clip_a <= 0.0001f) continue;
                 const uint32_t idx = row_off + lx;
 
                 if (prep.has_shadow) {
                     float shadow_intensity = col_shadow_fx[lx] * row_sy;
                     if (shadow_intensity > 0.0005f) {
-                        float src_a = ca * shadow_intensity;
+                        float src_a = ca * shadow_intensity * clip_a;
                         float one_minus_sa = 1.0f - src_a;
                         tile_r[idx] *= one_minus_sa;
                         tile_g[idx] *= one_minus_sa;
@@ -978,16 +1369,41 @@ void CpuTileRasterizer::render_tile(
                 if (has_border) {
                     dist = std::abs(dist + half_border) - half_border;
                 }
-                float geom_cov = evaluate_coverage(dist);
+                float geom_cov = evaluate_coverage(dist) * clip_a;
                 if (geom_cov > 0.0001f) {
-                    if (prep.is_gradient) {
+                    if (prep.is_acrylic) {
+                        const float g_off = eval_acrylic_grain(p_x, p_y, acrylic_scale) * acrylic_amp * ca;
+                        const float br = std::clamp(cr + g_off, 0.0f, ca);
+                        const float bg = std::clamp(cg + g_off, 0.0f, ca);
+                        const float bb = std::clamp(cb + g_off, 0.0f, ca);
+                        const float sa = ca * geom_cov;
+                        const float one_minus_sa = 1.0f - sa;
+                        tile_r[idx] = br * geom_cov + tile_r[idx] * one_minus_sa;
+                        tile_g[idx] = bg * geom_cov + tile_g[idx] * one_minus_sa;
+                        tile_b[idx] = bb * geom_cov + tile_b[idx] * one_minus_sa;
+                        tile_a[idx] = sa + tile_a[idx] * one_minus_sa;
+                    } else if (prep.is_gradient) {
                         const float t = (inv_len2_g > 0.0f)
                             ? std::clamp(((p_x - gx0) * dx_g + (p_y - gy0) * dy_g) * inv_len2_g, 0.0f, 1.0f)
                             : 0.0f;
-                        const float gr = cr + (c1r - cr) * t;
-                        const float gg = cg + (c1g - cg) * t;
-                        const float gb = cb + (c1b - cb) * t;
-                        const float ga = ca + (c1a - ca) * t;
+                        float gr, gg, gb, ga;
+                        if (prep.is_oklab_gradient) {
+                            ga = std::clamp(ca + (c1a - ca) * t, 0.0f, 1.0f);
+                            const math::OkLab mid_lab{
+                                prep.lab0.L + (prep.lab1.L - prep.lab0.L) * t,
+                                prep.lab0.a + (prep.lab1.a - prep.lab0.a) * t,
+                                prep.lab0.b + (prep.lab1.b - prep.lab0.b) * t
+                            };
+                            const math::Color mid_srgb = math::oklab_to_srgb(mid_lab, ga);
+                            gr = mid_srgb.r * ga;
+                            gg = mid_srgb.g * ga;
+                            gb = mid_srgb.b * ga;
+                        } else {
+                            gr = cr + (c1r - cr) * t;
+                            gg = cg + (c1g - cg) * t;
+                            gb = cb + (c1b - cb) * t;
+                            ga = ca + (c1a - ca) * t;
+                        }
                         const float sa = ga * geom_cov;
                         const float one_minus_sa = 1.0f - sa;
                         tile_r[idx] = gr * geom_cov + tile_r[idx] * one_minus_sa;
@@ -1062,7 +1478,7 @@ void CpuTileRasterizer::render(
                     params.atlas_pixels, params.atlas_width, params.atlas_height,
                     params.mica_enabled, &params.mica_grid,
                     params.color_atlas_pixels, params.color_atlas_width, params.color_atlas_height,
-                    params.enable_dithering);
+                    params.enable_dithering, params.enable_font_gamma, params.enable_acrylic_grain);
     };
 
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)

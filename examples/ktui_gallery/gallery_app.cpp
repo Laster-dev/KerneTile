@@ -304,6 +304,21 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
     window->set_content(NavigationView {
         .menu_items = {
             NavigationViewItem{ .id = "home", .label = "主页", .icon = NavigationIcon::Home },
+            make_cat("cat_tactile", "质感交互", NavigationIcon::Sparkles, true, {
+                {"tactile_font_gamma",      "文字光渗补偿",       "New"},
+                {"tactile_directional_rim", "方向性玻璃高光",     "New"},
+                {"tactile_oklab",           "OkLab 色彩插值",     "New"},
+                {"tactile_acrylic_grain",   "零纹理亚克力微颗粒", "New"},
+                {"tactile_inset_shadow",    "解析高斯内阴影",     "New"},
+                {"tactile_metaballs",       "灵动岛液态融合",     "New"},
+                {"tactile_scroll_feather",    "列表边缘渐隐羽化",   "New"},
+                {"tactile_hero_transition",   "共享元素转场",       "New"},
+                {"tactile_micro_tilt",        "微倾斜与按压缩放",   "New"},
+                {"tactile_spring_caret",      "弹簧光滑输入光标",   "New"},
+                {"tactile_scroll_parallax",   "滚动吸顶与阻尼视差", "New"},
+                {"tactile_rolling_counter",   "翻滚数值与微交叉",   "New"},
+                {"tactile_concentric_radius", "同心嵌套圆角几何",   "New"}
+            }),
             NavigationViewItem::header("控件"),
             make_cat("cat_basic_input", "基本输入", NavigationIcon::BasicInput, true, {
                 {"button",               "Button",                nullptr},
@@ -352,11 +367,11 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"settings_card",     "SettingsCard",         "New"}
             }),
             make_cat("cat_media", "媒体", NavigationIcon::Media, false, {
-                {"polish_showcase", "质感与微交互特性", "New"},
-                {"squircle",        "Apple 超椭圆圆角", "New"},
-                {"image",           "Image 位图与动图", "New"},
-                {"svg",             "NanoSVG 矢量",     nullptr},
-                {"person_picture",  "PersonPicture",    nullptr}
+                {"polish_showcase",     "质感与微交互特性", "New"},
+                {"squircle",            "Apple 超椭圆圆角", "New"},
+                {"image",               "Image 位图与动图", "New"},
+                {"svg",                 "NanoSVG 矢量",     nullptr},
+                {"person_picture",      "PersonPicture",    nullptr}
             }),
             make_cat("cat_menus", "菜单和工具栏", NavigationIcon::MenusToolbars, false, {
                 {"command_bar",     "CommandBar", nullptr},
@@ -472,7 +487,20 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
                 {"toast",                pages::build_toast_page},
                 {"progress_bar",         pages::build_progress_bar_page},
                 {"progress_ring",        pages::build_progress_ring_page},
-                {"polish_showcase",      pages::build_polish_showcase_page},
+                {"tactile_font_gamma",      pages::build_tactile_font_gamma_page},
+                {"tactile_directional_rim", pages::build_tactile_directional_rim_page},
+                {"tactile_oklab",           pages::build_tactile_oklab_page},
+                {"tactile_acrylic_grain",   pages::build_tactile_acrylic_grain_page},
+                {"tactile_inset_shadow",    pages::build_tactile_inset_shadow_page},
+                {"tactile_metaballs",       pages::build_tactile_metaballs_page},
+                {"tactile_scroll_feather",    pages::build_tactile_scroll_feather_page},
+                {"tactile_hero_transition",   pages::build_tactile_hero_transition_page},
+                {"tactile_micro_tilt",        pages::build_tactile_micro_tilt_page},
+                {"tactile_spring_caret",      pages::build_tactile_spring_caret_page},
+                {"tactile_scroll_parallax",   pages::build_tactile_scroll_parallax_page},
+                {"tactile_rolling_counter",   pages::build_tactile_rolling_counter_page},
+                {"tactile_concentric_radius", pages::build_tactile_concentric_radius_page},
+                {"polish_showcase",         pages::build_polish_showcase_page},
                 {"squircle",             pages::build_squircle_page},
                 {"image",                pages::build_image_page},
                 {"file_dialog",          pages::build_file_dialog_page},

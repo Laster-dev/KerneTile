@@ -79,6 +79,18 @@ void Window::start_theme_ripple(const Theme& old_theme, const Theme& new_theme, 
     m_theme_ripple.new_theme = new_theme;
     m_theme_ripple.start = std::chrono::steady_clock::now();
     m_theme_ripple.active = true;
+    m_theme_crossfade.active = false;
+    request_redraw();
+    if (m_platform_window) m_platform_window->invalidate();
+}
+
+void Window::start_theme_crossfade(const Theme& old_theme, const Theme& new_theme, float duration_sec) {
+    m_theme_crossfade.old_theme = old_theme;
+    m_theme_crossfade.new_theme = new_theme;
+    m_theme_crossfade.duration_sec = std::max(0.05f, duration_sec);
+    m_theme_crossfade.start = std::chrono::steady_clock::now();
+    m_theme_crossfade.active = true;
+    m_theme_ripple.active = false;
     request_redraw();
     if (m_platform_window) m_platform_window->invalidate();
 }
@@ -137,6 +149,28 @@ void Window::set_pixel_snapping_enabled(bool enabled) {
     }
 }
 
+void Window::set_font_gamma_enabled(bool enabled) {
+    if (m_font_gamma_enabled != enabled) {
+        m_font_gamma_enabled = enabled;
+        if (m_renderer) {
+            m_renderer->set_font_gamma_enabled(enabled);
+        }
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+}
+
+void Window::set_acrylic_grain_enabled(bool enabled) {
+    if (m_acrylic_grain_enabled != enabled) {
+        m_acrylic_grain_enabled = enabled;
+        if (m_renderer) {
+            m_renderer->set_acrylic_grain_enabled(enabled);
+        }
+        request_redraw();
+        if (m_platform_window) m_platform_window->invalidate();
+    }
+}
+
 void Window::ensure_renderer() {
     if (m_renderer || !m_platform_window) return;
     Vec2 sz = m_platform_window->size();
@@ -150,6 +184,8 @@ void Window::ensure_renderer() {
     cfg.atlas_size = (!has_custom_titlebar() || s_live_windows.size() > 1) ? 512u : 1024u;
     cfg.enable_dithering = m_dithering_enabled;
     cfg.enable_pixel_snapping = m_pixel_snapping_enabled;
+    cfg.enable_font_gamma = m_font_gamma_enabled;
+    cfg.enable_acrylic_grain = m_acrylic_grain_enabled;
     m_renderer = kernetile::KerneTileRenderer::create(cfg);
     m_last_native_handle = m_platform_window->get_native_handle();
     m_renderer->set_compute_target(m_last_native_handle,
@@ -249,16 +285,20 @@ void Window::render_frame(bool force_full_present) {
     if (m_compute_was_ready != m_renderer->compute_ready()) force_full_present = true;
     m_compute_was_ready = m_renderer->compute_ready();
 
-    // 极速曝光恢复路径
-    if (force_full_present && !m_compute_was_ready &&
+    // 极速曝光恢复路径 (CPU 直接复用已有帧缓冲；GPU Flip-Model SwapChain 由 DWM 持久持有，无脏标时直接 0 开销早出)
+    if (force_full_present &&
         m_renderer_w == w && m_renderer_h == h && m_render_scale == scale &&
-        m_framebuffer.size() == static_cast<size_t>(w) * h * 4 &&
         !needs_redraw() &&
         !m_root_render_box->needs_paint() &&
         !m_root_render_box->needs_layout())
     {
-        m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
-        return;
+        if (m_compute_was_ready) {
+            return;
+        }
+        if (m_framebuffer.size() == static_cast<size_t>(w) * h * 4) {
+            m_platform_window->present_rgba8(m_framebuffer.data(), w, h);
+            return;
+        }
     }
 
     if (m_renderer_w != w || m_renderer_h != h || m_render_scale != scale) {
@@ -346,6 +386,56 @@ void Window::render_frame(bool force_full_present) {
             request_redraw();
         } else {
             m_theme_ripple.active = false;
+            request_redraw();
+        }
+    } else if (m_theme_crossfade.active) {
+        auto now = std::chrono::steady_clock::now();
+        float t = std::clamp(std::chrono::duration<float>(now - m_theme_crossfade.start).count() / m_theme_crossfade.duration_sec, 0.0f, 1.0f);
+        float ease = 1.0f - std::pow(1.0f - t, 3.0f);
+
+        std::array<uint32_t, 16> old_grid{}, new_grid{};
+        const bool old_mica = MicaBackdropEngine::build_mica_grid(
+            m_backdrop, m_theme_crossfade.old_theme.is_dark, m_mica_anim.focus_progress,
+            m_platform_window->monitor_uv_rect(), old_grid);
+        const bool new_mica = MicaBackdropEngine::build_mica_grid(
+            m_backdrop, m_theme_crossfade.new_theme.is_dark, m_mica_anim.focus_progress,
+            m_platform_window->monitor_uv_rect(), new_grid);
+        const bool mica_active = old_mica || new_mica;
+        if (mica_active) {
+            for (size_t i = 0; i < 16; ++i) {
+                auto unpack_c = [](uint32_t pk) {
+                    return Color{
+                        static_cast<float>(pk & 255u) / 255.0f,
+                        static_cast<float>((pk >> 8u) & 255u) / 255.0f,
+                        static_cast<float>((pk >> 16u) & 255u) / 255.0f,
+                        static_cast<float>((pk >> 24u) & 255u) / 255.0f
+                    };
+                };
+                Color c0 = old_mica ? unpack_c(old_grid[i]) : m_theme_crossfade.old_theme.colors.background;
+                Color c1 = new_mica ? unpack_c(new_grid[i]) : m_theme_crossfade.new_theme.colors.background;
+                Color cm = kernetile::math::lerp_oklab(c0, c1, ease);
+                uint32_t r = static_cast<uint32_t>(std::clamp(cm.r * 255.0f + 0.5f, 0.0f, 255.0f));
+                uint32_t g = static_cast<uint32_t>(std::clamp(cm.g * 255.0f + 0.5f, 0.0f, 255.0f));
+                uint32_t b = static_cast<uint32_t>(std::clamp(cm.b * 255.0f + 0.5f, 0.0f, 255.0f));
+                uint32_t a = static_cast<uint32_t>(std::clamp(cm.a * 255.0f + 0.5f, 0.0f, 255.0f));
+                mica_grid[i] = r | (g << 8u) | (b << 16u) | (a << 24u);
+            }
+        }
+        m_renderer->set_mica_backdrop(mica_active, mica_grid);
+
+        Theme blended = Theme::lerp(m_theme_crossfade.old_theme, m_theme_crossfade.new_theme, ease);
+        m_renderer->begin_frame();
+        PaintContext ctx(m_renderer.get(), scale, m_pixel_snapping_enabled);
+        {
+            ThemeScopeGuard scope(blended);
+            paint_scene(ctx, sz, client_sz, tb_h, mica_active);
+        }
+        m_renderer->end_frame();
+
+        if (t < 1.0f) {
+            request_redraw();
+        } else {
+            m_theme_crossfade.active = false;
             request_redraw();
         }
     } else {

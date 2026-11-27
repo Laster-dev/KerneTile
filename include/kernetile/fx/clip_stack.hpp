@@ -24,7 +24,8 @@ public:
     uint32_t push_clip(
         math::Rect rect,
         float corner_radius = 0.0f,
-        uint32_t flags = 0);
+        uint32_t flags = 0,
+        uint32_t reserved = 0);
 
     // 弹出当前栈顶的裁剪区域
     void pop_clip();

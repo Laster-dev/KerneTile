@@ -17,6 +17,8 @@ struct ToggleSwitchData {
     float font_size{13.0f};        // KTUI 基准字号 13px
     float gap{8.0f};               // 开关与标签间距 8px
     bool disabled{false};
+    bool inset_shadow{false};      // 是否在开关槽道绘制解析高斯内阴影
+    bool liquid_thumb{false};      // 是否使用 SDF Smooth-Min 液态粘连球囊
 
     Fn<void(bool)> on_change{nullptr};
 };

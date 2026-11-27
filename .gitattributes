@@ -1,0 +1,19 @@
+# 统一全仓库文本行尾符为 LF，彻底消除跨平台 CRLF/LF 混用警告
+* text=auto eol=lf
+
+# Windows 批处理脚本保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff2 binary
+*.mp4 binary
+*.dxbc binary
+*.spv binary

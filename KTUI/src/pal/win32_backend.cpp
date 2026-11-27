@@ -627,6 +627,10 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             PAINTSTRUCT ps;
             BeginPaint(m_hwnd, &ps);
             EndPaint(m_hwnd, &ps);
+            // 纯拖动窗口移动期间 (尺寸未变) 由 DWM 硬件平移表面，禁止触发同步全屏重绘
+            if (m_in_size_move && !m_size_dirty_in_modal) {
+                return 0;
+            }
             if (m_on_paint) {
                 m_on_paint();
             }
@@ -752,8 +756,43 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
                 m_on_resized(m_size);
             }
             if (wparam != SIZE_MINIMIZED && width > 0 && height > 0 && m_on_paint) {
-                m_on_paint();
-                ValidateRect(m_hwnd, nullptr);
+                if (m_in_size_move) {
+                    // 拖动边框缩放期间节流至 ~35fps，避免高频 WM_SIZE 反复触发 SwapChain::ResizeBuffers 与全屏 GPU 重绘
+                    const uint64_t now_ms = GetTickCount64();
+                    constexpr uint64_t min_interval_ms = 28u;
+                    if (now_ms - m_last_size_paint_ms >= min_interval_ms) {
+                        m_last_size_paint_ms = now_ms;
+                        m_size_dirty_in_modal = false;
+                        m_on_paint();
+                    } else {
+                        m_size_dirty_in_modal = true;
+                    }
+                    ValidateRect(m_hwnd, nullptr);
+                } else {
+                    m_on_paint();
+                    ValidateRect(m_hwnd, nullptr);
+                }
+            }
+            return 0;
+        }
+        case WM_ENTERSIZEMOVE: {
+            m_in_size_move = true;
+            m_size_dirty_in_modal = false;
+            m_move_start_pos = m_position;
+            return 0;
+        }
+        case WM_EXITSIZEMOVE: {
+            m_in_size_move = false;
+            const bool need_final_resize_paint = m_size_dirty_in_modal;
+            m_size_dirty_in_modal = false;
+            if (!IsIconic(m_hwnd)) {
+                if (need_final_resize_paint && m_on_paint) {
+                    m_on_paint();
+                    ValidateRect(m_hwnd, nullptr);
+                } else if (m_on_moved &&
+                           (m_position.x != m_move_start_pos.x || m_position.y != m_move_start_pos.y)) {
+                    m_on_moved(m_position);
+                }
             }
             return 0;
         }
@@ -761,11 +800,10 @@ LRESULT Win32Window::handle_message(UINT msg, WPARAM wparam, LPARAM lparam) {
             int x = static_cast<short>(LOWORD(lparam));
             int y = static_cast<short>(HIWORD(lparam));
             m_position = Vec2{static_cast<float>(x), static_cast<float>(y)};
-            if (m_on_moved) {
+            // 拖动窗口期间由 DWM 硬件直接平移表面，禁止每像素同步 m_on_paint() 触发全屏重绘与 Mica 瓦片失效；
+            // 拖拽结束后在 WM_EXITSIZEMOVE 统一同步一次最终位置（非拖拽的编程定位则直接通知 m_on_moved）。
+            if (!m_in_size_move && m_on_moved) {
                 m_on_moved(m_position);
-            }
-            if (!IsIconic(m_hwnd) && m_on_paint) {
-                m_on_paint();
             }
             return 0;
         }
@@ -1027,7 +1065,7 @@ bool Win32Backend::init() {
     wc.lpszClassName = kWin32ClassName;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hbrBackground = nullptr; // 自绘背景，无闪烁
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = 0; // 禁止 CS_HREDRAW|CS_VREDRAW 触发冗余全屏 WM_PAINT
 
     if (!RegisterClassExW(&wc)) {
         return false;

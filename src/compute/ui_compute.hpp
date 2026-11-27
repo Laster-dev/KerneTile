@@ -11,6 +11,8 @@
 namespace kernetile::compute {
 
 inline constexpr uint32_t kRenderFlagIgnDithering = 0x1u;
+inline constexpr uint32_t kRenderFlagFontGamma    = 0x2u;
+inline constexpr uint32_t kRenderFlagAcrylicGrain = 0x4u;
 
 struct Tile {
     uint32_t x;

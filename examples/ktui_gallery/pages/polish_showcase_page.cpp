@@ -142,10 +142,10 @@ WidgetPtr build_polish_showcase_page(GalleryApp& app) {
         .align_items = AlignItems::Stretch,
         .spacing = 14.0f,
         .content = {
-            app.make_page_title("渲染质感与微交互特性 (Opt-in Polish)", 22.0f),
+            app.make_page_title("渲染质感与微交互特性 (Visual & Tactile Polish)", 22.0f),
             app.make_muted(
-                "以下 5 项视觉与交互增强均以 Opt-in（默认关闭、按需开启）方式集成于 KerneTile 与 KTUI，"
-                "保证未开启场景 100% 兼容原输出与零额外开销。",
+                "基础画质增强（IGN 蓝噪点抖动、分数 DPI 像素吸附、橡皮筋回弹）已默认深度融入框架并支持随时手动关闭；"
+                "风格化交互（Pointer Reveal、Tabular Figures）支持按控件灵活开启。",
                 12.5f),
 
             // 1. 8-bit IGN 抖动去色带

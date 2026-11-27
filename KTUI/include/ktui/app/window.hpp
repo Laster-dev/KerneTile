@@ -113,6 +113,7 @@ public:
     }
     [[nodiscard]] WindowBackdrop backdrop() const noexcept { return m_backdrop; }
     void start_theme_ripple(const Theme& old_theme, const Theme& new_theme, Vec2 origin);
+    void start_theme_crossfade(const Theme& old_theme, const Theme& new_theme, float duration_sec = 0.32f);
 
     [[nodiscard]] Vec2 last_pointer_pos() const noexcept {
         if (m_has_last_pointer) return m_last_pointer_pos;
@@ -124,12 +125,18 @@ public:
     [[nodiscard]] float dpi_scale() const { return m_platform_window ? m_platform_window->dpi_scale() : 1.0f; }
     [[nodiscard]] uint32_t refresh_rate() const { return m_platform_window ? m_platform_window->refresh_rate() : 60; }
 
-    // ==================== 渲染与画质选项 (Opt-in) ====================
+    // ==================== 渲染与画质选项 (默认开启，支持手动关闭) ====================
     void set_dithering_enabled(bool enabled);
     [[nodiscard]] bool dithering_enabled() const noexcept { return m_dithering_enabled; }
 
     void set_pixel_snapping_enabled(bool enabled);
     [[nodiscard]] bool pixel_snapping_enabled() const noexcept { return m_pixel_snapping_enabled; }
+
+    void set_font_gamma_enabled(bool enabled);
+    [[nodiscard]] bool font_gamma_enabled() const noexcept { return m_font_gamma_enabled; }
+
+    void set_acrylic_grain_enabled(bool enabled);
+    [[nodiscard]] bool acrylic_grain_enabled() const noexcept { return m_acrylic_grain_enabled; }
 
     // ==================== 视图内容与管理器访问 ====================
     void set_content(WidgetPtr content);
@@ -260,6 +267,14 @@ private:
         std::chrono::steady_clock::time_point start{};
     };
 
+    struct ThemeCrossfadeState {
+        bool active{false};
+        Theme old_theme{Theme::dark()};
+        Theme new_theme{Theme::dark()};
+        float duration_sec{0.32f};
+        std::chrono::steady_clock::time_point start{};
+    };
+
     struct MicaAnimationState {
         float focus_progress{1.0f};
         std::chrono::steady_clock::time_point last_time{};
@@ -284,13 +299,16 @@ private:
     bool m_compute_was_ready{false};
     bool m_show_titlebar{true};
     bool m_window_focused{true};
-    bool m_dithering_enabled{false};
-    bool m_pixel_snapping_enabled{false};
+    bool m_dithering_enabled{true};
+    bool m_pixel_snapping_enabled{true};
+    bool m_font_gamma_enabled{true};
+    bool m_acrylic_grain_enabled{false};
     WindowBackdrop m_backdrop{WindowBackdrop::Mica};
 
     MicaAnimationState m_mica_anim;
     TouchLongPressState m_touch_lp;
     ThemeRippleState m_theme_ripple;
+    ThemeCrossfadeState m_theme_crossfade;
 
     Vec2 m_last_pointer_pos{0.0f, 0.0f};
     bool m_has_last_pointer{false};

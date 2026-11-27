@@ -6,6 +6,7 @@
 #include "spring_presets.hpp"
 #include "animated_value.hpp"
 #include <ktui/pal/platform_types.hpp>
+#include <kernetile/math/color_space.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -25,7 +26,11 @@ public:
         return static_cast<T>(a + (b - a) * t);
     }
 
-    static constexpr Color lerp(const Color& a, const Color& b, float t) noexcept {
+    static Color lerp(const Color& a, const Color& b, float t) noexcept {
+        return kernetile::math::lerp_oklab(a, b, t);
+    }
+
+    static constexpr Color lerp_linear(const Color& a, const Color& b, float t) noexcept {
         t = std::clamp(t, 0.0f, 1.0f);
         return Color{
             a.r + (b.r - a.r) * t,

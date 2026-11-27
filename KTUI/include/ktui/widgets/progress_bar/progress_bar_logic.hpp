@@ -104,12 +104,16 @@ public:
         const float track_y = (size().y - track_h) * 0.5f;
         Rect track_rect = Rect::from_xywh(0.0f, track_y, track_w, track_h);
 
-        // 1. WinUI 3 1px 居中极细底线 (仅确定模式显示，不确定模式按 WinUI 3 规范隐藏)
+        // 1. WinUI 3 1px 居中极细底线 (仅确定模式显示，不确定模式按 WinUI 3 规范隐藏；可选凹槽解析高斯内阴影)
         if (style.show_rail && style.track_bg.a > 0.001f) {
-            const float rail_h = style.rail_height;
+            const float rail_h = m_inset_shadow ? std::max(track_h, 4.0f) : style.rail_height;
             const float rail_y = (size().y - rail_h) * 0.5f;
             Rect rail_rect = Rect::from_xywh(0.0f, rail_y, track_w, rail_h);
             ctx.draw_rect(rail_rect, style.track_bg, rail_h * 0.5f, 0.0f);
+            if (m_inset_shadow) {
+                const Color sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.45f} : Color{0.0f, 0.04f, 0.12f, 0.22f};
+                ctx.draw_inset_shadow(rail_rect, sh, rail_h * 0.5f, 2.5f, 0.3f, Vec2{0.0f, 1.0f});
+            }
         }
 
         // 2. 进度内容绘制 (通过胶囊裁剪栈确保指示条两端无溢出)
@@ -219,7 +223,17 @@ private:
     ProgressBarInteractiveState m_state;
     float m_displayed_val{0.0f};
     float m_phase{0.0f};
+    bool m_inset_shadow{false};
     std::chrono::steady_clock::time_point m_last_anim_time;
+
+public:
+    void set_inset_shadow(bool enabled) noexcept {
+        if (m_inset_shadow != enabled) {
+            m_inset_shadow = enabled;
+            mark_needs_paint();
+        }
+    }
+    [[nodiscard]] bool inset_shadow_enabled() const noexcept { return m_inset_shadow; }
 };
 
 // C++20 指定初始化器声明式进度条控件 (ProgressBar DSL Wrapper)
@@ -231,6 +245,7 @@ struct ProgressBar : BindableMixin<ProgressBar, RenderProgressBar> {
     float width{180.0f};
     float corner_radius{-1.0f};
     bool disabled{false};
+    bool inset_shadow{false};
 
     operator WidgetPtr() const&;
 
@@ -258,6 +273,7 @@ public:
 private:
     void apply_desc_to_node(const std::shared_ptr<RenderProgressBar>& node) {
         node->set_value(m_desc.value, false);
+        node->set_inset_shadow(m_desc.inset_shadow);
         node->set_indeterminate(m_desc.indeterminate);
         node->set_state(m_desc.state);
         node->set_track_height(m_desc.track_height);

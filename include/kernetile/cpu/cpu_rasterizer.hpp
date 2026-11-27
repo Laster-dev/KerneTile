@@ -44,6 +44,8 @@ public:
         bool                               mica_enabled{false};
         std::array<uint32_t, 16>           mica_grid{};
         bool                               enable_dithering{false};
+        bool                               enable_font_gamma{true};
+        bool                               enable_acrylic_grain{false};
     };
 
     // 执行纯 CPU 瓦片光栅化渲染，写出至 RGBA8 帧缓冲区
@@ -71,7 +73,9 @@ public:
         const uint8_t* color_atlas_pixels = nullptr,
         uint32_t color_atlas_width = 0,
         uint32_t color_atlas_height = 0,
-        bool enable_dithering = false);
+        bool enable_dithering = false,
+        bool enable_font_gamma = true,
+        bool enable_acrylic_grain = false);
 
     // 数学内核 (与 Slang / DXIL 着色器完全相同的 Abramowitz & Stegun 系数)
     static float erf_approx(float x) noexcept;

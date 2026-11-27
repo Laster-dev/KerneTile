@@ -27,12 +27,19 @@ enum class PrimitiveFlags : uint16_t {
     IsIcon            = 0x0020, // 动态图集彩色图标
     IsBackdropFilter  = 0x0040, // 背景毛玻璃滤镜
     IsSolidOpaque     = 0x0080, // 完全不透明实心瓦片 (可用于前端遮挡剔除)
-    StemDarkening     = 0x0100, // 小字号笔划加粗补偿
-    IsPointerReveal   = 0x0200  // 指针跟随径向高光/边缘揭示
+    StemDarkening     = 0x0100, // 小字号笔划加粗与光渗补偿
+    IsPointerReveal   = 0x0200, // 指针跟随径向高光/边缘揭示
+    HasDirectionalRim = 0x0400, // 方向性玻璃高光内描边 (Directional Fresnel Rim Highlight)
+    OkLabGradient     = 0x0800, // OkLab 感知均匀色彩空间渐变插值
+    HasAcrylicGrain   = 0x1000, // 零纹理亚克力物理微颗粒噪点
+    HasInsetShadow    = 0x2000, // 解析高斯内阴影 (Analytic SDF Inset Shadow)
+    IsMetaball        = 0x4000  // 灵动岛式液态融合 (SDF Smooth-Minimum Metaballs)
 };
 
 // ClipRect::flags 位掩码定义
-inline constexpr uint32_t kClipFlagRevealBounds = 0x0001u; // 标记该裁剪节点为 PointerReveal 控件外边界
+inline constexpr uint32_t kClipFlagRevealBounds  = 0x0001u; // 标记该裁剪节点为 PointerReveal 控件外边界
+inline constexpr uint32_t kClipFlagFeatherTop    = 0x0002u; // 顶部边缘渐隐羽化 (reserved 低 16 位为 px*16 定点数)
+inline constexpr uint32_t kClipFlagFeatherBottom = 0x0004u; // 底部边缘渐隐羽化 (reserved 高 16 位为 px*16 定点数)
 
 inline constexpr PrimitiveFlags operator|(PrimitiveFlags a, PrimitiveFlags b) noexcept {
     return static_cast<PrimitiveFlags>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b));

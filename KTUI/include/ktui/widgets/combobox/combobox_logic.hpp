@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/strings.hpp>
+
 #include "combobox_data.hpp"
 #include "combobox_style.hpp"
 #include <ktui/app/window.hpp>
@@ -729,7 +731,7 @@ private:
 struct ComboBox : BindableMixin<ComboBox, RenderComboBox> {
     std::vector<ComboBoxItem> items;
     int selected_index{-1};
-    std::string placeholder{"请选择..."};
+    std::string placeholder{FrameworkStrings::current().select_placeholder};
     float width{180.0f};
     float height{32.0f};
     float item_height{32.0f};

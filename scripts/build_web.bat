@@ -7,28 +7,29 @@ echo ===========================================================================
 
 where cmake >nul 2>&1
 if errorlevel 1 (
-    if exist "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" (
-        set "PATH=C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%"
-    ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" (
-        set "PATH=C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%"
+    set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+    if exist "%VSWHERE%" (
+        for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -property installationPath`) do (
+            if exist "%%i\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" (
+                set "PATH=%%i\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;%%i\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%"
+            )
+        )
     )
 )
 
 where emcc >nul 2>&1
 if errorlevel 1 (
-    if exist "C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\emscripten\emcc.bat" (
-        set "EMSDK_DIR=C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten"
-        set "EM_CONFIG=C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\.emscripten"
-        set "PATH=C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\emscripten;C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\node;C:\Program Files\Unity\Hub\Editor\6000.6.6f1\Editor\Data\PlaybackEngines\WebGLSupport\BuildTools\Emscripten\python;%PATH%"
-    ) else if defined EMSDK (
-        call "%EMSDK%\emsdk_env.bat" >nul 2>&1
+    if defined EMSDK (
+        if exist "%EMSDK%\emsdk_env.bat" (
+            call "%EMSDK%\emsdk_env.bat" >nul 2>&1
+        )
     )
 )
 
 where emcc >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Emscripten compiler emcc not found.
-    echo Please install emsdk or set EMSDK environment variable.
+    echo Please install emsdk and set the EMSDK environment variable.
     exit /b 1
 )
 
@@ -62,6 +63,5 @@ echo    - build-web/ktui_gallery.js
 echo    - build-web/ktui_gallery.wasm
 echo.
 echo  To preview in browser, run:
-echo    python -m http.server 8080 --directory build-web
-echo  Then navigate to: http://localhost:8080/ktui_gallery.html
+echo    scripts\run_web.bat
 echo ==============================================================================

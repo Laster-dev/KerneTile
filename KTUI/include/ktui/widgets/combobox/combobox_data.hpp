@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ktui/core/strings.hpp>
+
 #include <ktui/core/fn.hpp>
 #include <string>
 #include <vector>
@@ -22,7 +24,7 @@ struct ComboBoxItem {
 struct ComboBoxData {
     std::vector<ComboBoxItem> items;
     int selected_index{-1};            // 当前选中索引 (-1 代表未选中，显示 placeholder)
-    std::string placeholder{"请选择..."};
+    std::string placeholder{FrameworkStrings::current().select_placeholder};
     float width{180.0f};               // 默认控件宽度
     float height{32.0f};               // WinUI 3 ComboBoxMinHeight = 32px
     float item_height{32.0f};          // WinUI 3 ComboBoxItem 高度 = 32px

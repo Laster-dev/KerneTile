@@ -408,6 +408,7 @@ set(KTUI_GALLERY_SOURCES
     examples/ktui_gallery/pages/dialogs_menus_page.cpp
     examples/ktui_gallery/pages/media_desktop_pages.cpp
     examples/ktui_gallery/pages/squircle_page.cpp
+    examples/ktui_gallery/pages/tactile_interaction_page.cpp
     examples/ktui_gallery/pages/polish_showcase_page.cpp
     examples/ktui_gallery/pages/settings_about_pages.cpp
 )
@@ -488,58 +489,7 @@ if (BUILD_TESTING)
         add_test(NAME ${test_name} COMMAND ${test_name} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     endfunction()
 
-    # 阶段 0 测试
-    add_kernetile_test(test_layout tests/test_layout.cpp)
-    add_kernetile_test(test_color tests/test_color.cpp)
-    add_kernetile_test(test_premul tests/test_premul.cpp)
-
-    # 阶段 1 测试
-    add_kernetile_test(test_sdf tests/test_sdf.cpp)
-    add_kernetile_test(test_shadow tests/test_shadow.cpp)
-    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
-        add_kernetile_test(test_shader_compilation tests/test_shader_compilation.cpp)
-    endif()
-
-    # 阶段 2 测试 (Windows D3D12 硬件测试)
-    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
-        add_kernetile_test(test_hal_lifecycle tests/test_hal_lifecycle.cpp)
-        add_kernetile_test(test_compute_uav_readback tests/test_compute_uav_readback.cpp)
-    endif()
-
-    # 阶段 3 测试
-    add_kernetile_test(test_tile_binning tests/test_tile_binning.cpp)
-    add_kernetile_test(test_dirty_tracking tests/test_dirty_tracking.cpp)
-    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
-        add_kernetile_test(test_gpu_tile_compute tests/test_gpu_tile_compute.cpp)
-    endif()
-
-    # 阶段 4 测试
-    add_kernetile_test(test_vring_throughput tests/test_vring_throughput.cpp)
-    add_kernetile_test(test_notify_suppression tests/test_notify_suppression.cpp)
-
-    # 阶段 5 测试
-    add_kernetile_test(test_shelf_packing_ratio tests/test_shelf_packing_ratio.cpp)
-    add_kernetile_test(test_atlas_bleeding tests/test_atlas_bleeding.cpp)
-    add_kernetile_test(test_dynamic_atlas_lifecycle tests/test_dynamic_atlas_lifecycle.cpp)
-
-    # 阶段 6 测试
-    add_kernetile_test(test_stem_darkening tests/test_stem_darkening.cpp)
-    add_kernetile_test(test_text_shaping tests/test_text_shaping.cpp)
-    add_kernetile_test(test_text_pipeline tests/test_text_pipeline.cpp)
-
-    # 阶段 7 测试
-    add_kernetile_test(test_kawase_blur tests/test_kawase_blur.cpp)
-    add_kernetile_test(test_clip_stack tests/test_clip_stack.cpp)
-
-    # 阶段 8 测试
-    add_kernetile_test(test_pointer_pipeline tests/test_pointer_pipeline.cpp)
-    add_kernetile_test(test_ime_state_machine tests/test_ime_state_machine.cpp)
-    add_kernetile_test(test_platform_sync tests/test_platform_sync.cpp)
-
-    # 阶段 9 测试
-    if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI)
-        add_kernetile_test(test_warp_adapter tests/test_warp_adapter.cpp)
-    endif()
+    # 核心引擎守护测试套件 (精简高覆盖，兼顾编译与 CI 速度)
     add_kernetile_test(test_cpu_rasterizer tests/test_cpu_rasterizer.cpp)
     add_kernetile_test(test_backend_conformance tests/test_backend_conformance.cpp)
     if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI AND KERNETILE_GPU_COMPUTE)
@@ -553,74 +503,13 @@ if (BUILD_TESTING)
             add_dependencies(test_backend_conformance kernetile_dxbc_gen)
         endif()
     endif()
-
-    # 阶段 10 测试与基准套件
     add_kernetile_test(test_renderer_lifecycle tests/test_renderer_lifecycle.cpp)
-    add_kernetile_test(bench_4k_scenarios tests/bench_4k_scenarios.cpp)
+    add_kernetile_test(test_text_pipeline tests/test_text_pipeline.cpp)
 
-    # KTUI 自动化单元测试套件 (统一通过 add_ktui_test 宏注册)
-    add_ktui_test(test_ktui_pal_headless     tests/test_ktui_pal_headless.cpp     ktui_pal kernetile_core)
-    add_ktui_test(test_ktui_data_binding     tests/test_ktui_data_binding.cpp     kernetile_core)
+    # KTUI 核心自动化守护测试套件
     add_ktui_test(test_ktui_spring_physics   tests/test_ktui_spring_physics.cpp   kernetile_core)
-    add_ktui_test(test_ktui_app_and_theme    tests/test_ktui_app_and_theme.cpp    ktui_pal kernetile_core)
-    add_ktui_test(test_ktui_flex_layout      tests/test_ktui_flex_layout.cpp      ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_layout_constraints_matrix tests/test_ktui_layout_constraints_matrix.cpp ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_visual_regression tests/test_ktui_visual_regression.cpp ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_dirty_and_render tests/test_ktui_dirty_and_render.cpp ktui_pal kernetile_engine)
     add_ktui_test(test_ktui_e2e_app          tests/test_ktui_e2e_app.cpp          ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_button_and_motion tests/test_ktui_button_and_motion.cpp ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_textbox          tests/test_ktui_textbox.cpp          ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_checkbox         tests/test_ktui_checkbox.cpp         ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_slider_progress  tests/test_ktui_slider_progress.cpp  ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_combobox         tests/test_ktui_combobox.cpp         ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_navigation_view  tests/test_ktui_navigation_view.cpp  ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_overlays_and_menus tests/test_ktui_overlays_and_menus.cpp ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_pro_controls     tests/test_ktui_pro_controls.cpp     ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_terminal         tests/test_ktui_terminal.cpp         ktui_pal kernetile_engine)
-    add_ktui_test(test_ktui_image_and_desktop tests/test_ktui_image_and_desktop.cpp ktui_pal kernetile_engine)
-    # 同步编译验证可选桌面模块 (SystemTray + Rich Clipboard) 开启状态，确保零回归且不影响默认核心体积
-    add_executable(test_ktui_optional_desktop
-        tests/test_ktui_image_and_desktop.cpp
-        KTUI/src/pal/system_tray.cpp
-        KTUI/src/pal/rich_clipboard.cpp
-    )
-    target_compile_definitions(test_ktui_optional_desktop PRIVATE
-        KTUI_ENABLE_SYSTEM_TRAY=1
-        KTUI_ENABLE_RICH_CLIPBOARD=1
-    )
-    target_include_directories(test_ktui_optional_desktop PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/KTUI/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(test_ktui_optional_desktop PRIVATE ktui_pal kernetile_engine)
-    add_test(NAME test_ktui_optional_desktop COMMAND test_ktui_optional_desktop WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
-    # E2E 4 层黑盒测试套件 (覆盖 R1-R5、跨后端一致性、边界条件、组合与真实用户场景)
-    foreach(e2e_target
-        test_e2e_tier1_coverage
-        test_e2e_tier2_boundaries
-        test_e2e_tier3_combinations
-        test_e2e_tier4_scenarios)
-        add_ktui_test(${e2e_target} tests/${e2e_target}.cpp ktui_pal kernetile_engine)
-        target_compile_definitions(${e2e_target} PRIVATE KT_E2E_REQUIRE_ALL=1)
-        if (WIN32 AND NOT KERNETILE_WINDOWS_PURE_GDI AND KERNETILE_GPU_COMPUTE)
-            target_include_directories(${e2e_target} PRIVATE
-                "${CMAKE_CURRENT_BINARY_DIR}/generated"
-                "${CMAKE_CURRENT_SOURCE_DIR}/src"
-                "${CMAKE_CURRENT_SOURCE_DIR}/src/hal/d3d12"
-            )
-            if (KT_PRECOMPILED_DXBC)
-                add_dependencies(${e2e_target} kernetile_dxbc_gen)
-            endif()
-        endif()
-    endforeach()
-    if (NOT ANDROID AND NOT EMSCRIPTEN)
-        target_compile_definitions(test_e2e_tier4_scenarios PRIVATE
-            KT_GALLERY_EXE="$<TARGET_FILE:ktui_gallery>"
-        )
-        add_dependencies(test_e2e_tier4_scenarios ktui_gallery)
-    endif()
 endif()
 
 

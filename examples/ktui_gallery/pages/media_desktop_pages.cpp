@@ -1016,7 +1016,7 @@ WidgetPtr build_file_dialog_page(GalleryApp& app) {
                             Button {
                                 .text = "打开单个文件...",
                                 .variant = ButtonVariant::Accent,
-                                .on_click = [&app, owner_hwnd, apply_result]() {
+                                .on_click = [owner_hwnd, apply_result]() {
                                     FileDialogOptions opt;
                                     opt.kind = FileDialogKind::OpenFile;
                                     opt.title = "选择单个文件";
@@ -1033,7 +1033,7 @@ WidgetPtr build_file_dialog_page(GalleryApp& app) {
                             },
                             Button {
                                 .text = "多选文件...",
-                                .on_click = [&app, owner_hwnd, apply_result]() {
+                                .on_click = [owner_hwnd, apply_result]() {
                                     FileDialogOptions opt;
                                     opt.kind = FileDialogKind::OpenMultipleFiles;
                                     opt.title = "选择一个或多个文件";
@@ -1049,7 +1049,7 @@ WidgetPtr build_file_dialog_page(GalleryApp& app) {
                             },
                             Button {
                                 .text = "保存文件...",
-                                .on_click = [&app, owner_hwnd, apply_result]() {
+                                .on_click = [owner_hwnd, apply_result]() {
                                     FileDialogOptions opt;
                                     opt.kind = FileDialogKind::SaveFile;
                                     opt.title = "选择保存位置（演示模式不会覆盖磁盘）";
@@ -1069,7 +1069,7 @@ WidgetPtr build_file_dialog_page(GalleryApp& app) {
                             },
                             Button {
                                 .text = "选择文件夹...",
-                                .on_click = [&app, owner_hwnd, apply_result]() {
+                                .on_click = [owner_hwnd, apply_result]() {
                                     FileDialogOptions opt;
                                     opt.kind = FileDialogKind::SelectFolder;
                                     opt.title = "选择目标目录";

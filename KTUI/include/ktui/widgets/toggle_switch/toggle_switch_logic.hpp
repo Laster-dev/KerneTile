@@ -6,6 +6,7 @@
 #include "toggle_switch_data.hpp"
 #include "toggle_switch_style.hpp"
 #include <ktui/animation/cubic_bezier.hpp>
+#include <ktui/animation/motion.hpp>
 #include <ktui/binding/binding.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/presentation/paint_context.hpp>
@@ -121,6 +122,20 @@ public:
         m_data.on_change = std::move(cb);
     }
 
+    void set_inset_shadow(bool enabled) {
+        if (m_data.inset_shadow != enabled) {
+            m_data.inset_shadow = enabled;
+            mark_needs_paint();
+        }
+    }
+
+    void set_liquid_thumb(bool enabled) {
+        if (m_data.liquid_thumb != enabled) {
+            m_data.liquid_thumb = enabled;
+            mark_needs_paint();
+        }
+    }
+
     void perform_layout() override {
         const Theme& theme = ThemeContext::current();
         auto style = ToggleSwitchStyleResolver::resolve(m_data, m_state, theme);
@@ -168,9 +183,14 @@ public:
         const float track_y = b.min_y + (b.height() - style.track_height) * 0.5f;
         const float track_r = style.track_height * 0.5f;
 
-        // 2. 绘制胶囊轨道 (背景色按弹性进度平滑过渡)
+        // 2. 绘制胶囊轨道 (背景色按弹性进度平滑过渡，可选解析高斯内阴影呈现凹槽纵深)
         const Color track_col = lerp_color(style.track_off, style.track_on, std::clamp(m_bounce_val, 0.0f, 1.0f));
-        ctx.draw_rect(Rect::from_xywh(track_x, track_y, style.track_width, style.track_height), track_col, track_r, 0.0f);
+        const Rect track_rect = Rect::from_xywh(track_x, track_y, style.track_width, style.track_height);
+        ctx.draw_rect(track_rect, track_col, track_r, 0.0f);
+        if (m_data.inset_shadow) {
+            const Color inner_shadow = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.42f} : Color{0.0f, 0.04f, 0.12f, 0.22f};
+            ctx.draw_inset_shadow(track_rect, inner_shadow, track_r, 3.2f, 0.5f, Vec2{0.0f, 1.4f});
+        }
 
         // 3. 绘制尾随拉伸小条 (::before, 200ms ease-in-out 略微滞后于圆球产生弹性拖尾感)
         const float effect_w = style.thumb_diameter * 0.5f;
@@ -179,7 +199,6 @@ public:
         const float effect_left_on = style.track_width - effect_w - effect_w * 0.5f - style.thumb_offset;
         const float effect_x = track_x + effect_left_off + (effect_left_on - effect_left_off) * m_effect_val;
         const float effect_y = track_y + (style.track_height - effect_h) * 0.5f;
-        ctx.draw_rect(Rect::from_xywh(effect_x, effect_y, effect_w, effect_h), style.thumb, 1.0f, 0.0f);
 
         // 4. 绘制弹性滑动圆球 (.circle, 200ms cubic-bezier(0.27, 0.2, 0.25, 1.51))
         const float thumb_left_off = style.thumb_offset;
@@ -187,7 +206,16 @@ public:
         const float thumb_x = track_x + thumb_left_off + (thumb_left_on - thumb_left_off) * m_bounce_val;
         const float thumb_y = track_y + style.thumb_offset;
         const float thumb_r = style.thumb_diameter * 0.5f;
-        ctx.draw_rect(Rect::from_xywh(thumb_x, thumb_y, style.thumb_diameter, style.thumb_diameter), style.thumb, thumb_r, 0.0f);
+        const Rect thumb_rect = Rect::from_xywh(thumb_x, thumb_y, style.thumb_diameter, style.thumb_diameter);
+
+        if (m_data.liquid_thumb && std::abs(m_effect_val - m_bounce_val) > 0.01f) {
+            const Rect trail_rect = Rect::from_xywh(effect_x, track_y + (style.track_height - style.thumb_diameter * 0.52f) * 0.5f,
+                                                   style.thumb_diameter * 0.55f, style.thumb_diameter * 0.52f);
+            ctx.draw_metaball(thumb_rect, thumb_r, trail_rect, trail_rect.height() * 0.5f, 8.0f, style.thumb, 0.0f);
+        } else {
+            ctx.draw_rect(Rect::from_xywh(effect_x, effect_y, effect_w, effect_h), style.thumb, 1.0f, 0.0f);
+            ctx.draw_rect(thumb_rect, style.thumb, thumb_r, 0.0f);
+        }
 
         // 5. 圆球内部 × 与 ✓ 缩放交替动画 (跟随弹性曲线回弹缩放)
         const float cx = thumb_x + thumb_r;
@@ -225,13 +253,7 @@ public:
 
 private:
     static Color lerp_color(const Color& a, const Color& b, float t) noexcept {
-        float c = std::clamp(t, 0.0f, 1.0f);
-        return Color{
-            a.r + (b.r - a.r) * c,
-            a.g + (b.g - a.g) * c,
-            a.b + (b.b - a.b) * c,
-            a.a + (b.a - a.a) * c
-        };
+        return Motion::lerp(a, b, std::clamp(t, 0.0f, 1.0f));
     }
 
     void setup_behavior() {
@@ -305,6 +327,8 @@ struct ToggleSwitch : BindableMixin<ToggleSwitch, RenderToggleSwitch> {
     float track_height{20.0f};
     float font_size{13.0f};
     float gap{8.0f};
+    bool inset_shadow{false};
+    bool liquid_thumb{false};
 
     Fn<void(bool)> on_change{nullptr};
 
@@ -358,6 +382,8 @@ private:
         node->set_track_size(m_desc.track_width, m_desc.track_height);
         node->set_font_size(m_desc.font_size);
         node->set_gap(m_desc.gap);
+        node->set_inset_shadow(m_desc.inset_shadow);
+        node->set_liquid_thumb(m_desc.liquid_thumb);
         node->set_on_change(m_desc.on_change);
     }
 

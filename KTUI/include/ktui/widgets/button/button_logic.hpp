@@ -3,6 +3,7 @@
 #include "button_data.hpp"
 #include "button_style.hpp"
 #include <ktui/animation/animation.hpp>
+#include <ktui/animation/tactile_press.hpp>
 #include <ktui/tree/render_box.hpp>
 #include <ktui/presentation/paint_context.hpp>
 #include <ktui/presentation/svg_engine.hpp>
@@ -262,10 +263,15 @@ public:
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
     }
 
+    // ==================== 表面圆角推导 ====================
+    [[nodiscard]] float surface_corner_radius() const noexcept override {
+        return resolve_current_style().corner_radius;
+    }
+
     // ==================== 绘制管线 (Painting Pipeline) ====================
 
     void paint(PaintContext& context) override {
-        // 1. 如果水波纹正处于运行中，推进动效管理器步进
+        // 1. 如果水波纹或触感按压弹簧正处于运行中，推进动效步进
         if (m_ripple_active) {
             auto now = std::chrono::steady_clock::now();
             float dt = std::clamp(std::chrono::duration<float>(now - m_last_tick_time).count(), 0.0f, 0.1f);
@@ -281,26 +287,33 @@ public:
                 mark_needs_paint();
             }
         }
+        if (m_tactile_press.update()) {
+            mark_needs_paint();
+        }
+        const bool tactile_active = m_tactile_press.is_active();
+        const Rect base_rect = bounds();
+        const Rect paint_rect = tactile_active ? m_tactile_press.transform_rect(base_rect) : base_rect;
+        const float tactile_scale = tactile_active ? m_tactile_press.current_scale() : 1.0f;
 
         auto style = resolve_current_style();
-        const float r_tl = m_custom_radii ? (*m_custom_radii)[0] : style.corner_radius;
-        const float r_tr = m_custom_radii ? (*m_custom_radii)[1] : style.corner_radius;
-        const float r_br = m_custom_radii ? (*m_custom_radii)[2] : style.corner_radius;
-        const float r_bl = m_custom_radii ? (*m_custom_radii)[3] : style.corner_radius;
+        const float r_tl = (m_custom_radii ? (*m_custom_radii)[0] : style.corner_radius) * tactile_scale;
+        const float r_tr = (m_custom_radii ? (*m_custom_radii)[1] : style.corner_radius) * tactile_scale;
+        const float r_br = (m_custom_radii ? (*m_custom_radii)[2] : style.corner_radius) * tactile_scale;
+        const float r_bl = (m_custom_radii ? (*m_custom_radii)[3] : style.corner_radius) * tactile_scale;
         const float clip_r = std::max({r_tl, r_tr, r_br, r_bl});
 
         // 2. WinUI 3 按钮背景填充
         if (style.background.a > 0.001f) {
             if (m_custom_radii) {
-                context.draw_rounded_rect(bounds(), style.background, r_tl, r_tr, r_br, r_bl);
+                context.draw_rounded_rect(paint_rect, style.background, r_tl, r_tr, r_br, r_bl);
             } else {
-                context.draw_rect(bounds(), style.background, style.corner_radius, 0.0f);
+                context.draw_rect(paint_rect, style.background, style.corner_radius * tactile_scale, 0.0f);
             }
         }
 
         // 3. 点击涟漪微动效 (裁剪于圆角边界内)
         if (m_ripple_active && m_ripple_opacity > 0.001f) {
-            context.push_clip(bounds(), clip_r);
+            context.push_clip(paint_rect, clip_r);
             Color ripple_col = style.ripple;
             ripple_col.a = m_ripple_opacity;
             Rect ripple_rect = Rect::from_xywh(
@@ -316,19 +329,28 @@ public:
         // 4. WinUI 3 1px 轮廓描边 + 立体高光/底边 (ControlElevationBorder)
         if (style.border_width > 0.0f && style.border.a > 0.001f) {
             if (m_custom_radii) {
-                context.draw_rounded_rect(bounds(), style.border, r_tl, r_tr, r_br, r_bl, 0.0f, Vec2{0.0f, 0.0f}, style.border_width);
+                context.draw_rounded_rect(paint_rect, style.border, r_tl, r_tr, r_br, r_bl, 0.0f, Vec2{0.0f, 0.0f}, style.border_width);
             } else {
-                context.draw_rect(bounds(), style.border, style.corner_radius, style.border_width);
+                context.draw_rect(paint_rect, style.border, style.corner_radius * tactile_scale, style.border_width);
             }
         }
         if (style.elevation_edge.a > 0.001f && style.border_width > 0.0f) {
-            float ey = style.elevation_on_top ? 0.0f : (bounds().height() - 1.0f);
+            float ey = style.elevation_on_top ? paint_rect.min_y : (paint_rect.max_y - 1.0f);
             float inset_l = (r_tl > 0.0f || r_bl > 0.0f) ? 3.0f : 0.0f;
             float inset_r = (r_tr > 0.0f || r_br > 0.0f) ? 3.0f : 0.0f;
-            float ew = std::max(0.0f, bounds().width() - inset_l - inset_r);
+            float ew = std::max(0.0f, paint_rect.width() - inset_l - inset_r);
             if (ew > 0.0f) {
-                context.draw_rect(Rect::from_xywh(inset_l, ey, ew, 1.0f), style.elevation_edge, 0.0f, 0.0f);
+                context.draw_rect(Rect::from_xywh(paint_rect.min_x + inset_l, ey, ew, 1.0f), style.elevation_edge, 0.0f, 0.0f);
             }
+        }
+        if (tactile_active && m_tactile_press.enabled() && !m_state.is_disabled) {
+            const float bw = (style.border_width > 0.0f) ? style.border_width : 1.0f;
+            const float press_w = std::clamp(0.35f + 0.65f * m_tactile_press.press_amount(), 0.25f, 1.0f);
+            context.draw_directional_rim(
+                paint_rect,
+                Color{1.0f, 1.0f, 1.0f, 0.28f * press_w},
+                Color{0.0f, 0.0f, 0.0f, 0.18f * press_w},
+                clip_r, bw, m_tactile_press.tilted_light_dir(), 0.22f * press_w);
         }
 
         // 4.5 Opt-in Fluent Pointer Reveal
@@ -344,12 +366,20 @@ public:
                 ? Color{1.0f, 1.0f, 1.0f, 0.34f}
                 : Color{0.0f, 0.0f, 0.0f, 0.24f};
             const float reveal_bw = (style.border_width > 0.0f) ? style.border_width : 1.0f;
-            context.draw_pointer_reveal(bounds(), m_reveal_pos, 64.0f, surface, edge, clip_r, reveal_bw);
+            context.draw_pointer_reveal(paint_rect, m_reveal_pos, 64.0f, surface, edge, clip_r, reveal_bw);
         }
 
         // 5. 居中绘制 SVG/文本图标与文字 (在内容区 padding 内居中，支持外部预留右侧箭头区)
         if (!m_data.text.empty() || !m_data.icon.empty() || !m_svg_path.empty()) {
-            context.push_clip(bounds(), clip_r);
+            context.push_clip(paint_rect, clip_r);
+            const float rs = std::max(1.0f, context.render_scale());
+            const float dx = tactile_active ? ((paint_rect.min_x + paint_rect.max_x) * 0.5f - (base_rect.min_x + base_rect.max_x) * 0.5f) : 0.0f;
+            const float dy = tactile_active ? ((paint_rect.min_y + paint_rect.max_y) * 0.5f - (base_rect.min_y + base_rect.max_y) * 0.5f) : 0.0f;
+            const Vec2 content_shift{std::round(dx * rs) / rs, std::round(dy * rs) / rs};
+            std::optional<PaintContext::OffsetScope> content_offset;
+            if (tactile_active && (std::abs(content_shift.x) > 0.001f || std::abs(content_shift.y) > 0.001f)) {
+                content_offset.emplace(context, content_shift);
+            }
 
             float icon_size = !m_svg_path.empty() ? 15.0f : (m_data.icon.empty() ? 0.0f : (style.font_size + 2.0f));
             float text_w = m_data.text.empty() ? 0.0f : TextMeasure::measure_width(m_data.text, style.font_size);
@@ -417,6 +447,13 @@ public:
     void set_focusable(bool f) { m_data.focusable = f; is_focusable = f; }
     void set_enable_ripple(bool e) { m_data.enable_ripple = e; }
 
+    void set_tactile_press(bool enabled, float press_scale = 0.962f, float tilt_shift = 3.0f) {
+        m_tactile_press.set_tuning(press_scale, tilt_shift);
+        m_tactile_press.set_enabled(enabled);
+        mark_needs_paint();
+    }
+    [[nodiscard]] bool tactile_press_enabled() const noexcept { return m_tactile_press.enabled(); }
+
     void set_click_handler(Fn<void()> cb) {
         m_data.on_click = std::move(cb);
     }
@@ -427,6 +464,7 @@ private:
             if (!m_state.is_disabled && !m_state.is_loading) {
                 m_state.is_hovered = true;
                 is_hovered = true;
+                m_tactile_press.on_enter();
                 mark_needs_paint();
             }
         };
@@ -434,20 +472,30 @@ private:
         on_pointer_move = [this](PointerEvent& ev) {
             if (ev.type == PlatformEventType::PointerMove &&
                 ev.device_kind != PointerDeviceKind::Touch &&
-                m_data.enable_pointer_reveal && !m_state.is_disabled && !m_state.is_loading) {
-                if (!m_reveal_active ||
-                    std::abs(m_reveal_pos.x - ev.local_position.x) > 0.01f ||
-                    std::abs(m_reveal_pos.y - ev.local_position.y) > 0.01f) {
+                !m_state.is_disabled && !m_state.is_loading) {
+                bool need_paint = false;
+                if (m_tactile_press.enabled()) {
+                    m_tactile_press.on_move(ev.local_position, m_size);
+                    need_paint = true;
+                }
+                if (m_data.enable_pointer_reveal &&
+                    (!m_reveal_active ||
+                     std::abs(m_reveal_pos.x - ev.local_position.x) > 0.01f ||
+                     std::abs(m_reveal_pos.y - ev.local_position.y) > 0.01f)) {
                     m_reveal_active = true;
                     m_reveal_pos = ev.local_position;
+                    need_paint = true;
+                }
+                if (need_paint) {
                     mark_needs_paint();
                 }
             }
         };
 
         on_pointer_exit = [this](PointerEvent&) {
-            bool need_paint = m_reveal_active;
+            bool need_paint = m_reveal_active || m_tactile_press.is_active();
             m_reveal_active = false;
+            m_tactile_press.on_exit();
             if (!m_state.is_disabled && !m_state.is_loading) {
                 if (m_state.is_hovered || m_state.is_pressed || is_hovered || is_active) {
                     need_paint = true;
@@ -466,6 +514,7 @@ private:
             if (!m_state.is_disabled && !m_state.is_loading && ev.button == PointerButton::Primary) {
                 m_state.is_pressed = true;
                 is_active = true;
+                m_tactile_press.on_down(ev.local_position, m_size);
                 if (m_data.enable_ripple) {
                     begin_ripple(ev.local_position);
                 }
@@ -479,6 +528,7 @@ private:
                 auto cb = should_click ? m_data.on_click : Fn<void()>{};
                 m_state.is_pressed = false;
                 is_active = false;
+                m_tactile_press.on_up();
                 mark_needs_paint();
                 if (cb) {
                     ev.stop_propagation();
@@ -538,6 +588,7 @@ private:
     bool m_reveal_active{false};
     PointF m_reveal_pos{0.0f, 0.0f};
     std::chrono::steady_clock::time_point m_last_tick_time;
+    TactilePressPhysics m_tactile_press;
 };
 
 class ButtonWidget;
@@ -568,6 +619,9 @@ struct Button : BindableMixin<Button, RenderButton> {
     bool focusable{true};
     bool enable_ripple{true};
     bool enable_pointer_reveal{false};
+    bool tactile_press{false};
+    float tactile_press_scale{0.962f};
+    float tactile_tilt_shift{3.0f};
 
     Button& pointer_reveal(bool enabled) & noexcept { enable_pointer_reveal = enabled; return *this; }
     Button&& pointer_reveal(bool enabled) && noexcept { enable_pointer_reveal = enabled; return std::move(*this); }
@@ -610,6 +664,7 @@ private:
         node->set_focusable(m_desc.focusable);
         node->set_enable_ripple(m_desc.enable_ripple);
         node->set_pointer_reveal_enabled(m_desc.enable_pointer_reveal);
+        node->set_tactile_press(m_desc.tactile_press, m_desc.tactile_press_scale, m_desc.tactile_tilt_shift);
 
         std::optional<Color> bg = (m_desc.background_color.r >= 0.0f) ? std::optional<Color>(m_desc.background_color) : std::nullopt;
         std::optional<Color> hover = (m_desc.hover_color.r >= 0.0f) ? std::optional<Color>(m_desc.hover_color) : std::nullopt;

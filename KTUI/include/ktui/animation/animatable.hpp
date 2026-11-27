@@ -2,6 +2,7 @@
 
 #include "spring_curve.hpp"
 #include <ktui/pal/platform_types.hpp>
+#include <kernetile/math/color_space.hpp>
 #include <array>
 #include <cstddef>
 #include <type_traits>
@@ -56,18 +57,21 @@ struct AnimatableTraits<Rect> {
     }
 };
 
-// Color 特化
+// Color 特化 (在 OkLab 感知均匀色彩空间中执行物理弹簧插值，避免状态过渡中出现灰暗浑浊色带)
 template <>
 struct AnimatableTraits<Color> {
     static constexpr size_t Channels = 4;
     static void extract(const Color& val, float* out) noexcept {
-        out[0] = val.r;
-        out[1] = val.g;
-        out[2] = val.b;
-        out[3] = val.a;
+        const auto lab = kernetile::math::srgb_to_oklab(val);
+        out[0] = lab.L;
+        out[1] = lab.a;
+        out[2] = lab.b;
+        out[3] = std::clamp(val.a, 0.0f, 1.0f);
     }
     static Color assemble(const float* in) noexcept {
-        return Color{in[0], in[1], in[2], in[3]};
+        return kernetile::math::oklab_to_srgb(
+            kernetile::math::OkLab{std::clamp(in[0], 0.0f, 1.0f), in[1], in[2]},
+            std::clamp(in[3], 0.0f, 1.0f));
     }
 };
 

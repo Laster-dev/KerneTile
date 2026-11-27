@@ -28,8 +28,10 @@ struct RendererConfig {
     bool prefer_warp{false};             // 是否优先使用 D3D12 WARP 软件适配器
     bool force_cpu_fallback{false};      // 是否强制使用纯 CPU 瓦片光栅器
     bool enable_occlusion_culling{true}; // 是否启用前端实心矩形遮挡剔除
-    bool enable_dithering{false};        // R1: 是否启用 8-bit IGN 抖动降噪 (默认关闭)
-    bool enable_pixel_snapping{false};   // R2: 是否启用分数 DPI 物理像素网格对齐 (默认关闭)
+    bool enable_dithering{true};         // R1: 是否启用 8-bit IGN 抖动降噪 (默认开启，可手动关闭)
+    bool enable_pixel_snapping{true};    // R2: 是否启用分数 DPI 物理像素网格对齐 (默认开启，可手动关闭)
+    bool enable_font_gamma{true};        // 暗色/亮色文字光渗补偿 (Irradiation Illusion Compensation，默认开启，可手动关闭)
+    bool enable_acrylic_grain{false};    // 零纹理亚克力微颗粒噪点 (Zero-Texture Acrylic Micro-Grain，按需开启)
 };
 
 struct FrameStats {
@@ -60,6 +62,14 @@ public:
     // 绘制命令录入
     virtual void push_primitive(const core::UiPrimitive& prim) = 0;
     virtual uint32_t push_clip(math::Rect rect, float corner_radius = 0.0f) = 0;
+    virtual uint32_t push_feathered_clip(
+        math::Rect rect,
+        float corner_radius = 0.0f,
+        float top_feather_px = 0.0f,
+        float bottom_feather_px = 0.0f) {
+        (void)top_feather_px; (void)bottom_feather_px;
+        return push_clip(rect, corner_radius);
+    }
     virtual void pop_clip() = 0;
 
     // 高层便捷绘制 API
@@ -87,16 +97,22 @@ public:
     virtual void draw_text_scaled(std::string_view text, float x, float y, float font_size,
                                   math::Color color, float scale, uint16_t font_weight = 400,
                                   bool italic = false, std::string_view font_family = "",
-                                  bool tabular_nums = false) {
-        (void)font_weight; (void)italic; (void)font_family; (void)tabular_nums;
+                                  bool tabular_nums = false, bool font_gamma = true) {
+        (void)font_weight; (void)italic; (void)font_family; (void)tabular_nums; (void)font_gamma;
         draw_text(text, x * scale, y * scale, font_size * scale, color);
     }
 
     virtual void set_dithering_enabled(bool enabled) { (void)enabled; }
-    [[nodiscard]] virtual bool is_dithering_enabled() const noexcept { return false; }
+    [[nodiscard]] virtual bool is_dithering_enabled() const noexcept { return true; }
 
     virtual void set_pixel_snapping_enabled(bool enabled) { (void)enabled; }
-    [[nodiscard]] virtual bool is_pixel_snapping_enabled() const noexcept { return false; }
+    [[nodiscard]] virtual bool is_pixel_snapping_enabled() const noexcept { return true; }
+
+    virtual void set_font_gamma_enabled(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_font_gamma_enabled() const noexcept { return true; }
+
+    virtual void set_acrylic_grain_enabled(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_acrylic_grain_enabled() const noexcept { return false; }
 
     virtual void draw_linear_gradient(
         math::Rect rect,
@@ -105,9 +121,59 @@ public:
         math::Vec2 start_pt,
         math::Vec2 end_pt,
         float corner_radius = 0.0f,
-        float border_width = 0.0f) {
+        float border_width = 0.0f,
+        bool oklab = true) {
         (void)rect; (void)start_color; (void)end_color; (void)start_pt; (void)end_pt;
-        (void)corner_radius; (void)border_width;
+        (void)corner_radius; (void)border_width; (void)oklab;
+    }
+
+    // 方向性玻璃高光内描边 (Directional Fresnel Rim Highlight)
+    virtual void draw_directional_rim(
+        math::Rect rect,
+        math::Color top_highlight,
+        math::Color bottom_shadow,
+        float corner_radius = 8.0f,
+        float border_width = 1.0f,
+        math::Vec2 light_dir = {0.0f, -1.0f},
+        float inner_glow = 0.35f) {
+        (void)rect; (void)top_highlight; (void)bottom_shadow;
+        (void)corner_radius; (void)border_width; (void)light_dir; (void)inner_glow;
+    }
+
+    // 零纹理亚克力微颗粒噪点表面 (Zero-Texture Acrylic Micro-Grain)
+    virtual void draw_acrylic_panel(
+        math::Rect rect,
+        math::Color tint,
+        float corner_radius = 8.0f,
+        float grain_amount = 0.028f,
+        float grain_scale = 1.0f) {
+        (void)rect; (void)tint; (void)corner_radius; (void)grain_amount; (void)grain_scale;
+    }
+
+    // 解析高斯内阴影 (Analytic SDF Inset Shadow)
+    virtual void draw_inset_shadow(
+        math::Rect rect,
+        math::Color shadow_color,
+        float corner_radius = 6.0f,
+        float blur_sigma = 6.0f,
+        float spread = 0.0f,
+        math::Vec2 offset = {0.0f, 2.0f}) {
+        (void)rect; (void)shadow_color; (void)corner_radius; (void)blur_sigma; (void)spread; (void)offset;
+    }
+
+    // 灵动岛式液态融合 (SDF Smooth-Minimum Metaballs)
+    virtual void draw_metaball(
+        math::Rect rect_a,
+        float radius_a,
+        math::Rect rect_b,
+        float radius_b,
+        float smooth_k,
+        math::Color color_a,
+        math::Color color_b = {},
+        bool two_tone = false,
+        float border_width = 0.0f) {
+        (void)rect_a; (void)radius_a; (void)rect_b; (void)radius_b; (void)smooth_k;
+        (void)color_a; (void)color_b; (void)two_tone; (void)border_width;
     }
 
     virtual void draw_pointer_reveal(

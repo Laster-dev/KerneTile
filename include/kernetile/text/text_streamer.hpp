@@ -47,7 +47,8 @@ public:
         uint16_t font_weight = 400,
         bool italic = false,
         std::string_view font_family = "",
-        bool tabular_nums = false)
+        bool tabular_nums = false,
+        bool enable_stem_darkening = true)
     {
         TextStreamStats stats;
         const float raster_size = font_size * render_scale;
@@ -124,7 +125,10 @@ public:
                 prim.atlas_u1 = cg.region.u1;
                 prim.atlas_v1 = cg.region.v1;
 
-                prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph | core::PrimitiveFlags::StemDarkening);
+                // 在未使用的 border_width 槽位传入物理字号 (供光栅器按字号自适应光渗补偿)
+                prim.border_width = raster_size;
+                prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsGlyph) |
+                    (enable_stem_darkening ? static_cast<uint16_t>(core::PrimitiveFlags::StemDarkening) : 0u);
                 prim.clip_index = clip_index;
 
                 out_primitives.push_back(prim);
