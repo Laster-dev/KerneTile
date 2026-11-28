@@ -10,15 +10,11 @@ namespace {
 static constexpr const char* kIconPalette =
     "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10c1.1 0 2-.9 2-2 0-.52-.2-.99-.52-1.35-.31-.35-.5-.81-.5-1.31 0-1.1.9-2 2-2h2.36c3.13 0 5.66-2.54 5.66-5.67C23 5.5 18.08 2 12 2Zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z";
 
-#if !defined(__ANDROID__)
 static constexpr const char* kIconLayers =
     "M12 2.5 2.5 7.5 12 12.5 21.5 7.5 12 2.5Zm-9.5 9.5L12 17l9.5-5M2.5 16.5 12 21.5l9.5-5";
-#endif
 
-#if !defined(__ANDROID__)
 static constexpr const char* kIconNav =
     "M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13ZM9 5.5v13h9.5v-13H9Z";
-#endif
 
 static constexpr const char* kIconWindow =
     "M4.5 4h15A1.5 1.5 0 0 1 21 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13A1.5 1.5 0 0 1 4.5 4Zm0 4v10.5h15V8h-15Z";
@@ -37,13 +33,11 @@ WidgetPtr build_settings_page(GalleryApp& app) {
 #endif
     auto dither_enabled = std::make_shared<Property<bool>>(app.window ? app.window->dithering_enabled() : false);
     auto snap_enabled = std::make_shared<Property<bool>>(app.window ? app.window->pixel_snapping_enabled() : false);
-#if !defined(__ANDROID__)
     int cur_backdrop_idx = 1;
     if (app.window) {
         if (app.window->backdrop() == WindowBackdrop::None) cur_backdrop_idx = 0;
         else if (app.window->backdrop() == WindowBackdrop::MicaAlt) cur_backdrop_idx = 2;
     }
-#endif
 
     return app.make_scroll_page(VStack {
         .align_items = AlignItems::Stretch,
@@ -68,7 +62,6 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                     }
                 }
             },
-#if !defined(__ANDROID__)
             SettingsCard {
                 .header = "窗口背景材质 (Backdrop)",
                 .description = "实时切换 Windows 11 自算云母 (Mica / Mica Alt) 或无材质纯底",
@@ -85,7 +78,6 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                     }
                 }
             },
-#endif
             SettingsCard {
                 .header = "8-bit IGN 抖动去色带",
                 .description = "为云母背景与柔和渐变叠加 ±0.5 LSB 无纹理噪声抖动，消除暗色阶梯色带",
@@ -113,13 +105,12 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                 .enable_pointer_reveal = true
             },
 
-#if !defined(__ANDROID__)
             Box { .height = 14.0f },
 
-            // 分组二：导航与窗口（仅桌面端显示）
+            // 分组二：导航与窗口
             Text { .text = "导航与窗口", .font_size = 13.5f, .font_weight = FontWeight::SemiBold },
             Box { .height = 4.0f },
-#if defined(__EMSCRIPTEN__)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
             SettingsCard {
                 .header = "NavigationView 导航栏布局",
                 .description = "调整侧边栏展开模式、紧凑态或顶部水平导航",
@@ -180,7 +171,6 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                 }
             },
 #endif
-#endif
 
             Box { .height = 14.0f },
 
@@ -192,7 +182,7 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                 .description = "2D 瓦片计算着色器渲染引擎 + C++20 声明式跨平台 UI 框架",
                 .header_icon_svg = kIconInfo,
                 .expanded = false,
-                .header_content = Text { .text = "v1.1.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
+                .header_content = Text { .text = "v1.2.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text),
                 .items = {
                     SettingsCard {
                         .header = "渲染管线",

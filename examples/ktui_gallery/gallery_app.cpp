@@ -1,8 +1,5 @@
 #include "gallery_app.hpp"
 #include "pages/gallery_pages.hpp"
-#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
-#include "mobile_shell.hpp"
-#endif
 
 using namespace ktui;
 
@@ -304,28 +301,16 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
 
     app->theme.subscribe([this](const Theme& t) {
         if (t.is_dark) {
-#if defined(__ANDROID__)
-            window_bg.set(Color{0x20 / 255.0f, 0x20 / 255.0f, 0x20 / 255.0f, 1.0f});
-            card_bg.set(Color{0x27 / 255.0f, 0x28 / 255.0f, 0x2C / 255.0f, 1.0f});
-            card_border.set(Color{1.0f, 1.0f, 1.0f, 0.06f});
-#else
             window_bg.set(Color::transparent());
             card_bg.set(Color{1.0f, 1.0f, 1.0f, 0.045f});
             card_border.set(Color{1.0f, 1.0f, 1.0f, 0.07f});
-#endif
             muted_text.set(Color{0xC5 / 255.0f, 0xC5 / 255.0f, 0xC5 / 255.0f, 1.0f});
             accent_text.set(Color{96.0f / 255.0f, 205.0f / 255.0f, 255.0f / 255.0f, 1.0f});
             theme_btn_text.set("切换浅色主题");
         } else {
-#if defined(__ANDROID__)
-            window_bg.set(Color{0xEA / 255.0f, 0xED / 255.0f, 0xF1 / 255.0f, 1.0f});
-            card_bg.set(Color{0xFA / 255.0f, 0xFB / 255.0f, 0xFD / 255.0f, 1.0f});
-            card_border.set(Color{0.0f, 0.0f, 0.0f, 0.07f});
-#else
             window_bg.set(Color::transparent());
             card_bg.set(Color{1.0f, 1.0f, 1.0f, 0.65f});
             card_border.set(Color{0.0f, 0.0f, 0.0f, 0.07f});
-#endif
             muted_text.set(Color{0x59 / 255.0f, 0x60 / 255.0f, 0x6A / 255.0f, 1.0f});
             accent_text.set(Color{0.0f, 95.0f / 255.0f, 184.0f / 255.0f, 1.0f});
             theme_btn_text.set("切换深色主题");
@@ -474,17 +459,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         return pages::build_home_page(*this);
     };
 
-#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
-#if defined(__ANDROID__)
-    const bool use_mobile_shell = true;
-#else
-    const bool use_mobile_shell = (window->size().x < 680.0f);
-#endif
-    if (use_mobile_shell) {
-        window->set_content(mobile::build_mobile_shell(*this, std::move(build_page_by_id)));
-        return;
-    }
-#endif
     struct NavEntry { const char* id; const char* label; const char* badge; };
     auto make_cat = [](const char* id, const char* label, NavigationIcon icon, bool expanded, std::initializer_list<NavEntry> list) {
         NavigationViewItem cat;

@@ -1,6 +1,6 @@
 ---
 name: ktui
-description: Complete self-contained guide for building lightweight, high-craft Microsoft WinUI 3 / Fluent 2 C++20 desktop, Web, and cross-platform GUIs with KerneTile & KTUI (`import kernetile;` or `kernetile.hpp` + `kernetile.cpp`). Includes one-command SDK download, WinUI 3 NavigationView + Settings conventions, full widget catalog & scenario selection guide, Hybrid CRT binary/RAM minimization flags, and exact-order C++20 struct references so AI agents can write full apps without reading kernetile.ixx.
+description: Complete self-contained guide for building lightweight, high-craft Microsoft WinUI 3 / Fluent 2 C++20 desktop, Web (WebGPU/Canvas), and Android GUIs with KerneTile & KTUI (`import kernetile;` or `kernetile.hpp` + `kernetile.cpp`). Covers v1.2.0 features: G2 squircle corners, IGN dithering, fractional-DPI pixel snapping, stem darkening, heavy popup backdrop blur, full touch ergonomics (44px targets, 480ms long-press, mid-fling scroll interrupt, teardrop touch selection handles), F12 Debug DevTools, Hybrid CRT minimization flags, full widget catalog, and exact-order C++20 struct references so AI agents can write full apps without reading kernetile.ixx.
 ---
 
 # KerneTile & KTUI Development Skill
@@ -109,6 +109,13 @@ Unless the user asks for a bare single-widget demo, structure every desktop appl
    - **外观与材质 (Appearance & Backdrop)**: Theme (`ToggleSwitch` -> `app.set_theme(...)`), Backdrop (`ComboBox` -> `win->set_backdrop(...)`)
    - **窗口行为 (Window Behavior)**: Always on Top (`ToggleSwitch` -> `win->set_always_on_top(on)`), Titlebar shortcuts (`ToggleSwitch` -> `win->titlebar().set_pin_button_visible(on)` / `set_theme_button_visible(on)`)
    - **关于本应用 (About)** (`SettingsExpander`): version, `"由 KerneTile & KTUI 强力驱动"`, shortcuts.
+3. **Unified Desktop / Web / Android Shell & Touch Ergonomics (v1.2.0)**:
+   - **No separate mobile shell**: Android and narrow Web viewports use the **exact same `NavigationView` desktop layout** with `custom_titlebar = false` (no titlebar on mobile/Web). `NavigationView` automatically collapses into a `LeftMinimal` overlay drawer on narrow viewports, and `HStack` / `SettingsCard` auto-reflow to prevent overflow.
+   - **Built-in Touch Ergonomics**: Interactive controls expand touch hit zones to ≥44px (`hit_test_touch`); 480ms stationary touch long-press synthesizes secondary click / context menus; `ScrollView` / `VirtualList` / `DataGrid` / `TreeView` / `ComboBox` / `TextArea` / `StickyParallaxScrollView` support **mid-fling touch interruption** (immediate stop & continue drag without waiting for inertia to finish) and 24px touch scrollbar scrubbing; `TextBox` & `TextArea` include **anti-jump click/selection logic** (distance-checked multi-click + 3.5px drag slop) and **teardrop touch selection/caret handles** rendered in a top-level passthrough overlay.
+4. **Built-in Rendering Polish, Popups & Diagnostics**:
+   - **High-Craft Defaults**: G2 continuous squircle corners, IGN gradient dithering (`dithering_enabled`), fractional-DPI physical pixel snapping (`pixel_snapping_enabled`), stem darkening / font gamma (`font_gamma_enabled`), and heavy backdrop blur for floating popups (`MenuFlyout` / `ContentDialog` / `ComboBox`) are enabled out of the box (acrylic micro-grain defaults to `false`).
+   - **F12 UI Inspector (Debug-Only, 0 bytes in Release)**: Press `F12` in Debug builds to open the live KTUI DevTools window (`Shift+F12` toggles 16x16 dirty-tile heatmap), or call `win->set_inspector_enabled(true)`.
+   - **Zero-Overhead Logging**: Use `KT_LOG_INFO` / `KT_LOG_WARN` / `KT_LOG_ERR` (`#include <kernetile/core/log.hpp>`); compiled out completely in Release unless `-DKERNETILE_ENABLE_LOGS` is defined.
 
 ---
 
@@ -148,6 +155,9 @@ KerneTile + KTUI achieves **~500–650 KB** single-file Windows executables with
   ```bash
   clang++ -std=c++20 -Oz -flto=thin -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections main.cpp kernetile.cpp -o app -Wl,--gc-sections -Wl,--icf=all -s $(pkg-config --cflags --libs pangocairo) -lX11 -lXi -lpthread -ldl
   ```
+
+- **Web (Emscripten + WebGPU / Canvas 2D Fallback)**:
+  - Repo ships `scripts/build_web.bat` and `scripts/run_web.bat` (auto-builds single-file `ktui_gallery-web.html` and serves over local HTTP).
 
 ### B. User-Code Size & Memory Discipline
 
@@ -234,7 +244,7 @@ int main() {
                         },
                         ktui::SettingsExpander {
                             .header = "关于本应用",
-                            .description = "v1.0.0 — 由 KerneTile & KTUI (C++20) 强力驱动",
+                            .description = "v1.2.0 — 由 KerneTile & KTUI (C++20) 强力驱动",
                             .expanded = true,
                             .items = {
                                 ktui::SettingsCard {
@@ -323,10 +333,10 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 | 垂直/水平线性排布 | `VStack` / `HStack` | 配合 `Expanded`、`Flexible`、`Spacer`、`AlignItems` |
 | 等分键位矩阵 / 多列表格布局（计算器键盘、仪表盘卡片） | `Grid` + `GridItem` | 支持固定列数、列权重 `column_weights`、跨列 `column_span` 与自适应 `min_item_width` |
 | 自动换行标签云 / 紧凑筛选器列表 | `Wrap` | 超出宽度自动换行 |
-| 圆角背景卡片 / 描边 / 阴影 / 剪裁容器 | `Box` | `.theme_card = true` 自动适配深浅色 Fluent 卡片材质；注意 `clip_content` 默认开启 |
+| 圆角背景卡片 / 描边 / 阴影 / 剪裁容器 | `Box` | `.theme_card = true` 自动适配深浅色 Fluent 卡片材质；可选 `directional_rim`、`inset_shadow`、`tactile_press`、`concentric_inner`、`acrylic_grain`；注意 `clip_content` 默认开启 |
 | 图层叠加 / 悬浮角标 / 绝对定位 | `ZStack` + `Positioned` | 背景层与悬浮控件叠加 |
 | 内边距 / 居中 / 对齐 / 宽高比 / 显隐 / 分割线 | `Padding`, `Center`, `Align`, `AspectRatio`, `Visibility`, `Divider` | `Align` 仅在父级 Tight 约束下扩展，不会撑爆有限列宽 |
-| 超出视口滚动区域 | `ScrollView` | 大表单、Settings 页面与长内容标配 |
+| 超出视口滚动区域 / 滚动视差吸顶容器 | `ScrollView`, `StickyParallaxScrollView` | 大表单与长内容标配；支持橡皮筋越界 `rubber_band_overscroll`、边缘羽化 `edge_feather`、滚动吸顶分隔线 `scroll_hairline` 与触控惯性随时打断续滑 |
 | 可拖拽调宽/调高的双栏分屏 | `SplitView` | 主从视图、侧栏历史抽屉、代码+预览分屏 |
 | IDE / 工作站多停靠面板（可拖拽停靠与拖出独立窗口） | `DockPanel` + `DockPane` | 类似 VS Code / Visual Studio 停靠工作区 |
 
@@ -334,14 +344,14 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 
 | 场景 | 正确控件 | 说明 |
 | :--- | :--- | :--- |
-| 常规触发按钮 / 工具栏按钮 | `Button` | 主操作 `Accent`、次要 `Standard`、无边框工具键 `Subtle`、危险操作 `Danger` |
+| 常规触发按钮 / 工具栏按钮 | `Button` | 主操作 `Accent`、次要 `Standard`、无边框工具键 `Subtle`、危险操作 `Danger`；支持 `enable_pointer_reveal` 与 `tactile_press` |
 | 状态锁存开关按钮（科学计算器 `2nd`/`HYP`、格式 `B/I/U`） | `ToggleButton` | 自带按压选中状态与双向 `bool` 绑定 |
 | 带下拉菜单的按钮 / 主操作+下拉扩展 | `DropDownButton` / `SplitButton` | 支持嵌入 `MenuFlyoutItem` 子菜单 |
 | 高危操作防误触长按确认（格式化、清空、删库） | `HoldConfirmButton` | 支持胶囊进度条 `PillBar` 与环形 `CircularRing` |
 | 开关设置项（即时生效） | `ToggleSwitch` | Windows 11 设置页标准开关 |
 | 多选勾选（含半选三态） | `Checkbox` | 支持 `Unchecked/Checked/Indeterminate` |
 | 单选互斥（垂直列表 / 横向 / 图标卡片） | `RadioButton`, `RadioGroup`, `RadioCard` | `RadioCard` 适合视觉主题/对齐方式等图卡单选 |
-| 下拉单选枚举（5~30 项） | `ComboBox` | 节省纵向空间 |
+| 下拉单选枚举（5~30 项） | `ComboBox` | 节省纵向空间；下拉浮层带重度背景模糊 |
 | 连续数值拖动调整 / 区间选择 | `Slider` | 支持水平/垂直、刻度线与双滑块区间模式 `range_mode` |
 | 1~5 星评分 | `RatingControl` | 支持半星与清除 |
 
@@ -349,7 +359,7 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 
 | 场景 | 正确控件 | 说明 |
 | :--- | :--- | :--- |
-| 单行文本 / 密码 / 多行编辑器 | `TextBox`, `PasswordBox`, `TextArea` | 带标准 Fluent 2 焦点底线；`TextArea` 内置撤销重做栈 |
+| 单行文本 / 密码 / 多行编辑器 | `TextBox`, `PasswordBox`, `TextArea` | 带标准 Fluent 2 焦点底线、弹簧平滑光标 `smooth_caret`、点击防乱跳与水滴形触控选区/光标手柄；`TextArea` 内置撤销重做栈 |
 | 带实时下拉候选补全的搜索框 | `AutoSuggestBox` | 支持搜索图标、输入建议过滤与提交回调 |
 | 命令栏 / AI 幽灵内联补全输入框（按 Tab 接受） | `GhostTextBox` | 终端命令或参数预测输入 |
 | 精确数值输入 + 表达式求值 + 微调步进按钮 | `NumberBox` | 支持四则表达式、`precision` 与 `spin_button_placement` |
@@ -363,10 +373,10 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 
 | 场景 | 正确控件 | 说明 |
 | :--- | :--- | :--- |
-| 普通文本 / 带徽章表单标签 / 选区富文本与内联代码 | `Text`, `Label`, `RichTextBlock` | `RichTextBlock` 支持粗斜体、下划线、代码块与超链接选区 |
-| Microsoft 设置页条目与可折叠子项 | `SettingsCard`, `SettingsExpander`, `Expander` | 原生 WinUI 3 设置页面与可折叠区域 |
-| 百万行超长列表高性能虚拟化滚动 | `VirtualList` | 仅渲染可视区 + `overscan` 行 |
-| 多列可排序表格（任务管理器、账单） | `DataGrid` | 支持列宽、排序与数值右对齐 |
+| 普通文本 / 翻滚数字 / 淡入切换文本 / 富文本 | `Text`, `RollingNumber`, `CrossfadeText`, `Label`, `RichTextBlock` | `Text` 支持等宽数字 `tabular_nums` 与 `font_family`；`RollingNumber` 带弹簧动画与涨跌高亮闪烁；`RichTextBlock` 支持粗斜体、下划线、代码块与超链接选区 |
+| Microsoft 设置页条目与可折叠子项 | `SettingsCard`, `SettingsExpander`, `Expander` | 原生 WinUI 3 设置页面与可折叠区域，窄屏自动双行堆叠防挤压 |
+| 百万行超长列表高性能虚拟化滚动 | `VirtualList` | 仅渲染可视区 + `overscan` 行，支持橡皮筋越界、边缘羽化与触控惯性打断 |
+| 多列可排序表格（任务管理器、账单） | `DataGrid` | 支持列宽、排序、数值右对齐、`tabular_nums` 与触控惯性打断 |
 | 树形目录 / 嵌套大纲 | `TreeView` | 支持单选/多选勾选与 SVG 节点图标 |
 | 属性检查器面板（Key-Value 双栏编辑、可重置默认值） | `InspectorGrid` | 适合调试器、节点属性、配置面板 |
 | 内存/二进制文件查看与编辑（支持大端/小端预览） | `HexViewer` | 十六进制 + ASCII 双视图编辑 |
@@ -396,28 +406,32 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 * `Color { float r, g, b, a; }` (`Color::white()`, `Color::black()`, `Color::transparent()`)
 * `WindowBackdrop`: `None`, `Mica`, `MicaAlt`
 * `WindowDesc`:
-  `title`, `size`, `min_size`, `max_size`, `position`, `resizable`, `decorated`, `custom_titlebar`, `transparent`, `always_on_top`, `type` (`WindowType::Normal/ToolWindow/ModalDialog/Popup`), `parent_handle`
+  `title`, `size`, `min_size`, `max_size`, `position`, `resizable`, `decorated`, `custom_titlebar`, `transparent`, `always_on_top`, `type` (`WindowType::Normal/ToolWindow/ModalDialog/Popup`), `parent_handle`, `dithering_enabled`, `pixel_snapping_enabled`, `font_gamma_enabled`, `acrylic_grain_enabled`
 * `Application`:
   * `create_window(WindowDesc)`, `close_window(id)`, `main_window()`, `windows()`
   * `set_theme(Theme)` (smooth ripple), `set_theme_with_ripple(Theme, Vec2)`, `theme` (`Property<Theme>`)
   * `run()`, `quit(code)`, `dispatcher().post(fn)` (marshal background thread work onto UI thread)
 * `Window`:
   * `set_content(WidgetPtr)`, `show()`, `hide()`, `close()`, `set_size(Vec2)`, `size()`, `center_on_screen()`
-  * `set_always_on_top(bool)`, `set_backdrop(WindowBackdrop)`, `set_title(str)`, `titlebar()`
+  * `set_always_on_top(bool)`, `set_backdrop(WindowBackdrop)`, `set_title(str)`, `titlebar()`, `start_theme_crossfade(old, new, duration)`
+  * `set_dithering_enabled(bool)`, `set_pixel_snapping_enabled(bool)`, `set_font_gamma_enabled(bool)`, `set_acrylic_grain_enabled(bool)`
+  * `set_inspector_enabled(bool)` *(Debug-only F12 DevTools)*, `set_inspector_dirty_tiles(bool)`
   * `on_resize(fn)`, `on_close(fn)`, `on_files_dropped(Fn<void(const std::vector<std::string>&, PointF)>)`
+* `OverlayEntry`: `id`, `content`, `global_pos`, `size`, `dismiss_on_outside_click`, `is_modal`, `center_in_viewport`, `allow_hit_passthrough`, `barrier_color`, `on_dismiss`, `on_request_dismiss`
 * `WindowTitlebar` (`win->titlebar()`):
   * `set_icon_text(str)`, `add_action(glyph, tooltip, on_click)`
   * `set_pin_button_visible(bool)` *(default false)*, `set_theme_button_visible(bool)` *(default false)*
   * `set_minimize_button_visible(bool)`, `set_maximize_button_visible(bool)`, `set_close_button_visible(bool)`
 * `Property<T>`: `.get()`, `.set(v)`, `.subscribe(fn)`; bind via `.bind(&RenderCls::setter, prop)` or `.bind_two_way(prop)`
 * `Clipboard`: `Clipboard::set_text(str)`, `Clipboard::get_text()`
+* `Logging` (`<kernetile/core/log.hpp>`): `KT_LOG_INFO(fmt, ...)`, `KT_LOG_WARN(fmt, ...)`, `KT_LOG_ERR(fmt, ...)` *(no-op in Release unless `KERNETILE_ENABLE_LOGS` is defined)*
 
 ### 7.2 Layouts & Containers
 
 * `VStack`: `justify`, `align_items`, `spacing`, `padding`, `reverse`, `content`
 * `HStack`: `justify`, `align_items`, `spacing`, `padding`, `reverse`, `content`
   *(Enums: `JustifyContent::{FlexStart, FlexEnd, Center, SpaceBetween, SpaceAround, SpaceEvenly}`, `AlignItems::{FlexStart, FlexEnd, Center, Stretch}`)*
-* `Box`: `width`, `height`, `min_width`, `max_width`, `min_height`, `max_height`, `background_color`, `border_color`, `border_width`, `corner_radius`, `padding`, `clip_content`, `theme_card`, `child`, `alignment`
+* `Box`: `width`, `height`, `background_color`, `border_color`, `border_width`, `corner_radius`, `padding`, `theme_card`, `directional_rim`, `rim_light_dir`, `rim_intensity`, `rim_inner_glow`, `acrylic_grain`, `grain_amount`, `grain_scale`, `inset_shadow`, `inset_shadow_blur`, `inset_shadow_spread`, `inset_shadow_offset`, `inset_shadow_color`, `tactile_press`, `tactile_press_scale`, `tactile_tilt_shift`, `concentric_inner`, `concentric_min_radius`, `child`, `clip_content`, `min_width`, `max_width`, `min_height`, `max_height`, `alignment`
 * `Grid`: `columns`, `min_item_width`, `column_weights`, `column_spacing`, `row_spacing`, `cell_height`, `padding`, `content`
 * `GridItem`: `column_span`, `child`
 * `Wrap`: `direction`, `spacing`, `run_spacing`, `alignment`, `cross_alignment`, `content`
@@ -432,14 +446,15 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 * `AspectRatio`: `ratio`, `child`
 * `Divider`: `vertical`, `thickness`, `length`, `indent`, `end_indent`, `color`
 * `Visibility`: `visible`, `maintain_size`, `child`
-* `ScrollView`: `width`, `height`, `max_height`, `child`
+* `ScrollView`: `width`, `height`, `max_height`, `child`, `rubber_band_overscroll`, `edge_feather`, `feather_size`, `scroll_hairline`, `hairline_fade_range`, `on_scroll`
+* `StickyParallaxScrollView`: `width`, `height`, `parallax_height`, `parallax_ratio`, `hairline_fade_range`, `edge_feather`, `feather_size`, `sticky_header`, `parallax_banner`, `child`
 * `SplitView`: `vertical`, `ratio`, `min_first`, `min_second`, `splitter_size`, `first`, `second`, `on_ratio_changed`
 * `DockPane`: `id`, `title`, `zone` (`DockZone::Left/Right/Top/Bottom/Center`), `content`, `closable`
 * `DockPanel`: `panes`, `left_width`, `right_width`, `top_height`, `bottom_height`, `padding`, `allow_detach_window`, `on_detach_pane`
 
 ### 7.3 Basic Input Controls & Toggles
 
-* `Button`: `text`, `icon`, `variant` (`Standard/Accent/Subtle/Danger`), `size` (`Compact/Normal/Large`), `height`, `corner_radius`, `padding`, `background_color`, `hover_color`, `active_color`, `text_color`, `border_color`, `border_width`, `font_size`, `on_click`, `disabled`, `loading`, `focusable`, `enable_ripple`
+* `Button`: `text`, `icon`, `variant` (`Standard/Accent/Subtle/Danger`), `size` (`Compact/Normal/Large`), `height`, `corner_radius`, `padding`, `background_color`, `hover_color`, `active_color`, `text_color`, `border_color`, `border_width`, `font_size`, `on_click`, `disabled`, `loading`, `focusable`, `enable_ripple`, `enable_pointer_reveal`, `tactile_press`, `tactile_press_scale`, `tactile_tilt_shift`
 * `ToggleButton`: `checked`, `text`, `svg_path`, `disabled`, `on_change`
 * `HoldConfirmButton`: `text`, `holding_text`, `confirmed_text`, `hold_duration_sec`, `danger`, `shape` (`HoldConfirmShape::PillBar/CircularRing`), `diameter`, `on_confirmed`
 * `SegmentedItem`: `label`, `svg_path`
@@ -465,13 +480,15 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 
 ### 7.5 Text, Numeric & Developer Inputs
 
-* `Text`: `text`, `font_size`, `color`, `font_weight` (`Thin/Light/Regular/Medium/SemiBold/Bold`), `overflow` (`Clip/Ellipsis/Wrap`)
+* `Text`: `text`, `font_size`, `color`, `font_weight` (`Thin/Light/Regular/Medium/SemiBold/Bold`), `overflow` (`Clip/Ellipsis/Wrap`), `tabular_nums`, `font_family`
+* `RollingNumber`: `value`, `decimals`, `prefix`, `suffix`, `font_size`, `font_weight`, `color`, `show_delta_flash`, `spring_stiffness`, `spring_damping`
+* `CrossfadeText`: `text`, `font_size`, `font_weight`, `color`
 * `Label`: `text`, `variant`, `pill`, `required`, `svg_path`, `font_size`, `disabled`, `font_weight`, `bold`, `italic`, `underline`, `strikethrough`
 * `RichTextRun`: `text`, `font_size`, `font_weight`, `bold`, `italic`, `underline`, `strikethrough`, `is_code`, `color`, `highlight`, `link_url`
 * `RichTextParagraph`: `runs`, `spacing_after`
 * `RichTextBlock`: `paragraphs`, `runs`, `font_size`, `line_height`, `is_text_selection_enabled`, `max_width`
-* `TextBox`: `text`, `placeholder`, `height`, `corner_radius`, `background_color`, `border_color`, `focused_border_color`, `text_color`, `placeholder_color`, `font_size`, `is_password`, `is_read_only`, `disabled`, `show_reveal_button`, `on_change`, `on_submit`
-* `TextArea`: `text`, `placeholder`, `header`, `width`, `height`, `disabled`, `on_change`
+* `TextBox`: `text`, `placeholder`, `height`, `corner_radius`, `padding`, `background_color`, `border_color`, `focused_border_color`, `text_color`, `placeholder_color`, `font_size`, `is_password`, `is_read_only`, `disabled`, `show_reveal_button`, `smooth_caret`, `inset_shadow`, `on_change`, `on_submit`
+* `TextArea`: `text`, `placeholder`, `header`, `width`, `height`, `disabled`, `smooth_caret`, `on_change`
 * `PasswordBox`: `password`, `placeholder`, `header`, `reveal_mode` (`Peek/Hidden/Visible`), `max_length`, `width`, `disabled`, `on_change`, `on_submit`
 * `AutoSuggestBox`: `text`, `placeholder`, `header`, `items`, `width`, `disabled`, `on_text_changed`, `on_suggestion_chosen`, `on_query_submitted`
 * `GhostTextBox`: `text`, `placeholder`, `suggestions`, `predictor`, `on_changed`, `on_accepted`
@@ -487,21 +504,21 @@ Always pick the idiomatic WinUI 3 / Fluent 2 widget for the interaction instead 
 
 * `NavigationIcon`: `None`, `Home`, `Controls`, `Inputs`, `Progress`, `ComboBox`, `Layout`, `Palette`, `Settings`, `Info`, `Star`, `Search`, `Folder`, `Code`, `Sparkles`, `BasicInput`, `Collections`, `DateTime`, `Dialogs`, `LayoutPanel`, `Media`, `MenusToolbars`, `Motion`, `Navigation`, `Scrolling`, `System`, `Text`, `Windowing`
 * `NavigationViewItem`: `id`, `label`, `kind`, `icon`, `badge`, `disabled`, `expanded`, `children`, `icon_painter` (`::header(title)`, `::separator()`)
-* `NavigationView`: `menu_items`, `footer_items`, `selected_id`, `pane_title`, `header`, `pane_display_mode` (`Auto/Left/LeftCompact/LeftMinimal/Top`), `is_pane_open`, `is_pane_toggle_button_visible`, `is_back_button_visible`, `is_back_enabled`, `is_settings_visible`, `is_search_box_visible`, `search_placeholder`, `settings_label`, `open_pane_length`, `compact_pane_length`, `compact_mode_threshold_width`, `expanded_mode_threshold_width`, `content`, `page_builder`, `on_selection_changed`, `on_back_requested`, `on_pane_toggled`
+* `NavigationView`: `menu_items`, `footer_items`, `selected_id`, `pane_title`, `header`, `pane_display_mode` (`Auto/Left/LeftCompact/LeftMinimal/Top`), `is_pane_open`, `is_pane_toggle_button_visible`, `is_back_button_visible`, `is_back_enabled`, `is_settings_visible`, `is_search_box_visible`, `search_placeholder`, `settings_label`, `open_pane_length`, `compact_pane_length`, `compact_mode_threshold_width`, `expanded_mode_threshold_width`, `content`, `page_builder`, `on_selection_changed`, `on_back_requested`, `on_pane_toggled`, `enable_pointer_reveal`
 * `PivotItem`: `header`, `svg_path`, `id`, `disabled`
 * `Pivot`: `items`, `selected_index`, `width`, `height`, `font_size`, `item_spacing`, `equal_width`, `show_divider`, `content_builder`, `on_selection_changed`
 * `TabViewItem`: `id`, `header`, `svg_path`, `is_closable`
 * `TabView`: `tabs`, `selected_index`, `is_add_tab_button_visible`, `height`, `content_builder`, `on_selection_changed`, `on_tab_close`, `on_add_tab`
-* `SettingsCard`: `header`, `description`, `header_icon_svg`, `action_icon_svg`, `is_click_enabled`, `disabled`, `is_nested`, `content`, `on_click`
-* `SettingsExpander`: `header`, `description`, `header_icon_svg`, `expanded`, `disabled`, `header_content`, `items`, `on_expanded_changed`
+* `SettingsCard`: `header`, `description`, `header_icon_svg`, `action_icon_svg`, `is_click_enabled`, `disabled`, `is_nested`, `content`, `on_click`, `enable_pointer_reveal`, `directional_rim`
+* `SettingsExpander`: `header`, `description`, `header_icon_svg`, `expanded`, `disabled`, `header_content`, `items`, `on_expanded_changed`, `enable_pointer_reveal`
 * `Expander`: `header`, `subtitle`, `svg_path`, `is_expanded`, `disabled`, `content_padding`, `content`, `on_expanded_changed`
 * `BreadcrumbItem`: `id`, `label`, `svg_path`, `siblings`
 * `BreadcrumbBar`: `items`, `font_size`, `on_item_clicked`, `on_sibling_selected`
 * `FlipView`: `items`, `selected_index`, `width`, `height`, `on_selected_index_changed`
 * `PipsPager`: `number_of_pages`, `selected_index`, `max_visible_pips`, `show_nav_buttons`, `on_selected_index_changed`
-* `VirtualList`: `item_count`, `item_height`, `width`, `height`, `overscan`, `item_builder`
+* `VirtualList`: `item_count`, `item_height`, `width`, `height`, `overscan`, `item_builder`, `rubber_band_overscroll`, `edge_feather`, `feather_size`, `scroll_hairline`, `hairline_fade_range`
 * `DataGridColumn`: `title`, `width`, `sortable`, `numeric`
-* `DataGrid`: `columns`, `rows`, `row_height`, `width`, `height`, `on_row_selected`, `cell_overflow`
+* `DataGrid`: `columns`, `rows`, `row_height`, `width`, `height`, `on_row_selected`, `cell_overflow`, `rubber_band_overscroll`, `edge_feather`, `feather_size`, `scroll_hairline`, `hairline_fade_range`, `tabular_nums`
 * `TreeViewNode`: `id`, `label`, `svg_path`, `is_expanded`, `is_checked`, `children`
 * `TreeView`: `nodes`, `selection_mode` (`Single/Multiple/None`), `selected_id`, `width`, `height`, `on_selection_changed`, `on_checked_changed`
 * `InspectorRow`: `key`, `value`, `default_value`, `type_tag`, `read_only`

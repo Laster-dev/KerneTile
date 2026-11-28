@@ -181,9 +181,10 @@ public:
                              Rect viewport_rect,
                              float content_height,
                              SmoothScrollPhysics& physics,
-                             float line_step = 32.0f) noexcept {
+                             float line_step = 32.0f,
+                             PointerDeviceKind device_kind = PointerDeviceKind::Mouse) noexcept {
         Metrics m = compute_metrics(viewport_rect, content_height, physics.offset());
-        HitPart part = hit_test(local_pos, m);
+        HitPart part = hit_test(local_pos, m, device_kind);
         if (part == HitPart::None) {
             return false;
         }
@@ -194,6 +195,7 @@ public:
 
         switch (part) {
             case HitPart::Thumb:
+                physics.jump_to(physics.offset());
                 m_dragging = true;
                 m_drag_start_y = local_pos.y;
                 m_drag_start_offset = physics.offset();
@@ -265,9 +267,10 @@ public:
                                     float content_height,
                                     float& scroll_offset,
                                     float max_scroll,
-                                    float line_step = 32.0f) noexcept {
+                                    float line_step = 32.0f,
+                                    PointerDeviceKind device_kind = PointerDeviceKind::Mouse) noexcept {
         Metrics m = compute_metrics(viewport_rect, content_height, scroll_offset);
-        HitPart part = hit_test(local_pos, m);
+        HitPart part = hit_test(local_pos, m, device_kind);
         if (part == HitPart::None) return false;
         m_pressed_part = part;
         notify_activity();

@@ -263,11 +263,14 @@ public:
                         entry.dismiss_on_outside_click = false;
                         entry.allow_hit_passthrough = true;
                         if (req()) {
-                            return was_modal;
+                            if (was_modal) return true;
+                            continue;
                         }
                     }
                     hide(id_to_dismiss);
-                    return was_modal; // 模态弹窗点击外部关闭时阻断底层点击穿透
+                    if (was_modal) return true; // 模态弹窗点击外部关闭时阻断底层点击穿透
+                    if (i - 1 > m_entries.size()) i = m_entries.size() + 1;
+                    continue;
                 }
                 if (entry.is_modal) {
                     return true; // 模态弹窗阻断外部点击
@@ -398,7 +401,9 @@ public:
                             if (tev.is_propagation_stopped()) break;
                         }
                     }
+                    return true;
                 }
+                if (entry.allow_hit_passthrough) continue;
                 return true;
             }
             if (entry.is_modal) return true;
@@ -469,6 +474,31 @@ public:
                 return true;
             }
             if (entry.is_modal) return true;
+        }
+        return false;
+    }
+
+    // 处理触控取消事件（释放当前浮层捕获并通知捕获节点重置拖拽状态）
+    bool handle_pointer_cancel(Vec2 pos, PointerDeviceKind device_kind = PointerDeviceKind::Touch) {
+        if (m_captured_id == 0) return false;
+        uint64_t captured = m_captured_id;
+        RenderBox* captured_target = m_captured_target;
+        m_captured_id = 0;
+        m_captured_target = nullptr;
+
+        for (auto& entry : m_entries) {
+            if (entry.id == captured && entry.content) {
+                auto content_guard = entry.content;
+                RenderBox* target = captured_target ? captured_target : content_guard.get();
+                if (target && target->on_pointer_cancel) {
+                    PointerEvent ev(PlatformEventType::PointerCancel, pos, PointerButton::None);
+                    ev.device_kind = device_kind;
+                    Vec2 tg = target->global_offset();
+                    ev.local_position = PointF{pos.x - tg.x, pos.y - tg.y};
+                    target->on_pointer_cancel(ev);
+                }
+                return true;
+            }
         }
         return false;
     }

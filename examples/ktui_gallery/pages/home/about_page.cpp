@@ -25,7 +25,7 @@ WidgetPtr build_about_page(GalleryApp& app) {
                 .header = "KerneTile 引擎与 KTUI 框架",
                 .description = "2D 瓦片计算渲染引擎 + C++20 声明式桌面 UI 框架，零异常零 RTTI 极致体积",
                 .header_icon_svg = kIconInfo,
-                .content = Text { .text = "v1.1.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+                .content = Text { .text = "v1.2.0", .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
             },
             SettingsCard {
                 .header = "开源仓库",

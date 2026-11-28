@@ -8,9 +8,9 @@ namespace kernetile::core {
 
 // KerneTile 引擎版本常量 (与 CMakeLists.txt 保持一致)
 inline constexpr uint32_t kVersionMajor = 1;
-inline constexpr uint32_t kVersionMinor = 1;
+inline constexpr uint32_t kVersionMinor = 2;
 inline constexpr uint32_t kVersionPatch = 0;
-inline constexpr const char* kVersionString = "1.1.0";
+inline constexpr const char* kVersionString = "1.2.0";
 
 // 无效图元/裁剪索引哨兵值
 constexpr uint32_t INVALID_INDEX_U32 = 0xFFFFFFFFu;

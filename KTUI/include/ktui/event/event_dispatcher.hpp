@@ -48,6 +48,10 @@ public:
             return;
         }
 
+        if (event.type == PlatformEventType::PointerDown && m_gesture_captured) {
+            cancel_active_interaction();
+        }
+
         // 触控按下时清理任何残留的鼠标 :hover 状态，彻底杜绝触控屏「点完一直高亮悬停」
         if (event.type == PlatformEventType::PointerDown && event.device_kind == PointerDeviceKind::Touch && !m_hovered_nodes.empty()) {
             std::vector<RenderBox*> prev_hovered(m_hovered_nodes.begin(), m_hovered_nodes.end());

@@ -93,8 +93,32 @@ inline void RenderNavigationView::setup_behavior() {
             m_touch_mode = TouchGestureMode::None;
             m_touch_start_local = e.local_position;
             m_touch_last_local = e.local_position;
-            if (m_menu_scroll.max_scroll() > 0.0f) {
+            const float pane_w = current_pane_width(eff);
+            Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
+            if (menu_vp.contains(e.local_position) && m_menu_scroll.max_scroll() > 0.0f) {
+                const float total_menu_h = compute_left_menu_total_height();
+                auto sb_m = m_menu_scrollbar.compute_metrics(menu_vp, total_menu_h, m_menu_scroll.offset());
+                if (m_menu_scrollbar.hit_test(e.local_position, sb_m, e.device_kind) != WinUIScrollBar::HitPart::None) {
+                    m_touch_tracking = false;
+                    if (m_menu_scrollbar.handle_pointer_down(e.local_position, menu_vp, total_menu_h,
+                                                             m_menu_scroll, 36.0f, e.device_kind)) {
+                        mark_needs_paint();
+                        e.gesture_capture_target = this;
+                        e.stop_propagation();
+                    }
+                    return;
+                }
+                const bool braked = (std::abs(m_menu_scroll.velocity()) > 45.0f) ||
+                                    m_menu_scroll.is_bouncing() ||
+                                    (std::abs(m_menu_scroll.overscroll_amount()) > 0.5f);
                 m_menu_scroll.begin_touch_drag();
+                if (braked) {
+                    m_touch_mode = TouchGestureMode::MenuScroll;
+                    mark_needs_paint();
+                    e.gesture_capture_target = this;
+                    e.stop_propagation();
+                    return;
+                }
             }
         } else if (e.type == PlatformEventType::PointerMove && m_touch_tracking && m_touch_mode == TouchGestureMode::None) {
             float dx = e.local_position.x - m_touch_start_local.x;
@@ -122,7 +146,7 @@ inline void RenderNavigationView::setup_behavior() {
             // 3. 侧边栏菜单列表垂直触控拖拽滚动 (避开滚动条区域)
             Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
             auto sb_m = m_menu_scrollbar.compute_metrics(menu_vp, compute_left_menu_total_height(), m_menu_scroll.offset());
-            bool on_sb = (m_menu_scrollbar.hit_test(m_touch_start_local, sb_m) != WinUIScrollBar::HitPart::None);
+            bool on_sb = (m_menu_scrollbar.hit_test(m_touch_start_local, sb_m, e.device_kind) != WinUIScrollBar::HitPart::None);
             if (!on_sb && !m_menu_scrollbar.is_dragging() &&
                 menu_vp.contains(m_touch_start_local) && m_menu_scroll.max_scroll() > 0.0f &&
                 std::abs(dy) > 8.0f && std::abs(dy) > std::abs(dx) * 1.15f) {
@@ -324,7 +348,7 @@ inline void RenderNavigationView::setup_behavior() {
 
         Rect menu_vp = compute_left_menu_viewport(size().y, pane_w);
         if (m_menu_scrollbar.handle_pointer_down(e.local_position, menu_vp, compute_left_menu_total_height(),
-                                                 m_menu_scroll, 36.0f)) {
+                                                 m_menu_scroll, 36.0f, e.device_kind)) {
             mark_needs_paint();
             e.stop_propagation();
             return;
@@ -424,9 +448,15 @@ inline void RenderNavigationView::setup_behavior() {
     };
 
     on_pointer_cancel = [this](PointerEvent&) {
+        const bool need_end = (m_touch_mode == TouchGestureMode::MenuScroll) ||
+                              (std::abs(m_menu_scroll.overscroll_amount()) > 0.05f);
+        m_menu_scrollbar.handle_pointer_up();
         m_menu_scrollbar.handle_pointer_exit();
         m_touch_mode = TouchGestureMode::None;
         m_touch_tracking = false;
+        if (need_end) {
+            m_menu_scroll.end_touch_drag();
+        }
         m_pressed_chrome = ChromeButton::None;
         m_pressed_top = -1;
         m_pressed_row = -1;

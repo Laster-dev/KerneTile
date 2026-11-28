@@ -513,6 +513,13 @@ bool Window::route_overlay_event(const PlatformEvent& pe) {
         request_redraw();
         if (m_platform_window) m_platform_window->invalidate();
         if (handled) return true;
+    } else if (pe.type == PlatformEventType::PointerCancel) {
+        bool handled = m_overlay_manager.handle_pointer_cancel(pe.position, pe.device_kind);
+        if (handled) {
+            request_redraw();
+            if (m_platform_window) m_platform_window->invalidate();
+            return true;
+        }
     } else if (pe.type == PlatformEventType::KeyDown && pe.key_code == 27) {
         m_overlay_manager.dismiss_top();
         request_redraw();
@@ -688,7 +695,10 @@ void Window::handle_platform_event(const PlatformEvent& pe) {
             }
             HitTestResult hit_res;
             RenderBox* new_focus = nullptr;
-            if (m_root_render_box->hit_test(hit_res, client_pos)) {
+            const bool focus_hit = (pe.device_kind == PointerDeviceKind::Touch)
+                ? m_root_render_box->hit_test_touch(hit_res, client_pos)
+                : m_root_render_box->hit_test(hit_res, client_pos);
+            if (focus_hit) {
                 for (const auto& entry : hit_res.path()) {
                     if (entry.target && entry.target->is_focusable) {
                         new_focus = entry.target;

@@ -289,17 +289,26 @@ private:
         on_pointer_down = [this](PointerEvent& e) {
             float total_h = static_cast<float>(m_items.size()) * m_item_height;
             Rect sb_vp = scrollbar_viewport();
-            if (m_scrollbar.handle_pointer_down(e.local_position, sb_vp, total_h, m_scroll, m_item_height)) {
+            if (m_scrollbar.handle_pointer_down(e.local_position, sb_vp, total_h, m_scroll, m_item_height, e.device_kind)) {
                 mark_needs_paint();
                 e.stop_propagation();
                 return;
             }
             if (e.device_kind == PointerDeviceKind::Touch) {
+                const bool braked = (std::abs(m_scroll.velocity()) > 45.0f) ||
+                                    m_scroll.is_bouncing() ||
+                                    (std::abs(m_scroll.overscroll_amount()) > 0.5f);
                 m_touch_down = true;
-                m_touch_dragging = false;
+                m_touch_dragging = braked;
                 m_touch_start_y = e.local_position.y;
                 m_touch_last_y = e.local_position.y;
                 m_scroll.begin_touch_drag();
+                if (braked) {
+                    m_pressed_index = -1;
+                    mark_needs_paint();
+                    e.stop_propagation();
+                    return;
+                }
             }
             int idx = hit_test_item_index(e.local_position.y);
             if (idx >= 0 && !m_items[static_cast<size_t>(idx)].disabled) {

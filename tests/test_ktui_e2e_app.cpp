@@ -1387,6 +1387,438 @@ void test_mobile_touch_passthrough_and_responsive_layout() {
     std::cout << "  -> 移动端触控防穿透（NavigationView 浮层抽屉）、SettingsCard 堆叠与 FlexEngine/复合控件窄屏自动折行验证通过！" << std::endl;
 }
 
+void test_touch_scroll_mid_fling_interrupt_and_continue() {
+    std::cout << "[Test 14] 触控惯性滚动作业中二次打断续滑、点停不误触与滚动条触控接管..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    Application app(create_platform_backend(true));
+    WindowDesc desc;
+    desc.title = "Touch Scroll Interrupt Test";
+    desc.size = Vec2{360.0f, 480.0f};
+    desc.custom_titlebar = false;
+    auto win = app.create_window(desc);
+    require(win != nullptr, "create window");
+
+    auto send_touch = [&](PlatformEventType type, float x, float y) {
+        PlatformEvent pe{};
+        pe.type = type;
+        pe.position = Vec2{x, y};
+        pe.button = (type == PlatformEventType::PointerMove) ? PointerButton::None : PointerButton::Primary;
+        pe.device_kind = PointerDeviceKind::Touch;
+        pe.pointer_id = 1;
+        win->handle_platform_event(pe);
+    };
+
+    // 1. ScrollView: 第一次滑动触发惯性 -> 惯性未停止时立刻第二次滑动应立即打断并跟手续滑 + 再次启动惯性
+    {
+        int btn_clicks = 0;
+        std::vector<WidgetPtr> items;
+        for (int i = 0; i < 40; ++i) {
+            items.push_back(Button{
+                .text = "Row " + std::to_string(i),
+                .height = 48.0f,
+                .on_click = [&btn_clicks]() { ++btn_clicks; }
+            });
+        }
+        win->set_content(ScrollView{
+            .child = VStack{
+                .align_items = AlignItems::Stretch,
+                .spacing = 8.0f,
+                .content = std::move(items)
+            }
+        });
+        win->render_frame(true);
+
+        auto* sv = static_cast<RenderScrollView*>(win->root_render_box());
+        require(sv != nullptr && sv->max_scroll() > 1000.0f, "ScrollView scrollable");
+
+        // 第一次快速上滑 -> 启动惯性
+        send_touch(PlatformEventType::PointerDown, 150.0f, 380.0f);
+        for (int i = 1; i <= 5; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            send_touch(PlatformEventType::PointerMove, 150.0f, 380.0f - static_cast<float>(i) * 32.0f);
+        }
+        send_touch(PlatformEventType::PointerUp, 150.0f, 220.0f);
+        require(btn_clicks == 0, "first swipe should not click child button");
+
+        const float after_swipe1 = sv->scroll_offset();
+        std::this_thread::sleep_for(std::chrono::milliseconds(24));
+        win->render_frame(true);
+        const float during_fling1 = sv->scroll_offset();
+        require(during_fling1 > after_swipe1 + 10.0f, "first swipe launched active fling");
+
+        // 惯性仍在滑行中 -> 立刻发起第二次滑动 (PointerDown -> PointerMove -> PointerUp)
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        const float offset_at_catch = sv->scroll_offset();
+        std::this_thread::sleep_for(std::chrono::milliseconds(12));
+        send_touch(PlatformEventType::PointerMove, 150.0f, 320.0f);
+        const float offset_after_move1 = sv->scroll_offset();
+        require(offset_after_move1 > offset_at_catch + 30.0f,
+                "mid-fling second touch move must immediately drag 1:1 without waiting for stop");
+
+        for (int i = 2; i <= 4; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            send_touch(PlatformEventType::PointerMove, 150.0f, 360.0f - static_cast<float>(i) * 40.0f);
+        }
+        send_touch(PlatformEventType::PointerUp, 150.0f, 200.0f);
+        require(btn_clicks == 0, "mid-fling second swipe must not click child button");
+
+        const float after_swipe2 = sv->scroll_offset();
+        require(after_swipe2 > offset_at_catch + 140.0f, "second swipe scrolled smoothly");
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(24));
+        win->render_frame(true);
+        const float during_fling2 = sv->scroll_offset();
+        require(during_fling2 > after_swipe2 + 10.0f, "second swipe launched fresh fling");
+
+        // 惯性仍在滑行中 -> 轻点刹车不移动 -> 停止滚动且不误触子按钮
+        send_touch(PlatformEventType::PointerDown, 150.0f, 240.0f);
+        send_touch(PlatformEventType::PointerUp, 150.0f, 240.0f);
+        const float braked_offset = sv->scroll_offset();
+        std::this_thread::sleep_for(std::chrono::milliseconds(24));
+        win->render_frame(true);
+        require(std::abs(sv->scroll_offset() - braked_offset) < 0.5f, "tap during fling brakes scroll cleanly");
+        require(btn_clicks == 0, "tap-to-brake must not trigger child button click");
+
+        // 触控按住右侧 24px 滚动条热区（在惯性滑行中途直接抓握）-> 立即打断惯性并跟手拖动滑块
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        for (int i = 1; i <= 4; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            send_touch(PlatformEventType::PointerMove, 150.0f, 360.0f - static_cast<float>(i) * 35.0f);
+        }
+        send_touch(PlatformEventType::PointerUp, 150.0f, 220.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        win->render_frame(true);
+
+        // 命中右侧 24px 触控带内（x = 342，处于 12px 视觉宽外但 24px 触控宽内）
+        const float sb_start_offset = sv->scroll_offset();
+        const float frac = std::clamp(sb_start_offset / sv->max_scroll(), 0.0f, 1.0f);
+        const float thumb_y = 20.0f + frac * (480.0f - 80.0f);
+        send_touch(PlatformEventType::PointerDown, 342.0f, thumb_y);
+        send_touch(PlatformEventType::PointerMove, 342.0f, std::min(460.0f, thumb_y + 80.0f));
+        send_touch(PlatformEventType::PointerUp, 342.0f, std::min(460.0f, thumb_y + 80.0f));
+        require(sv->scroll_offset() > sb_start_offset + 50.0f,
+                "touch grabbing scrollbar in 24px hit strip must interrupt fling and scrub offset");
+    }
+
+    // 2. VirtualList: 惯性中途第二次触控滑动立即打断并跟手续滑
+    {
+        win->set_content(VirtualList{
+            .item_count = 200,
+            .item_height = 40.0f,
+            .height = 480.0f,
+            .item_builder = [](size_t idx) -> WidgetPtr {
+                return Text{ .text = "Item #" + std::to_string(idx) };
+            }
+        });
+        win->render_frame(true);
+
+        auto* vl = static_cast<RenderVirtualList*>(win->root_render_box());
+        require(vl != nullptr && vl->max_scroll() > 1000.0f, "VirtualList scrollable");
+
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        for (int i = 1; i <= 5; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            send_touch(PlatformEventType::PointerMove, 150.0f, 360.0f - static_cast<float>(i) * 32.0f);
+        }
+        send_touch(PlatformEventType::PointerUp, 150.0f, 200.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        win->render_frame(true);
+
+        const float before_swipe2 = vl->scroll_offset();
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        send_touch(PlatformEventType::PointerMove, 150.0f, 310.0f);
+        const float during_swipe2 = vl->scroll_offset();
+        send_touch(PlatformEventType::PointerUp, 150.0f, 310.0f);
+        require(during_swipe2 > before_swipe2 + 40.0f,
+                "VirtualList mid-fling second swipe must immediately scroll");
+    }
+
+    // 3. DataGrid: 惯性中途第二次触控滑动立即打断并跟手续滑
+    {
+        std::vector<std::vector<std::string>> rows;
+        for (int i = 0; i < 120; ++i) {
+            rows.push_back({std::to_string(i), "Row " + std::to_string(i)});
+        }
+        win->set_content(DataGrid{
+            .columns = {
+                DataGridColumn{ .title = "ID", .width = 80.0f },
+                DataGridColumn{ .title = "Name", .width = 240.0f }
+            },
+            .rows = std::move(rows),
+            .height = 480.0f
+        });
+        win->render_frame(true);
+
+        auto* dg = static_cast<RenderDataGrid*>(win->root_render_box());
+        require(dg != nullptr, "DataGrid created");
+
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        for (int i = 1; i <= 5; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            send_touch(PlatformEventType::PointerMove, 150.0f, 360.0f - static_cast<float>(i) * 32.0f);
+        }
+        send_touch(PlatformEventType::PointerUp, 150.0f, 200.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        win->render_frame(true);
+
+        const float before_swipe2 = dg->scroll_offset();
+        send_touch(PlatformEventType::PointerDown, 150.0f, 360.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        send_touch(PlatformEventType::PointerMove, 150.0f, 310.0f);
+        const float during_swipe2 = dg->scroll_offset();
+        send_touch(PlatformEventType::PointerUp, 150.0f, 310.0f);
+        require(during_swipe2 > before_swipe2 + 40.0f,
+                "DataGrid mid-fling second swipe must immediately scroll");
+    }
+
+    std::cout << "  -> ScrollView / VirtualList / DataGrid 触控惯性打断续滑、点停防误触与滚动条触控接管全部验证通过！" << std::endl;
+}
+
+// =========================================================================
+// [Test 15] 文本框点击选区稳定性（鼠标+触控）与水滴形触控选区/光标调整手柄验证
+// =========================================================================
+static void test_text_selection_stability_and_touch_teardrop_handles() {
+    std::cout << "[Test 15] 文本框点击选区稳定性与水滴形触控调整手柄验证..." << std::endl;
+    auto require = [](bool cond, const char* msg) {
+        if (!cond) {
+            std::cerr << "FAILED: " << msg << std::endl;
+            std::abort();
+        }
+    };
+
+    Application app(create_platform_backend(true));
+    WindowDesc desc;
+    desc.title = "Text Selection & Handles E2E";
+    desc.size = Vec2{480.0f, 420.0f};
+    auto win = app.create_window(desc);
+    require(win != nullptr, "create window");
+    const float tb_h = win->titlebar_height();
+
+    auto send_mouse = [&](PlatformEventType type, float client_x, float client_y,
+                          PointerButton btn = PointerButton::Primary) {
+        PlatformEvent ev;
+        ev.type = type;
+        ev.position = Vec2{client_x, tb_h + client_y};
+        ev.button = btn;
+        ev.device_kind = PointerDeviceKind::Mouse;
+        win->handle_platform_event(ev);
+    };
+    auto send_touch = [&](PlatformEventType type, float client_x, float client_y,
+                          PointerButton btn = PointerButton::Primary) {
+        PlatformEvent ev;
+        ev.type = type;
+        ev.position = Vec2{client_x, tb_h + client_y};
+        ev.button = btn;
+        ev.device_kind = PointerDeviceKind::Touch;
+        ev.pointer_id = 1;
+        win->handle_platform_event(ev);
+    };
+
+    // 1. RenderTextBox: 鼠标点击不乱跳 + 拖拽选区 + 水滴形触控手柄调整 Start / End / Crossing / Caret
+    {
+        win->set_content(VStack{
+            .align_items = AlignItems::Stretch,
+            .spacing = 16.0f,
+            .padding = EdgeInsets{24.0f, 24.0f, 24.0f, 24.0f},
+            .content = {
+                TextBox{
+                    .text = "Hello KerneTile World Selection",
+                    .placeholder = "input"
+                }
+            }
+        });
+        win->render_frame(true);
+
+        RenderTextBox* tb = static_cast<RenderTextBox*>(win->root_render_box()->first_child());
+        require(tb != nullptr, "RenderTextBox found");
+
+        const Vec2 g = tb->global_offset();
+        const auto style = tb->resolve_current_style();
+        const float mid_y = g.y + tb->size().y * 0.5f;
+        const float base_x = g.x + style.padding.left;
+        const std::string txt = tb->text();
+        auto char_client_x = [&](size_t idx) -> float {
+            return base_x + TextMeasure::cursor_x(txt, style.font_size, idx);
+        };
+
+        // 1a. 鼠标在不同位置快速连点 (<400ms)，绝不能误判成双击选词/三击全选
+        const float x_pos_a = char_client_x(2);  // "He|llo"
+        const float x_pos_b = char_client_x(12); // "Hello KerneT|ile"
+        const float x_pos_c = char_client_x(20); // "Hello KerneTile Worl|d"
+        send_mouse(PlatformEventType::PointerDown, x_pos_a, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_pos_a, mid_y);
+        require(!tb->has_selection(), "Single mouse click at A must not create selection");
+        require(tb->cursor_index() == 2, "Single mouse click at A places caret at index 2");
+
+        send_mouse(PlatformEventType::PointerDown, x_pos_b, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_pos_b, mid_y);
+        require(!tb->has_selection(), "Quick click at distant B must NOT jump into word/all selection");
+        require(tb->cursor_index() == 12, "Click at B places caret accurately at index 12");
+
+        send_mouse(PlatformEventType::PointerDown, x_pos_c, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_pos_c, mid_y);
+        require(!tb->has_selection(), "Quick 3rd click at distant C must NOT select all");
+        require(tb->cursor_index() == 20, "Click at C places caret accurately at index 20");
+
+        // 1b. 单击伴随 1.5px 轻微手抖 PointerMove 不得误产生选区
+        send_mouse(PlatformEventType::PointerDown, x_pos_a, mid_y);
+        send_mouse(PlatformEventType::PointerMove, x_pos_a + 1.5f, mid_y + 1.0f, PointerButton::None);
+        send_mouse(PlatformEventType::PointerUp, x_pos_a + 1.5f, mid_y + 1.0f);
+        require(!tb->has_selection(), "Mouse click with <=3.5px micro-jitter must NOT create spurious selection");
+        require(tb->cursor_index() == 2, "Micro-jitter click keeps caret stable");
+
+        // 1c. 正常鼠标拖拽（包括拖出 28px 高度边界）应稳定创建选区
+        send_mouse(PlatformEventType::PointerDown, char_client_x(0), mid_y);
+        send_mouse(PlatformEventType::PointerMove, char_client_x(5), mid_y + 28.0f, PointerButton::None);
+        send_mouse(PlatformEventType::PointerUp, char_client_x(5), mid_y + 28.0f);
+        require(tb->has_selection() && tb->selected_text() == "Hello",
+                "Mouse drag across vertical bounds selects 'Hello' smoothly");
+
+        // 1d. 同位置双击选词 -> 三击全选 -> 第四击回绕为单光标不卡死在全选态
+        std::this_thread::sleep_for(std::chrono::milliseconds(420));
+        const float x_word = char_client_x(8); // inside "KerneTile"
+        send_mouse(PlatformEventType::PointerDown, x_word, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_word, mid_y);
+        require(!tb->has_selection(), "1st click clears selection");
+        send_mouse(PlatformEventType::PointerDown, x_word, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_word, mid_y);
+        require(tb->selected_text() == "KerneTile", "2nd click at same spot selects word 'KerneTile'");
+        send_mouse(PlatformEventType::PointerDown, x_word, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_word, mid_y);
+        require(tb->selected_text() == txt, "3rd click at same spot selects all text");
+        send_mouse(PlatformEventType::PointerDown, x_word, mid_y);
+        send_mouse(PlatformEventType::PointerUp, x_word, mid_y);
+        require(!tb->has_selection(), "4th click wraps back to single caret without staying stuck in select-all");
+
+        // 1e. 触控长按选中单词并弹出水滴形触控选区手柄 + 上下文菜单
+        std::this_thread::sleep_for(std::chrono::milliseconds(420));
+        send_touch(PlatformEventType::PointerDown, x_word, mid_y);
+        require(!win->overlay_manager().has_active_overlay(), "no overlay before touch long press fires");
+        win->trigger_touch_long_press_for_test();
+        send_touch(PlatformEventType::PointerUp, x_word, mid_y);
+        require(tb->selected_text() == "KerneTile", "Touch long press selects 'KerneTile'");
+        require(win->overlay_manager().overlay_count() >= 2,
+                "Both teardrop touch handles overlay and context menu overlay are active");
+        win->render_frame(true);
+
+        // 1f. 直接按住右侧 End 水滴手柄（同时上下文菜单打开）：一次手势关闭菜单并向右拖拽扩大选区！
+        const float handle_y = g.y + tb->size().y + 6.0f; // 水滴球体位于文本框下沿下方
+        const float end_bulb_x = char_client_x(15) + 8.0f; // End 水滴向右偏移 half=8px
+        const float drag_end_dx = char_client_x(21) - char_client_x(15);
+        send_touch(PlatformEventType::PointerDown, end_bulb_x, handle_y);
+        send_touch(PlatformEventType::PointerMove, end_bulb_x + drag_end_dx, handle_y, PointerButton::None);
+        send_touch(PlatformEventType::PointerUp, end_bulb_x + drag_end_dx, handle_y);
+        require(tb->has_selection() && tb->selected_text() == "KerneTile World",
+                "Dragging End teardrop handle expands selection right to 'KerneTile World'");
+
+        // 1g. 按住左侧 Start 水滴手柄向左拖拽扩大选区到文本开头
+        win->render_frame(true);
+        const float start_bulb_x = char_client_x(6) - 8.0f; // Start 水滴向左偏移 half=8px
+        const float drag_start_dx = char_client_x(0) - char_client_x(6);
+        send_touch(PlatformEventType::PointerDown, start_bulb_x, handle_y);
+        send_touch(PlatformEventType::PointerMove, start_bulb_x + drag_start_dx, handle_y, PointerButton::None);
+        send_touch(PlatformEventType::PointerUp, start_bulb_x + drag_start_dx, handle_y);
+        require(tb->has_selection() && tb->selected_text() == "Hello KerneTile World",
+                "Dragging Start teardrop handle expands selection left to 'Hello KerneTile World'");
+
+        // 1h. 反向跨越拖拽：把左侧 Start 水滴一路拖过 End(21) 到 31，选区平滑翻转为 " Selection" 且不坍缩消失
+        win->render_frame(true);
+        const float start0_bulb_x = char_client_x(0) - 8.0f;
+        const float cross_dx = char_client_x(31) - char_client_x(0);
+        send_touch(PlatformEventType::PointerDown, start0_bulb_x, handle_y);
+        send_touch(PlatformEventType::PointerMove, start0_bulb_x + cross_dx, handle_y, PointerButton::None);
+        send_touch(PlatformEventType::PointerUp, start0_bulb_x + cross_dx, handle_y);
+        require(tb->has_selection() && tb->selected_text() == " Selection",
+                "Dragging Start handle past End smoothly flips selection across fixed endpoint");
+
+        // 1i. 触控单击折叠选区后抬手 -> 显示 Caret 居中水滴手柄；拖拽 Caret 水滴移动光标且不产生选区
+        std::this_thread::sleep_for(std::chrono::milliseconds(420));
+        send_touch(PlatformEventType::PointerDown, char_client_x(5), mid_y);
+        send_touch(PlatformEventType::PointerUp, char_client_x(5), mid_y);
+        require(!tb->has_selection() && tb->cursor_index() == 5, "Touch tap collapses selection to caret 5");
+        require(win->overlay_manager().has_active_overlay(), "Caret teardrop handle overlay shown after touch tap");
+        win->render_frame(true);
+
+        const float caret_bulb_x = char_client_x(5);
+        const float caret_drag_dx = char_client_x(12) - char_client_x(5);
+        send_touch(PlatformEventType::PointerDown, caret_bulb_x, handle_y + 2.0f);
+        send_touch(PlatformEventType::PointerMove, caret_bulb_x + caret_drag_dx, handle_y + 2.0f, PointerButton::None);
+        send_touch(PlatformEventType::PointerUp, caret_bulb_x + caret_drag_dx, handle_y + 2.0f);
+        require(!tb->has_selection() && tb->cursor_index() == 12,
+                "Dragging Caret teardrop handle repositions caret smoothly without creating selection");
+
+        // 1j. 切回鼠标点击或点击外部空白失焦 -> 水滴触控手柄自动隐藏
+        send_mouse(PlatformEventType::PointerDown, char_client_x(3), mid_y);
+        send_mouse(PlatformEventType::PointerUp, char_client_x(3), mid_y);
+        require(!win->overlay_manager().has_active_overlay(),
+                "Switching to mouse hides touch teardrop handles overlay");
+    }
+
+    // 2. RenderTextArea: 鼠标快速异地点击不乱跳 + 多行触控水滴手柄跨行拖拽扩选
+    {
+        win->set_content(VStack{
+            .padding = EdgeInsets{24.0f, 24.0f, 24.0f, 24.0f},
+            .content = {
+                TextArea{
+                    .text = "Alpha Beta\nGamma Delta",
+                    .width = 360.0f,
+                    .height = 120.0f
+                }
+            }
+        });
+        win->render_frame(true);
+
+        RenderTextArea* ta = static_cast<RenderTextArea*>(win->root_render_box()->first_child());
+        require(ta != nullptr, "RenderTextArea found");
+
+        const Vec2 g = ta->global_offset();
+        const float line0_y = g.y + 8.0f + 10.0f;
+        const float line1_y = g.y + 8.0f + 20.0f + 10.0f;
+        const float x_alpha_mid = g.x + 11.0f + TextMeasure::measure_width("Al", 13.5f);
+        const float x_gamma_end = g.x + 11.0f + TextMeasure::measure_width("Gamma", 13.5f);
+
+        // 2a. 鼠标在不同行快速连点，不误触选词/选行，微抖动不误选
+        send_mouse(PlatformEventType::PointerDown, x_alpha_mid, line0_y);
+        send_mouse(PlatformEventType::PointerMove, x_alpha_mid + 1.5f, line0_y + 1.0f, PointerButton::None);
+        send_mouse(PlatformEventType::PointerUp, x_alpha_mid + 1.5f, line0_y + 1.0f);
+        require(!ta->has_selection(), "TextArea single mouse click with micro-jitter creates no selection");
+
+        send_mouse(PlatformEventType::PointerDown, x_gamma_end, line1_y);
+        send_mouse(PlatformEventType::PointerUp, x_gamma_end, line1_y);
+        require(!ta->has_selection(), "TextArea quick click on line 2 must NOT jump to word/line selection");
+
+        // 2b. 触控双击选中第 1 行 "Alpha"，拖动 End 水滴手柄向下跨行到第 2 行 "Gamma" 末尾
+        std::this_thread::sleep_for(std::chrono::milliseconds(420));
+        send_touch(PlatformEventType::PointerDown, x_alpha_mid, line0_y);
+        send_touch(PlatformEventType::PointerUp, x_alpha_mid, line0_y);
+        send_touch(PlatformEventType::PointerDown, x_alpha_mid, line0_y);
+        send_touch(PlatformEventType::PointerUp, x_alpha_mid, line0_y);
+        require(ta->selected_text() == "Alpha", "TextArea touch double-tap selects 'Alpha'");
+        require(win->overlay_manager().has_active_overlay(), "TextArea shows touch selection handles overlay");
+        win->render_frame(true);
+
+        const float x_alpha_end = g.x + 11.0f + TextMeasure::measure_width("Alpha", 13.5f);
+        const float end_bulb_x = x_alpha_end + 8.0f;
+        const float end_bulb_y = g.y + 8.0f + 20.0f + 8.0f;
+        const float dx = x_gamma_end - x_alpha_end;
+        const float dy = 20.0f; // 向下跨一行
+        send_touch(PlatformEventType::PointerDown, end_bulb_x, end_bulb_y);
+        send_touch(PlatformEventType::PointerMove, end_bulb_x + dx, end_bulb_y + dy, PointerButton::None);
+        send_touch(PlatformEventType::PointerUp, end_bulb_x + dx, end_bulb_y + dy);
+        require(ta->has_selection() && ta->selected_text() == "Alpha Beta\nGamma",
+                "Dragging TextArea End teardrop handle down across lines selects 'Alpha Beta\\nGamma'");
+    }
+
+    std::cout << "  -> TextBox / TextArea 鼠标与触控点击防乱跳、水滴形 Start/End/Caret 手柄拖拽与跨行扩选全部验证通过！" << std::endl;
+}
+
 int main() {
     std::cout << "==================================================" << std::endl;
     std::cout << "   KTUI 阶段 7: C++20 指定初始化器与端到端实战验证   " << std::endl;
@@ -1405,6 +1837,8 @@ int main() {
     test_touch_long_press_synthesizes_secondary_click();
     test_comprehensive_touch_adaptation();
     test_mobile_touch_passthrough_and_responsive_layout();
+    test_touch_scroll_mid_fling_interrupt_and_continue();
+    test_text_selection_stability_and_touch_teardrop_handles();
 
     std::cout << "==================================================" << std::endl;
     std::cout << "   恭喜！阶段 7 核心控件库与全栈端到端验证 100% 通过! " << std::endl;

@@ -248,24 +248,38 @@ private:
         on_pointer_preview = [this](PointerEvent& e) {
             if (e.device_kind != PointerDeviceKind::Touch) return;
             if (e.type == PlatformEventType::PointerDown) {
-                // 若触控点落在滚动条区域内，交由滚动条直接处理，不启动内容区触控拖拽
+                // 若触控点落在滚动条区域内，直接交由滚动条捕获，立即打断惯性并避免底层控件拦截
                 Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
                 auto m = m_scrollbar.compute_metrics(vp, m_content_height, m_physics.offset());
                 if (m_scrollbar.hit_test(e.local_position, m, e.device_kind) != WinUIScrollBar::HitPart::None) {
                     m_touch_tracking = false;
                     m_touch_dragging = false;
                     m_touch_braked = false;
+                    if (m_scrollbar.handle_pointer_down(e.local_position, vp, m_content_height, m_physics, 32.0f, e.device_kind)) {
+                        mark_needs_paint();
+                        e.gesture_capture_target = this;
+                        e.stop_propagation();
+                    }
                     return;
                 }
                 // 防御性清理可能残留的滚动条拖拽态
                 m_scrollbar.handle_pointer_up();
                 if (m_physics.max_scroll() > 0.0f || m_physics.is_rubber_band_enabled()) {
-                    m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f);
+                    const bool was_moving = (std::abs(m_physics.velocity()) > 45.0f) ||
+                                            m_physics.is_flinging() ||
+                                            m_physics.is_bouncing() ||
+                                            (std::abs(m_physics.overscroll_amount()) > 0.5f);
+                    m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f) ||
+                                     m_physics.is_bouncing() ||
+                                     (std::abs(m_physics.overscroll_amount()) > 0.5f);
                     m_touch_tracking = true;
-                    m_touch_dragging = false;
+                    m_touch_dragging = m_touch_braked;
                     m_touch_start_pos = e.position;
                     m_touch_last_pos = e.position;
                     m_physics.begin_touch_drag();
+                    if (was_moving) {
+                        mark_needs_paint();
+                    }
                     if (m_touch_braked) {
                         e.gesture_capture_target = this;
                         e.stop_propagation();
@@ -288,6 +302,9 @@ private:
                 if (m_touch_braked) {
                     m_touch_braked = false;
                     m_touch_tracking = false;
+                    m_touch_dragging = false;
+                    m_physics.end_touch_drag();
+                    mark_needs_paint();
                     e.stop_propagation();
                     return;
                 }
@@ -333,7 +350,7 @@ private:
 
         on_pointer_down = [this](PointerEvent& e) {
             Rect vp = Rect::from_xywh(0.0f, 0.0f, size().x, size().y);
-            if (m_scrollbar.handle_pointer_down(e.local_position, vp, m_content_height, m_physics)) {
+            if (m_scrollbar.handle_pointer_down(e.local_position, vp, m_content_height, m_physics, 32.0f, e.device_kind)) {
                 mark_needs_paint();
                 e.stop_propagation();
             }
@@ -341,9 +358,10 @@ private:
 
         on_pointer_up = [this](PointerEvent& e) {
             bool sb_released = m_scrollbar.handle_pointer_up();
-            if (m_touch_dragging) {
+            if (m_touch_dragging || m_touch_braked) {
                 m_touch_dragging = false;
                 m_touch_tracking = false;
+                m_touch_braked = false;
                 m_physics.end_touch_drag();
                 m_scrollbar.notify_activity();
                 mark_needs_paint();
@@ -358,10 +376,15 @@ private:
         };
 
         on_pointer_cancel = [this](PointerEvent&) {
+            const bool need_end = m_touch_dragging || (std::abs(m_physics.overscroll_amount()) > 0.05f);
             m_viewport_hovered = false;
             m_touch_dragging = false;
             m_touch_tracking = false;
             m_touch_braked = false;
+            if (need_end) {
+                m_physics.end_touch_drag();
+            }
+            m_scrollbar.handle_pointer_up();
             m_scrollbar.handle_pointer_exit();
             mark_needs_paint();
         };

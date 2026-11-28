@@ -295,7 +295,7 @@ private:
         };
         on_pointer_down = [this](PointerEvent& e) {
             const Rect vp = Rect::from_xywh(0.0f, m_sticky_h, size().x, std::max(0.0f, size().y - m_sticky_h));
-            if (m_scrollbar.handle_pointer_down(e.local_position, vp, m_content_height, m_physics)) {
+            if (m_scrollbar.handle_pointer_down(e.local_position, vp, m_content_height, m_physics, 32.0f, e.device_kind)) {
                 mark_needs_paint();
                 e.stop_propagation();
             }

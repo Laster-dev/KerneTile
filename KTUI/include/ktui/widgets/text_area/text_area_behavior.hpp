@@ -148,8 +148,6 @@ inline void RenderTextArea::setup_behavior() {
     };
     on_pointer_exit = [this](PointerEvent&) {
         m_hovered = false;
-        m_pending_touch_collapse = false;
-        m_dragging = false;
         m_scrollbar.handle_pointer_exit();
         mark_needs_paint();
     };
@@ -174,6 +172,15 @@ inline void RenderTextArea::setup_behavior() {
             return;
         }
         if (m_dragging && !m_disabled) {
+            if (!m_drag_threshold_passed) {
+                float d = std::hypot(e.local_position.x - m_drag_start_local.x,
+                                     e.local_position.y - m_drag_start_local.y);
+                if (d < 3.5f) {
+                    e.stop_propagation();
+                    return;
+                }
+                m_drag_threshold_passed = true;
+            }
             m_caret = byte_index_at_point(e.local_position);
             ensure_caret_visible();
             reset_blink();
@@ -185,9 +192,15 @@ inline void RenderTextArea::setup_behavior() {
         if (m_disabled) return;
         if (e.button == PointerButton::Secondary) {
             m_pending_touch_collapse = false;
+            m_dragging = false;
+            m_drag_threshold_passed = false;
             const bool is_touch = (e.device_kind == PointerDeviceKind::Touch);
             if (is_touch && !has_selection() && !m_text.empty()) {
                 select_word_at(byte_index_at_point(e.local_position));
+            }
+            if (is_touch) {
+                m_show_touch_handles = true;
+                sync_touch_handles();
             }
             open_context_menu(e.position, is_touch);
             e.stop_propagation();
@@ -197,34 +210,57 @@ inline void RenderTextArea::setup_behavior() {
 
         Rect b = box_rect();
         float content_h = static_cast<float>(std::max<size_t>(1, m_lines.size())) * kLineH + 16.0f;
-        if (m_scrollbar.handle_pointer_down(e.local_position, b, content_h, m_physics)) {
+        if (m_scrollbar.handle_pointer_down(e.local_position, b, content_h, m_physics, 32.0f, e.device_kind)) {
             mark_needs_paint();
             e.stop_propagation();
             return;
         }
 
+        const bool is_touch = (e.device_kind == PointerDeviceKind::Touch);
+        if (!is_touch) {
+            m_show_touch_handles = false;
+            m_touch_handles.hide();
+        }
+
         auto now = std::chrono::steady_clock::now();
-        float dt_ms = std::chrono::duration<float, std::milli>(now - m_last_click_time).count();
-        m_click_count = (dt_ms < 400.0f) ? (m_click_count + 1) : 1;
+        const bool has_prev = (m_last_click_time.time_since_epoch().count() != 0);
+        const float dt_ms = has_prev
+            ? std::chrono::duration<float, std::milli>(now - m_last_click_time).count()
+            : 1e6f;
+        const float click_dist = std::hypot(e.local_position.x - m_last_click_pos.x,
+                                            e.local_position.y - m_last_click_pos.y);
+        const float max_multi_dist = is_touch ? 18.0f : 6.0f;
+        if (has_prev && dt_ms < 400.0f && click_dist <= max_multi_dist) {
+            m_click_count = (m_click_count % 3) + 1;
+        } else {
+            m_click_count = 1;
+        }
         m_last_click_time = now;
+        m_last_click_pos = e.local_position;
 
         size_t idx = byte_index_at_point(e.local_position);
         if (m_click_count == 2) {
             m_pending_touch_collapse = false;
-            select_word_at(idx);
             m_dragging = false;
-            if (e.device_kind == PointerDeviceKind::Touch && has_selection()) {
+            m_drag_threshold_passed = false;
+            select_word_at(idx);
+            if (is_touch && has_selection()) {
+                m_show_touch_handles = true;
+                sync_touch_handles();
                 open_context_menu(e.position, true);
             }
-        } else if (m_click_count >= 3) {
+        } else if (m_click_count == 3) {
             m_pending_touch_collapse = false;
-            select_line_at(idx);
             m_dragging = false;
-            if (e.device_kind == PointerDeviceKind::Touch && has_selection()) {
+            m_drag_threshold_passed = false;
+            select_line_at(idx);
+            if (is_touch && has_selection()) {
+                m_show_touch_handles = true;
+                sync_touch_handles();
                 open_context_menu(e.position, true);
             }
         } else {
-            if (e.device_kind == PointerDeviceKind::Touch) {
+            if (is_touch) {
                 if (has_selection()) {
                     m_pending_touch_collapse = true;
                     m_pending_touch_collapse_idx = idx;
@@ -234,19 +270,24 @@ inline void RenderTextArea::setup_behavior() {
                     m_sel_anchor = m_caret;
                 }
                 m_dragging = false;
+                m_drag_threshold_passed = false;
             } else {
                 m_pending_touch_collapse = false;
                 m_caret = idx;
                 if (!e.modifiers.shift) m_sel_anchor = m_caret;
                 m_dragging = true;
+                m_drag_start_local = e.local_position;
+                m_drag_threshold_passed = false;
             }
         }
         reset_blink();
         mark_needs_paint();
         e.stop_propagation();
     };
-    on_pointer_up = [this](PointerEvent&) {
+    on_pointer_up = [this](PointerEvent& e) {
+        const bool was_dragging = m_dragging;
         m_dragging = false;
+        m_drag_threshold_passed = false;
         if (m_pending_touch_collapse) {
             m_pending_touch_collapse = false;
             m_caret = std::min(m_pending_touch_collapse_idx, m_text.size());
@@ -254,12 +295,24 @@ inline void RenderTextArea::setup_behavior() {
             reset_blink();
             mark_needs_paint();
         }
+        if (e.device_kind == PointerDeviceKind::Touch && m_focused && !m_disabled) {
+            if (!m_text.empty()) {
+                m_show_touch_handles = true;
+                sync_touch_handles();
+            } else {
+                m_show_touch_handles = false;
+                m_touch_handles.hide();
+            }
+        }
         if (m_scrollbar.handle_pointer_up()) mark_needs_paint();
+        if (was_dragging) e.stop_propagation();
     };
     on_pointer_cancel = [this](PointerEvent&) {
         m_hovered = false;
         m_pending_touch_collapse = false;
         m_dragging = false;
+        m_drag_threshold_passed = false;
+        m_scrollbar.handle_pointer_up();
         m_scrollbar.handle_pointer_exit();
         mark_needs_paint();
     };
@@ -270,6 +323,12 @@ inline void RenderTextArea::setup_behavior() {
             reset_blink();
         } else {
             m_dragging = false;
+            m_drag_threshold_passed = false;
+            m_pending_touch_collapse = false;
+            m_click_count = 0;
+            m_last_click_time = {};
+            m_show_touch_handles = false;
+            m_touch_handles.hide();
             m_ime_preedit.clear();
             m_ime_preedit_cursor = 0;
         }
@@ -285,6 +344,10 @@ inline void RenderTextArea::setup_behavior() {
             return;
         }
         if (e.type != PlatformEventType::KeyDown) return;
+        if (m_show_touch_handles) {
+            m_show_touch_handles = false;
+            m_touch_handles.hide();
+        }
 
         if (e.modifiers.ctrl) {
             uint32_t kc = e.key_code;

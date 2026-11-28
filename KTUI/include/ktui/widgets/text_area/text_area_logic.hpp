@@ -7,6 +7,7 @@
 #include "../common/fluent_chrome.hpp"
 #include "../common/text_context_menu.hpp"
 #include "../common/text_edit_core.hpp"
+#include "../common/touch_selection_handles.hpp"
 #include "../scroll/scrollbar.hpp"
 #include "../scroll/smooth_scroll_physics.hpp"
 #include "../widget.hpp"
@@ -38,7 +39,9 @@ public:
         setup_behavior();
     }
 
-    ~RenderTextArea() override = default;
+    ~RenderTextArea() override {
+        m_touch_handles.hide();
+    }
 
     void set_properties(const std::string& text,
                         const std::string& placeholder,
@@ -52,6 +55,7 @@ public:
             m_caret = std::min(m_caret, m_text.size());
             m_sel_anchor = m_caret;
             rebuild_lines();
+            if (m_show_touch_handles) sync_touch_handles();
             mark_needs_paint();
         }
         if (m_placeholder != placeholder) { m_placeholder = placeholder; mark_needs_paint(); }
@@ -68,6 +72,12 @@ public:
             if (disabled) {
                 m_focused = false;
                 m_dragging = false;
+                m_drag_threshold_passed = false;
+                m_pending_touch_collapse = false;
+                m_click_count = 0;
+                m_last_click_time = {};
+                m_show_touch_handles = false;
+                m_touch_handles.hide();
             }
             mark_needs_paint();
         }
@@ -80,6 +90,7 @@ public:
             m_caret = std::min(m_caret, m_text.size());
             m_sel_anchor = m_caret;
             rebuild_lines();
+            if (m_show_touch_handles) sync_touch_handles();
             mark_needs_paint();
         }
     }
@@ -163,6 +174,10 @@ public:
         if (m_disabled) return;
         m_ime_preedit = text;
         m_ime_preedit_cursor = std::min(cursor_byte_pos, text.size());
+        if (!m_ime_preedit.empty() && m_show_touch_handles) {
+            m_show_touch_handles = false;
+            m_touch_handles.hide();
+        }
         rebuild_lines();
         ensure_caret_visible();
         mark_needs_paint();
@@ -409,6 +424,7 @@ private:
         rebuild_lines();
         ensure_caret_visible();
         reset_blink();
+        if (m_show_touch_handles) sync_touch_handles();
         mark_needs_paint();
         if (m_on_change) m_on_change(m_text);
     }
@@ -421,7 +437,131 @@ private:
         m_text.insert(m_caret, norm);
         m_caret += norm.size();
         m_sel_anchor = m_caret;
+        if (m_show_touch_handles) {
+            m_show_touch_handles = false;
+            m_touch_handles.hide();
+        }
         notify_edited();
+    }
+
+    [[nodiscard]] size_t line_index_for_byte(size_t byte_idx, bool prefer_prev_on_wrap) const noexcept {
+        for (size_t i = 0; i < m_lines.size(); ++i) {
+            const bool is_last = (i + 1 == m_lines.size());
+            if (byte_idx >= m_lines[i].start && (byte_idx <= m_lines[i].end || is_last)) {
+                if (!prefer_prev_on_wrap && !is_last &&
+                    byte_idx == m_lines[i + 1].start && m_lines[i].end == byte_idx) {
+                    return i + 1;
+                }
+                return i;
+            }
+        }
+        return m_lines.empty() ? 0 : (m_lines.size() - 1);
+    }
+
+    struct ByteLocalSpan {
+        float x{0.0f};
+        float top_y{0.0f};
+        float bot_y{0.0f};
+    };
+
+    [[nodiscard]] ByteLocalSpan local_span_for_byte(size_t byte_idx, bool prefer_prev_on_wrap) const {
+        Rect b = box_rect();
+        if (m_lines.empty()) {
+            const float ty = b.min_y + 8.0f - m_physics.offset();
+            return ByteLocalSpan{b.min_x + 11.0f, ty, ty + kLineH};
+        }
+        const size_t li = line_index_for_byte(byte_idx, prefer_prev_on_wrap);
+        const auto& line = m_lines[li];
+        const size_t rel = (byte_idx > line.start) ? std::min(byte_idx - line.start, line.text.size()) : 0;
+        const float x = b.min_x + 11.0f + TextMeasure::measure_width(line.text.substr(0, rel), kFontSize);
+        const float top_y = b.min_y + 8.0f + static_cast<float>(li) * kLineH - m_physics.offset();
+        return ByteLocalSpan{x, top_y, top_y + kLineH};
+    }
+
+    [[nodiscard]] TouchSelectionHandlesState query_touch_handles_state() const {
+        TouchSelectionHandlesState st;
+        if (!m_show_touch_handles || !m_focused || m_disabled ||
+            !m_ime_preedit.empty() || m_text.empty()) {
+            return st;
+        }
+        Window* win = Window::active_window();
+        if (!win) return st;
+
+        const Rect b = box_rect();
+        const Vec2 g = global_offset();
+        const float tb = win->titlebar_height();
+        auto to_win = [&](PointF lp) -> PointF {
+            return PointF{g.x + lp.x, g.y + lp.y + tb};
+        };
+        auto in_view = [&](const ByteLocalSpan& sp) -> bool {
+            return sp.x >= b.min_x + 2.0f && sp.x <= b.max_x - 2.0f &&
+                   sp.bot_y >= b.min_y + 2.0f && sp.top_y <= b.max_y - 2.0f &&
+                   is_local_point_visible_in_ancestors(this, PointF{sp.x, std::clamp(sp.bot_y, b.min_y, b.max_y)});
+        };
+
+        st.active = true;
+        st.has_selection = has_selection();
+        if (st.has_selection) {
+            const ByteLocalSpan s_sp = local_span_for_byte(sel_start(), false);
+            const ByteLocalSpan e_sp = local_span_for_byte(sel_end(), true);
+            st.start_top = to_win(PointF{s_sp.x, s_sp.top_y});
+            st.start_bottom = to_win(PointF{s_sp.x, s_sp.bot_y});
+            st.end_top = to_win(PointF{e_sp.x, e_sp.top_y});
+            st.end_bottom = to_win(PointF{e_sp.x, e_sp.bot_y});
+            st.show_start = in_view(s_sp);
+            st.show_end = in_view(e_sp);
+        } else {
+            const ByteLocalSpan c_sp = local_span_for_byte(m_caret, false);
+            st.caret_top = to_win(PointF{c_sp.x, c_sp.top_y});
+            st.caret_bottom = to_win(PointF{c_sp.x, c_sp.bot_y});
+            st.show_caret = in_view(c_sp);
+        }
+        return st;
+    }
+
+    void sync_touch_handles() {
+        const bool should_show = m_show_touch_handles && m_focused && !m_disabled &&
+                                 m_ime_preedit.empty() && !m_text.empty();
+        if (!should_show) {
+            m_touch_handles.hide();
+            return;
+        }
+        m_touch_handles.ensure_shown(
+            [this]() { return query_touch_handles_state(); },
+            [this](TouchHandleKind kind, PointF) {
+                m_pending_touch_collapse = false;
+                m_dragging = false;
+                m_drag_threshold_passed = false;
+                m_click_count = 0;
+                if (kind == TouchHandleKind::Start) {
+                    m_handle_fixed_index = sel_end();
+                } else if (kind == TouchHandleKind::End) {
+                    m_handle_fixed_index = sel_start();
+                } else {
+                    m_handle_fixed_index = m_caret;
+                }
+            },
+            [this](TouchHandleKind kind, PointF win_pos) {
+                if (m_disabled) return;
+                Window* win = Window::active_window();
+                const float tb = win ? win->titlebar_height() : 0.0f;
+                const Vec2 g = global_offset();
+                const Vec2 local_pt{win_pos.x - g.x, win_pos.y - g.y - tb};
+                const size_t idx = byte_index_at_point(local_pt);
+                if (kind == TouchHandleKind::Caret) {
+                    m_caret = idx;
+                    m_sel_anchor = idx;
+                } else if (idx != m_handle_fixed_index) {
+                    m_sel_anchor = m_handle_fixed_index;
+                    m_caret = idx;
+                }
+                ensure_caret_visible();
+                reset_blink();
+                mark_needs_paint();
+            },
+            [this](TouchHandleKind) {
+                mark_needs_paint();
+            });
     }
 
     void move_vertical(int delta, bool keep_selection) {
@@ -459,6 +599,10 @@ private:
     void open_context_menu(Vec2 client_pos, bool is_touch = false) {
         m_click_count = 0;
         m_last_click_time = {};
+        if (is_touch && has_selection()) {
+            m_show_touch_handles = true;
+            sync_touch_handles();
+        }
         TextContextMenuActions actions;
         actions.can_undo = can_undo();
         actions.can_redo = can_redo();
@@ -487,11 +631,22 @@ private:
         actions.on_select_all = [this, client_pos, is_touch]() {
             select_all();
             if (is_touch && has_selection()) {
+                m_show_touch_handles = true;
+                sync_touch_handles();
                 open_context_menu(client_pos, true);
             }
         };
 
-        show_winui_text_context_menu(client_pos, actions);
+        Vec2 menu_pos = client_pos;
+        if (is_touch) {
+            const Vec2 g = global_offset();
+            const ByteLocalSpan anchor_sp = has_selection()
+                ? local_span_for_byte(sel_end(), true)
+                : local_span_for_byte(m_caret, false);
+            const float handles_clear_y = g.y + anchor_sp.bot_y + 26.0f;
+            menu_pos.y = std::max(menu_pos.y, handles_clear_y);
+        }
+        show_winui_text_context_menu(menu_pos, actions);
     }
 
     void setup_behavior();
@@ -507,12 +662,18 @@ private:
     bool m_hovered{false};
     bool m_focused{false};
     bool m_dragging{false};
+    bool m_drag_threshold_passed{false};
+    PointF m_drag_start_local{0.0f, 0.0f};
     bool m_pending_touch_collapse{false};
     size_t m_pending_touch_collapse_idx{0};
+    bool m_show_touch_handles{false};
+    size_t m_handle_fixed_index{0};
+    TouchSelectionHandleController m_touch_handles;
     bool m_caret_visible{true};
     size_t m_caret{0};
     size_t m_sel_anchor{0};
     int m_click_count{0};
+    PointF m_last_click_pos{0.0f, 0.0f};
     float m_focus_anim{0.0f};
     std::chrono::steady_clock::time_point m_blink_time{std::chrono::steady_clock::now()};
     std::chrono::steady_clock::time_point m_last_click_time{};

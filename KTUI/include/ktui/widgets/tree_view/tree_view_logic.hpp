@@ -669,13 +669,15 @@ private:
             }
             Rect vp = body_rect();
             float total_h = total_rows_height() + 8.0f;
-            if (m_scrollbar.handle_pointer_down(e.local_position, vp, total_h, m_physics, kRowH * 2.0f)) {
+            if (m_scrollbar.handle_pointer_down(e.local_position, vp, total_h, m_physics, kRowH * 2.0f, e.device_kind)) {
                 mark_needs_paint();
                 e.stop_propagation();
                 return;
             }
             if (e.device_kind == PointerDeviceKind::Touch) {
-                m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f);
+                m_touch_braked = (std::abs(m_physics.velocity()) > 45.0f) ||
+                                 m_physics.is_bouncing() ||
+                                 (std::abs(m_physics.overscroll_amount()) > 0.5f);
                 m_touch_dragging = true;
                 m_touch_moved = false;
                 m_touch_start_y = e.local_position.y;
@@ -737,16 +739,21 @@ private:
             }
         };
         on_pointer_cancel = [this](PointerEvent&) {
+            const bool need_end = m_touch_dragging || (std::abs(m_physics.overscroll_amount()) > 0.05f);
             m_viewport_hovered = false;
             m_resizing_col = -1;
             m_hover_divider = -1;
             m_touch_dragging = false;
             m_touch_moved = false;
             m_touch_braked = false;
+            if (need_end) {
+                m_physics.end_touch_drag();
+            }
             if (m_hovered_row != -1) {
                 update_checkbox_hover(m_hovered_row, false);
                 m_hovered_row = -1;
             }
+            m_scrollbar.handle_pointer_up();
             m_scrollbar.handle_pointer_exit();
             mark_needs_paint();
         };
