@@ -148,8 +148,8 @@ public:
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel, 8.0f, theme.is_dark, 32.0f, alpha);
 
-        // 2. 超高模糊半透亚克力卡片底板 + 细微噪点 + 方向性玻璃高光描边
-        ctx.draw_acrylic_panel(panel, bg, 8.0f, 0.026f, 1.0f);
+        // 2. 重度模糊半透毛玻璃卡片底板 + 方向性玻璃高光描边 (无微颗粒噪点)
+        ctx.draw_backdrop_blur(panel, bg, 8.0f, 40.0f);
         ctx.draw_rect(panel, border, 8.0f, 1.0f);
         {
             const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.24f * alpha} : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha};

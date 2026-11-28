@@ -278,7 +278,7 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
             float clip_a = clip_coverage(p, prim.flags_clip >> 16u);
             if (clip_a <= 0.0001) continue;
             [branch]
-            if ((prim.flags_clip & 0x7632u) == 0u && prim.effects.y > 0) {
+            if ((prim.flags_clip & 0x7672u) == 0u && prim.effects.y > 0) {
                 float2 origin = float2(prim.effects.w, prim.shadow_y);
                 float spread = prim.effects.z, sigma = prim.effects.y * sqrt(2.0);
                 float2 amount = (erf_approx((p - prim.bounds.xy - origin + spread) / sigma) -

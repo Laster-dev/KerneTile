@@ -37,13 +37,17 @@ EM_JS(int, start_webgpu, (const char* code, int win_id), {
                     layout: 'auto',
                     vertex: {module: module, entryPoint: 'fullscreen'},
                     fragment: {module: module, entryPoint: 'present', targets: [{format: format}]}
-                })
+                }),
+                device.createComputePipelineAsync({layout: 'auto', compute: {module: module, entryPoint: 'blur_h'}}),
+                device.createComputePipelineAsync({layout: 'auto', compute: {module: module, entryPoint: 'blur_v'}})
             ]).then(function(pipelines) {
                 var shared = {
                     device: device,
                     format: format,
                     compute: pipelines[0],
                     blit: pipelines[1],
+                    blurH: pipelines[2],
+                    blurV: pipelines[3],
                     sampler: device.createSampler({minFilter: 'linear', magFilter: 'linear'})
                 };
                 device.lost.then(function(info) {
@@ -80,6 +84,8 @@ EM_JS(int, start_webgpu, (const char* code, int win_id), {
         state.context.configure({device: shared.device, format: shared.format, alphaMode: 'opaque'});
         state.compute = shared.compute;
         state.blit = shared.blit;
+        state.blurH = shared.blurH;
+        state.blurV = shared.blurV;
         state.sampler = shared.sampler;
         state.ready = true;
         if (window._ktuiRequestFrame) window._ktuiRequestFrame();
@@ -99,6 +105,10 @@ EM_JS(void, stop_webgpu, (int id), {
     if (!state) return;
     states.delete(id);
     if (state.output) state.output.destroy();
+    if (state.scene) state.scene.destroy();
+    if (state.blurA) state.blurA.destroy();
+    if (state.blurB) state.blurB.destroy();
+    if (state.dummyTex) state.dummyTex.destroy();
     if (state.atlas) state.atlas.destroy();
     if (state.colorAtlas) state.colorAtlas.destroy();
     if (state.buffers) {
@@ -115,16 +125,26 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
     const void* atlas, unsigned atlas_width, unsigned atlas_height, const void* atlas_updates, unsigned update_count,
     unsigned mica_enabled, const uint32_t* mica_grid,
     const void* color_atlas, unsigned color_atlas_width, unsigned color_atlas_height,
-    const void* color_atlas_updates, unsigned color_update_count, unsigned render_flags), {
+    const void* color_atlas_updates, unsigned color_update_count, unsigned render_flags, unsigned backdrop_split), {
     var state = Module['ktuiGpuStates'] && Module['ktuiGpuStates'].get(id);
     if (!state || !state.ready) return 0;
     var canvas = state.canvas;
     var device = state.device;
     try {
+        if (!state.dummyTex) {
+            state.dummyTex = device.createTexture({
+                size: [1, 1], format: 'rgba8unorm',
+                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+            });
+            state.dummyView = state.dummyTex.createView();
+        }
         if (!state.output || canvas.width !== width || canvas.height !== height) {
             canvas.width = width;
             canvas.height = height;
             if (state.output) state.output.destroy();
+            if (state.scene) { state.scene.destroy(); state.scene = null; }
+            if (state.blurA) { state.blurA.destroy(); state.blurA = null; }
+            if (state.blurB) { state.blurB.destroy(); state.blurB = null; }
             state.output = device.createTexture({
                 size: [width, height], format: 'rgba8unorm',
                 usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
@@ -234,26 +254,113 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
             var indicesPtr = indices >>> 0;
             var tilesPtr = tiles >>> 0;
             var clipsPtr = clips >>> 0;
-            var data = [
-                upload(0, HEAPU8.subarray(primPtr, primPtr + prim_bytes), 80, GPUBufferUsage.STORAGE),
-                upload(1, HEAPU8.subarray(indicesPtr, indicesPtr + index_bytes), 4, GPUBufferUsage.STORAGE),
-                upload(2, HEAPU8.subarray(tilesPtr, tilesPtr + tile_count * 16), 16, GPUBufferUsage.STORAGE),
-                upload(3, HEAPU8.subarray(clipsPtr, clipsPtr + clip_bytes), 32, GPUBufferUsage.STORAGE),
-                state.atlasView,
-                state.sampler,
-                state.outputView,
-                upload(4, uniformData, 96, GPUBufferUsage.UNIFORM),
-                state.colorAtlasView
-            ];
-            var group = device.createBindGroup({
-                layout: state.compute.getBindGroupLayout(0),
-                entries: data.map(function(resource, binding) { return {binding: binding, resource: resource}; })
-            });
-            var compute = encoder.beginComputePass();
-            compute.setPipeline(state.compute);
-            compute.setBindGroup(0, group);
-            compute.dispatchWorkgroups(groupsX, Math.ceil(tile_count / groupsX));
-            compute.end();
+            var buf0 = upload(0, HEAPU8.subarray(primPtr, primPtr + prim_bytes), 80, GPUBufferUsage.STORAGE);
+            var buf1 = upload(1, HEAPU8.subarray(indicesPtr, indicesPtr + index_bytes), 4, GPUBufferUsage.STORAGE);
+            var buf2 = upload(2, HEAPU8.subarray(tilesPtr, tilesPtr + tile_count * 16), 16, GPUBufferUsage.STORAGE);
+            var buf3 = upload(3, HEAPU8.subarray(clipsPtr, clipsPtr + clip_bytes), 32, GPUBufferUsage.STORAGE);
+            var groupsY = Math.ceil(tile_count / groupsX);
+
+            if ((backdrop_split >>> 0) === 0xFFFFFFFF) {
+                uniformData[7] = 0;
+                var data = [
+                    buf0, buf1, buf2, buf3,
+                    state.atlasView, state.sampler, state.outputView,
+                    upload(4, uniformData, 96, GPUBufferUsage.UNIFORM),
+                    state.colorAtlasView, state.dummyView, state.dummyView
+                ];
+                var group = device.createBindGroup({
+                    layout: state.compute.getBindGroupLayout(0),
+                    entries: data.map(function(resource, binding) { return {binding: binding, resource: resource}; })
+                });
+                var compute = encoder.beginComputePass();
+                compute.setPipeline(state.compute);
+                compute.setBindGroup(0, group);
+                compute.dispatchWorkgroups(groupsX, groupsY);
+                compute.end();
+            } else {
+                var bw = Math.max(1, (width + 3) >> 2);
+                var bh = Math.max(1, (height + 3) >> 2);
+                if (!state.scene) {
+                    state.scene = device.createTexture({
+                        size: [width, height], format: 'rgba8unorm',
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+                    });
+                    state.sceneView = state.scene.createView();
+                }
+                if (!state.blurA) {
+                    state.blurA = device.createTexture({
+                        size: [bw, bh], format: 'rgba8unorm',
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+                    });
+                    state.blurAView = state.blurA.createView();
+                    state.blurB = device.createTexture({
+                        size: [bw, bh], format: 'rgba8unorm',
+                        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+                    });
+                    state.blurBView = state.blurB.createView();
+                }
+
+                // Pass 1: 绘制主场景 (prim_id < backdrop_split) 到 scene 纹理
+                var u1 = new Uint32Array(uniformData);
+                u1[7] = ((1 << 28) | (backdrop_split & 0x0FFFFFFF)) >>> 0;
+                var d1 = [
+                    buf0, buf1, buf2, buf3,
+                    state.atlasView, state.sampler, state.sceneView,
+                    upload(4, u1, 96, GPUBufferUsage.UNIFORM),
+                    state.colorAtlasView, state.dummyView, state.dummyView
+                ];
+                var g1 = device.createBindGroup({
+                    layout: state.compute.getBindGroupLayout(0),
+                    entries: d1.map(function(resource, binding) { return {binding: binding, resource: resource}; })
+                });
+                var c1 = encoder.beginComputePass();
+                c1.setPipeline(state.compute);
+                c1.setBindGroup(0, g1);
+                c1.dispatchWorkgroups(groupsX, groupsY);
+                c1.end();
+
+                // Pass 2: 双轮 1/4 分辨率 13-tap 可分离高斯重度背景模糊
+                var bGX = Math.ceil(bw / 16);
+                var bGY = Math.ceil(bh / 16);
+                var runBlur = function(pipeline, srcView, dstView) {
+                    var bg = device.createBindGroup({
+                        layout: pipeline.getBindGroupLayout(0),
+                        entries: [
+                            {binding: 0, resource: srcView},
+                            {binding: 1, resource: state.sampler},
+                            {binding: 2, resource: dstView}
+                        ]
+                    });
+                    var cp = encoder.beginComputePass();
+                    cp.setPipeline(pipeline);
+                    cp.setBindGroup(0, bg);
+                    cp.dispatchWorkgroups(bGX, bGY);
+                    cp.end();
+                };
+                runBlur(state.blurH, state.sceneView, state.blurAView);
+                runBlur(state.blurV, state.blurAView, state.blurBView);
+                runBlur(state.blurH, state.blurBView, state.blurAView);
+                runBlur(state.blurV, state.blurAView, state.blurBView);
+
+                // Pass 3: 从 scene 纹理恢复背景并在弹出层区域采样重度模糊纹理合成前景
+                var u2 = new Uint32Array(uniformData);
+                u2[7] = ((2 << 28) | (backdrop_split & 0x0FFFFFFF)) >>> 0;
+                var d2 = [
+                    buf0, buf1, buf2, buf3,
+                    state.atlasView, state.sampler, state.outputView,
+                    upload(5, u2, 96, GPUBufferUsage.UNIFORM),
+                    state.colorAtlasView, state.sceneView, state.blurBView
+                ];
+                var g2 = device.createBindGroup({
+                    layout: state.compute.getBindGroupLayout(0),
+                    entries: d2.map(function(resource, binding) { return {binding: binding, resource: resource}; })
+                });
+                var c2 = encoder.beginComputePass();
+                c2.setPipeline(state.compute);
+                c2.setBindGroup(0, g2);
+                c2.dispatchWorkgroups(groupsX, groupsY);
+                c2.end();
+            }
         }
 
         var pass = encoder.beginRenderPass({colorAttachments: [{
@@ -294,6 +401,13 @@ public:
     bool ready() const noexcept override { return webgpu_ready(m_id) != 0; }
 
     bool submit(const Frame& frame) override {
+        uint32_t backdrop_split = 0xFFFFFFFFu;
+        for (uint32_t i = 0; i < static_cast<uint32_t>(frame.primitives.size()); ++i) {
+            if ((frame.primitives[i].flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) {
+                backdrop_split = i;
+                break;
+            }
+        }
         return render_webgpu(m_id, frame.width, frame.height,
             frame.primitives.data(), frame.primitives.size_bytes(),
             frame.indices.data(), frame.indices.size_bytes(),
@@ -303,7 +417,8 @@ public:
             frame.atlas_updates.data(), frame.atlas_updates.size(),
             frame.mica_enabled ? 1u : 0u, frame.mica_grid.data(),
             frame.color_atlas.data(), frame.color_atlas_width, frame.color_atlas_height,
-            frame.color_atlas_updates.data(), frame.color_atlas_updates.size(), frame.render_flags) != 0;
+            frame.color_atlas_updates.data(), frame.color_atlas_updates.size(),
+            frame.render_flags, backdrop_split) != 0;
     }
 
 private:

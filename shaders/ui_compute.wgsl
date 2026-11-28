@@ -40,6 +40,8 @@ struct Frame {
 @group(0) @binding(6) var output: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(7) var<uniform> frame: Frame;
 @group(0) @binding(8) var color_atlas: texture_2d<f32>;
+@group(0) @binding(9) var scene_tex: texture_2d<f32>;
+@group(0) @binding(10) var blur_tex: texture_2d<f32>;
 var<workgroup> tile_indices: array<u32, 64>;
 var<workgroup> tile_count_shared: u32;
 
@@ -266,10 +268,18 @@ fn compose(@builtin(workgroup_id) group: vec3u,
     let primitive_count = workgroupUniformLoad(&tile_count_shared);
     let pixel = vec2u(tile.x, tile.y) * 16u + local.xy;
     let p = vec2f(pixel) + 0.5;
-    var color = select(vec4f(0.0), sample_mica(p), frame.mica_enabled != 0u);
-    if (frame.mica_enabled != 0u && (frame.render_flags & 4u) != 0u) {
-        let g_off = eval_acrylic_grain(p, 1.0) * 0.018 * color.a;
-        color = vec4f(clamp(color.rgb + vec3f(g_off), vec3f(0.0), vec3f(color.a)), color.a);
+    let pass_mode = frame.pad1 >> 28u;
+    let split_id = frame.pad1 & 0x0FFFFFFFu;
+    var color = vec4f(0.0);
+    if (pass_mode == 2u) {
+        let clamped_px = min(pixel, max(frame.extent, vec2u(1u)) - vec2u(1u));
+        color = textureLoad(scene_tex, vec2i(clamped_px), 0);
+    } else if (frame.mica_enabled != 0u) {
+        color = sample_mica(p);
+        if ((frame.render_flags & 4u) != 0u) {
+            let g_off = eval_acrylic_grain(p, 1.0) * 0.018 * color.a;
+            color = vec4f(clamp(color.rgb + vec3f(g_off), vec3f(0.0), vec3f(color.a)), color.a);
+        }
     }
 
     for (var start = 0u; start < primitive_count; start += 64u) {
@@ -279,12 +289,19 @@ fn compose(@builtin(workgroup_id) group: vec3u,
         }
         workgroupBarrier();
         for (var i = 0u; i < count; i++) {
-            let prim = primitives[tile_indices[i]];
+            let prim_id = tile_indices[i];
+            if (pass_mode == 1u && prim_id >= split_id) {
+                continue;
+            }
+            if (pass_mode == 2u && prim_id < split_id) {
+                continue;
+            }
+            let prim = primitives[prim_id];
             let clip_a = clip_coverage(p, prim.flags_clip >> 16u);
             if (clip_a <= 0.0001) {
                 continue;
             }
-            if ((prim.flags_clip & 0x7632u) == 0u && prim.effects.y > 0.0) {
+            if ((prim.flags_clip & 0x7672u) == 0u && prim.effects.y > 0.0) {
                 let origin = vec2f(prim.effects.w, prim.shadow_y);
                 let spread = prim.effects.z;
                 let sigma = prim.effects.y * sqrt(2.0);
@@ -428,6 +445,17 @@ fn compose(@builtin(workgroup_id) group: vec3u,
                     }
                     source = base_col * cov;
                 }
+            } else if ((prim.flags_clip & 64u) != 0u && (prim.flags_clip & 16u) == 0u) {
+                let cov = coverage(p, prim);
+                if (pass_mode == 2u) {
+                    let uv = clamp(p / max(vec2f(frame.extent), vec2f(1.0)), vec2f(0.0), vec2f(1.0));
+                    let blurred = textureSampleLevel(blur_tex, atlas_sampler, uv, 0.0);
+                    let frosted = prim.color + blurred * (1.0 - prim.color.a);
+                    let ca = cov * clip_a;
+                    color = frosted * ca + color * (1.0 - ca);
+                    continue;
+                }
+                source = prim.color * cov;
             } else if ((prim.flags_clip & 4096u) != 0u && (prim.flags_clip & 16u) == 0u) {
                 let cov = coverage(p, prim);
                 let grain_scale = max(prim.effects.y, 1.0);
@@ -467,13 +495,44 @@ fn compose(@builtin(workgroup_id) group: vec3u,
         }
         workgroupBarrier();
     }
-    if ((frame.render_flags & 1u) != 0u && color.a > 0.0) {
+    if (pass_mode != 1u && (frame.render_flags & 1u) != 0u && color.a > 0.0) {
         let ign = fract(52.9829189 * fract(dot(vec2f(pixel), vec2f(0.06711056, 0.00583715))));
         color = vec4f(clamp(color.rgb + vec3f((ign - 0.5) / 255.0), vec3f(0.0), vec3f(1.0)), color.a);
     }
     if (all(pixel < frame.extent)) {
         textureStore(output, vec2i(pixel), color);
     }
+}
+
+@group(0) @binding(0) var blur_src: texture_2d<f32>;
+@group(0) @binding(1) var blur_sampler: sampler;
+@group(0) @binding(2) var blur_dst: texture_storage_2d<rgba8unorm, write>;
+
+fn sample_gauss_1d(gid: vec2u, dir: vec2f) {
+    let dst_sz = textureDimensions(blur_dst);
+    if (gid.x >= dst_sz.x || gid.y >= dst_sz.y) {
+        return;
+    }
+    let uv = (vec2f(gid) + 0.5) / vec2f(dst_sz);
+    let texel = dir * (1.75 / max(vec2f(dst_sz), vec2f(1.0)));
+    let w = array<f32, 7>(0.13625, 0.12889, 0.10932, 0.08316, 0.05674, 0.03472, 0.01904);
+    var acc = textureSampleLevel(blur_src, blur_sampler, uv, 0.0) * w[0];
+    for (var k = 1; k <= 6; k++) {
+        let off = texel * f32(k);
+        acc += (textureSampleLevel(blur_src, blur_sampler, clamp(uv + off, vec2f(0.0), vec2f(1.0)), 0.0)
+              + textureSampleLevel(blur_src, blur_sampler, clamp(uv - off, vec2f(0.0), vec2f(1.0)), 0.0)) * w[k];
+    }
+    textureStore(blur_dst, vec2i(gid), acc);
+}
+
+@compute @workgroup_size(16, 16)
+fn blur_h(@builtin(global_invocation_id) gid: vec3u) {
+    sample_gauss_1d(gid.xy, vec2f(1.0, 0.0));
+}
+
+@compute @workgroup_size(16, 16)
+fn blur_v(@builtin(global_invocation_id) gid: vec3u) {
+    sample_gauss_1d(gid.xy, vec2f(0.0, 1.0));
 }
 
 @group(0) @binding(0) var composed: texture_2d<f32>;

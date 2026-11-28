@@ -113,7 +113,9 @@ public:
         Rect body = Rect::from_xywh(0.0f, kHeaderH, m_size.x, std::max(0.0f, m_size.y - kHeaderH - kFooterH));
         context.push_clip(body, 0.0f);
 
-        auto [sel_lo, sel_hi] = selection_range();
+        const auto sel_range = selection_range();
+        const int sel_lo = sel_range.first;
+        const int sel_hi = sel_range.second;
         const size_t total_rows = (m_bytes.size() + m_cols - 1) / m_cols;
         const size_t first_row = static_cast<size_t>(std::max(0.0f, std::floor(m_scroll_y / kRowH)));
         const size_t last_row = std::min(total_rows, first_row + static_cast<size_t>(std::ceil(body.height() / kRowH)) + 2u);
@@ -268,7 +270,9 @@ private:
     }
 
     [[nodiscard]] std::string format_decoded_inspector() const {
-        auto [sel_lo, sel_hi] = selection_range();
+        const auto sel_range = selection_range();
+        const int sel_lo = sel_range.first;
+        const int sel_hi = sel_range.second;
         if (sel_lo < 0 || sel_lo >= static_cast<int>(m_bytes.size())) {
             return FrameworkStrings::current().hex_viewer_hint;
         }

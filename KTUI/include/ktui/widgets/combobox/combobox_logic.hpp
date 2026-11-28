@@ -116,10 +116,10 @@ public:
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel_rect, style.popup_corner_radius, theme.is_dark, 32.0f, alpha_mul);
 
-        // 2. 超高模糊半透亚克力浮层背景板 (8px 圆角 + 磨砂颗粒 + 1px 玻璃高光描边)
+        // 2. 重度模糊半透毛玻璃浮层背景板 (8px 圆角 + 纯净无噪点 + 1px 玻璃高光描边)
         Color bg = style.popup_bg;
         bg.a *= alpha_mul;
-        ctx.draw_acrylic_panel(panel_rect, bg, style.popup_corner_radius, 0.026f, 1.0f);
+        ctx.draw_backdrop_blur(panel_rect, bg, style.popup_corner_radius, 40.0f);
 
         Color border = style.popup_border;
         border.a *= alpha_mul;

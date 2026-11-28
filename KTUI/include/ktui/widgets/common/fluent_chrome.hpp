@@ -120,7 +120,7 @@ public:
         Color border = theme.colors.flyout_stroke;
         border.a *= alpha;
         ctx.draw_elevation_shadow(panel, radius, theme.is_dark, 32.0f, alpha);
-        ctx.draw_acrylic_panel(panel, bg, radius, 0.026f, 1.0f);
+        ctx.draw_backdrop_blur(panel, bg, radius, 40.0f);
         ctx.draw_rect(panel, border, radius, 1.0f);
         const Color top_hi = theme.is_dark
             ? Color{1.0f, 1.0f, 1.0f, 0.22f * alpha}

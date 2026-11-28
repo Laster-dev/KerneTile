@@ -1,11 +1,9 @@
-name: Build Multi-Platform Minimal Binaries (Windows / Linux / Android)
+name: Release (Gallery & SDK)
 
 on:
   push:
     branches: [main]
     tags: ['v*']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,106 +16,70 @@ env:
 
 jobs:
   # ============================================================================
-  # Windows: x64 / x86 / arm64 (Clang-CL -Oz -flto=thin + lld-link + Hybrid CRT)
+  # Windows Gallery: x64 / x86 / arm64 (D3D12 + Pure GDI, Clang-CL -Oz + Hybrid CRT)
   # ============================================================================
   build-windows:
-    name: Windows (${{ matrix.arch }})
+    name: Gallery Windows (x64 / x86 / arm64)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            vcvars: amd64
-            target: x86_64-pc-windows-msvc
-            cmake_proc: AMD64
-          - arch: x86
-            vcvars: amd64_x86
-            target: i686-pc-windows-msvc
-            cmake_proc: x86
-          - arch: arm64
-            vcvars: amd64_arm64
-            target: aarch64-pc-windows-msvc
-            cmake_proc: ARM64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup ccache (Incremental C++ Cache)
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: win-${{ matrix.arch }}
-          max-size: 300M
+          key: win-gallery
+          max-size: 600M
 
-      - name: Setup MSVC Developer Environment (${{ matrix.vcvars }})
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{ matrix.vcvars }}
-
-      - name: Locate Clang-CL / LLD / Ninja
+      - name: Build Windows Galleries (x64, x86, arm64)
         shell: pwsh
         run: |
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $llvmBin = Join-Path $vsPath "VC\Tools\Llvm\x64\bin"
+          $vcvarsall = Join-Path $vsPath "VC\Auxiliary\Build\vcvarsall.bat"
+          $llvmBin = ($vsPath + "\VC\Tools\Llvm\x64\bin") -replace '\\','/'
           $ninjaBin = Join-Path $vsPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
-          if (-not (Test-Path (Join-Path $llvmBin "clang-cl.exe"))) {
+          if (-not (Test-Path "$llvmBin/clang-cl.exe")) {
             throw "clang-cl.exe not found in $llvmBin"
           }
-          "$llvmBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$ninjaBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "LLVM_BIN=$($llvmBin -replace '\\','/')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:PATH = "$($llvmBin -replace '/','\');$ninjaBin;$env:PATH"
 
-      - name: Configure CMake (Windows ${{ matrix.arch }} Clang-CL -Oz ThinLTO)
-        shell: pwsh
-        run: |
-          cmake -B build-win-${{ matrix.arch }} -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_TESTING=OFF `
-            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_proc }} `
-            -DCMAKE_CXX_COMPILER="${env:LLVM_BIN}/clang-cl.exe" `
-            -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target }} `
-            -DCMAKE_LINKER="${env:LLVM_BIN}/lld-link.exe" `
-            -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe" `
-            -DCMAKE_CXX_FLAGS="--target=${{ matrix.target }}"
+          $targets = @(
+            @{ arch = 'x64';   vcvars = 'amd64';       target = 'x86_64-pc-windows-msvc';  proc = 'AMD64' },
+            @{ arch = 'x86';   vcvars = 'amd64_x86';   target = 'i686-pc-windows-msvc';    proc = 'x86'   },
+            @{ arch = 'arm64'; vcvars = 'amd64_arm64'; target = 'aarch64-pc-windows-msvc'; proc = 'ARM64' }
+          )
 
-      - name: Build ktui_gallery (Windows ${{ matrix.arch }} D3D12)
-        shell: pwsh
-        run: |
-          cmake --build build-win-${{ matrix.arch }} --target ktui_gallery
-          New-Item -ItemType Directory -Force -Path dist/windows-${{ matrix.arch }} | Out-Null
-          Copy-Item build-win-${{ matrix.arch }}/ktui_gallery.exe dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}.exe
+          New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
+          foreach ($t in $targets) {
+            $arch = $t.arch
+            Write-Host "=== Building Windows $arch (D3D12 + Pure GDI) ==="
+            $cmd = @(
+              "call `"$vcvarsall`" $($t.vcvars)",
+              "cmake -B build-win-$arch -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_SYSTEM_PROCESSOR=$($t.proc) -DCMAKE_CXX_COMPILER=`"$llvmBin/clang-cl.exe`" -DCMAKE_CXX_COMPILER_TARGET=$($t.target) -DCMAKE_LINKER=`"$llvmBin/lld-link.exe`" -DCMAKE_AR=`"$llvmBin/llvm-lib.exe`" -DCMAKE_CXX_FLAGS=`"--target=$($t.target)`"",
+              "cmake --build build-win-$arch --target ktui_gallery",
+              "cmake -B build-win-$arch-gdi -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DKERNETILE_WINDOWS_PURE_GDI=ON -DCMAKE_SYSTEM_PROCESSOR=$($t.proc) -DCMAKE_CXX_COMPILER=`"$llvmBin/clang-cl.exe`" -DCMAKE_CXX_COMPILER_TARGET=$($t.target) -DCMAKE_LINKER=`"$llvmBin/lld-link.exe`" -DCMAKE_AR=`"$llvmBin/llvm-lib.exe`" -DCMAKE_CXX_FLAGS=`"--target=$($t.target)`"",
+              "cmake --build build-win-$arch-gdi --target ktui_gallery"
+            ) -join " && "
+            cmd /c $cmd
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Configure & Build ktui_gallery Pure GDI (Windows ${{ matrix.arch }} Zero-D3D12)
-        shell: pwsh
-        run: |
-          cmake -B build-win-${{ matrix.arch }}-gdi -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_TESTING=OFF `
-            -DKERNETILE_WINDOWS_PURE_GDI=ON `
-            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.cmake_proc }} `
-            -DCMAKE_CXX_COMPILER="${env:LLVM_BIN}/clang-cl.exe" `
-            -DCMAKE_CXX_COMPILER_TARGET=${{ matrix.target }} `
-            -DCMAKE_LINKER="${env:LLVM_BIN}/lld-link.exe" `
-            -DCMAKE_AR="${env:LLVM_BIN}/llvm-lib.exe" `
-            -DCMAKE_CXX_FLAGS="--target=${{ matrix.target }}"
-          cmake --build build-win-${{ matrix.arch }}-gdi --target ktui_gallery
-          Copy-Item build-win-${{ matrix.arch }}-gdi/ktui_gallery.exe dist/windows-${{ matrix.arch }}/ktui_gallery-windows-${{ matrix.arch }}-gdi.exe
-          Get-Item dist/windows-${{ matrix.arch }}/* | Select-Object Name, Length
+            Copy-Item "build-win-$arch/ktui_gallery.exe" "dist/windows/ktui_gallery-windows-$arch.exe"
+            Copy-Item "build-win-$arch-gdi/ktui_gallery.exe" "dist/windows/ktui_gallery-windows-$arch-gdi.exe"
+          }
+          Get-Item dist/windows/* | Select-Object Name, Length
 
-      - name: Upload Artifacts (Windows ${{ matrix.arch }} D3D12 & Pure GDI)
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ktui_gallery-windows-${{ matrix.arch }}
-          path: dist/windows-${{ matrix.arch }}/*
+          name: ktui_gallery-windows
+          path: dist/windows/*
 
   # ============================================================================
-  # Linux Native: x64 (x86_64) & arm64 (aarch64)
-  #   使用 ubuntu-22.04 (glibc 2.35，兼容 Debian 12 / Ubuntu 22.04+ / Arch / Fedora)
-  #   原生 Clang + LLD (-Oz -flto=thin -Wl,--icf=all -Wl,--strip-all) 实现最小体积 (~750 KB)
+  # Linux Gallery: x64 & arm64 (Clang -Oz ThinLTO + LLD ICF)
   # ============================================================================
   build-linux-native:
-    name: Linux (${{ matrix.arch }})
+    name: Gallery Linux (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -132,7 +94,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup ccache (Incremental C++ Cache)
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: linux-clang22-${{ matrix.arch }}
@@ -146,7 +108,7 @@ jobs:
             libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
             libvulkan-dev glslang-tools
 
-      - name: Configure & Build (Linux ${{ matrix.arch }} Clang -Oz ThinLTO + LLD ICF)
+      - name: Configure & Build (Linux ${{ matrix.arch }})
         run: |
           cmake -B build-linux-${{ matrix.arch }} -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -157,8 +119,6 @@ jobs:
           cp build-linux-${{ matrix.arch }}/ktui_gallery dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
           chmod +x dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
           ls -lh dist/linux-${{ matrix.arch }}/
-          echo "Required GLIBC versions:"
-          objdump -T dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }} | grep -oE 'GLIBC_[0-9.]+' | sort -uV || true
 
       - name: Upload Artifact (Linux ${{ matrix.arch }})
         uses: actions/upload-artifact@v4
@@ -167,12 +127,10 @@ jobs:
           path: dist/linux-${{ matrix.arch }}/ktui_gallery-linux-${{ matrix.arch }}
 
   # ============================================================================
-  # Android: 按 ABI 拆分为 2 个独立最小体积 APK
-  #   - arm64-v8a   (64位 ARM / ARMv8，主流安卓手机)
-  #   - armeabi-v7a (32位 ARM / ARMv7，老款安卓设备)
+  # Android Gallery: arm64-v8a & armeabi-v7a APKs
   # ============================================================================
   build-android:
-    name: Android (ARM64 & ARMv7 APKs)
+    name: Gallery Android (ARM64 & ARMv7)
     runs-on: ubuntu-24.04
 
     steps:
@@ -188,7 +146,7 @@ jobs:
       - name: Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup ccache (Incremental Android NDK C++ Cache)
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: android-arm-abis
@@ -206,7 +164,6 @@ jobs:
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 --decode > "${{ github.workspace }}/android/app/release.keystore"
             echo "ANDROID_KEYSTORE_FILE=${{ github.workspace }}/android/app/release.keystore" >> "$GITHUB_ENV"
-            echo "Release keystore decoded successfully."
           else
             echo "ANDROID_KEYSTORE_BASE64 not set; falling back to debug keystore."
           fi
@@ -223,37 +180,30 @@ jobs:
             -PversionCode=${{ github.run_number }} \
             -PversionName=${{ github.ref_name }}
 
-      - name: Collect & Inspect Per-ABI APKs
+      - name: Collect Per-ABI APKs
         run: |
           mkdir -p dist/android
           for abi in arm64-v8a armeabi-v7a; do
             src="android/app/build/outputs/apk/release/app-${abi}-release.apk"
             if [ ! -f "$src" ]; then
               echo "Missing expected ABI APK: $src"
-              ls -la android/app/build/outputs/apk/release/
               exit 1
             fi
             cp "$src" "dist/android/ktui_gallery-android-${abi}.apk"
           done
           ls -lh dist/android/
 
-      - name: Upload Android arm64-v8a APK
+      - name: Upload Android APKs
         uses: actions/upload-artifact@v4
         with:
-          name: ktui_gallery-android-arm64-v8a
-          path: dist/android/ktui_gallery-android-arm64-v8a.apk
-
-      - name: Upload Android armeabi-v7a APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ktui_gallery-android-armeabi-v7a
-          path: dist/android/ktui_gallery-android-armeabi-v7a.apk
+          name: ktui_gallery-android
+          path: dist/android/*.apk
 
   # ============================================================================
-  # Web (WebAssembly): 打包为单一离线的 ktui_gallery-web.html（内置 JS + WASM + 壁纸）
+  # Web Gallery (WebAssembly Single-File HTML)
   # ============================================================================
   build-web:
-    name: Web (Single-File WASM HTML)
+    name: Gallery Web (Single-File HTML)
     runs-on: ubuntu-24.04
 
     steps:
@@ -268,7 +218,7 @@ jobs:
         with:
           version: 3.1.56
 
-      - name: Setup ccache (Incremental WASM Cache)
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: web-wasm
@@ -291,11 +241,10 @@ jobs:
           path: dist/web/ktui_gallery-web.html
 
   # ============================================================================
-  # Single-File C++20 Amalgamation (kernetile.hpp + kernetile.cpp)
-  #   自动合并全部公开头文件与实现，脱离 CMake 实测 MSVC D3D12 与 Pure-GDI 单行编译通过后发布
+  # Single-File SDK: kernetile.ixx + kernetile-hpp-cpp.zip
   # ============================================================================
   build-amalgamation:
-    name: Single-File SDK (kernetile.hpp + kernetile.cpp)
+    name: Single-File SDK (ixx & hpp/cpp.zip)
     runs-on: windows-latest
 
     steps:
@@ -307,22 +256,15 @@ jobs:
         with:
           arch: amd64
 
-      - name: Generate Single-File Amalgamation
+      - name: Generate & Smoke-Test Single-File SDK
         shell: pwsh
         run: |
           python scripts/amalgamate.py --out dist/amalgamation
-          Get-Item dist/amalgamation/* | Select-Object Name, Length
-
-      - name: Smoke-Test Single-File & C++20 Module Builds (D3D12 & Pure-GDI, No CMake)
-        shell: pwsh
-        run: |
           Push-Location dist/amalgamation
-          # 1. Dual-file (kernetile.hpp + kernetile.cpp)
           cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_hello.cpp kernetile.cpp /Fe:hello_d3d12.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_hello.cpp kernetile.cpp /Fe:hello_gdi.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # 2. Single-file C++20 Module (kernetile.ixx -> import kernetile;)
           cl /nologo /std:c++20 /O2 /utf-8 /EHsc /interface /c kernetile.ixx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:hello_mod.exe
@@ -331,11 +273,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:hello_mod_gdi.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-Item hello_d3d12.exe, hello_gdi.exe, hello_mod.exe, hello_mod_gdi.exe | Select-Object Name, Length
           Remove-Item *.obj, *.exe, *.ifc -Force
           Pop-Location
 
-      - name: Package Single-File Module & HPP/CPP Zip
+      - name: Package kernetile.ixx & kernetile-hpp-cpp.zip
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/release-amalg | Out-Null
@@ -355,13 +296,10 @@ jobs:
           path: dist/release-amalg/*
 
   # ============================================================================
-  # 自动发布到 GitHub Release：
-  #   - 推送 v* Tag：发布正式版本 Release
-  #   - 推送 main 分支 / 手动触发：自动更新 rolling 的 `latest` Release
+  # Publish GitHub Release (v* tag -> versioned release; main -> rolling latest)
   # ============================================================================
   release:
-    name: Publish GitHub Release
-    if: github.event_name != 'pull_request'
+    name: Publish Release
     needs: [build-windows, build-linux-native, build-android, build-web, build-amalgamation]
     runs-on: ubuntu-24.04
     steps:
@@ -383,7 +321,7 @@ jobs:
         with:
           tag_name: latest
           name: Latest Build (main)
-          body: "自动构建于提交 `${{ github.sha }}`，包含独立 C++20 模块 (`kernetile.ixx`)、传统双文件 SDK (`kernetile-hpp-cpp.zip`: `kernetile.hpp` + `kernetile.cpp`)、Windows D3D12 与纯 GDI 低内存版 (`x64`/`x86`/`arm64`)、Linux (`x64`/`arm64`, glibc 2.28)、Android 独立分包 (`arm64-v8a`/`armeabi-v7a`) 与 Web 单文件 (`ktui_gallery-web.html`) 最小体积产物。"
+          body: "自动构建于提交 `${{ github.sha }}`，包含独立 C++20 模块 (`kernetile.ixx`)、双文件压缩包 (`kernetile-hpp-cpp.zip`: `kernetile.hpp` + `kernetile.cpp`)，以及 Windows (`x64`/`x86`/`arm64` D3D12 与 Pure-GDI)、Linux (`x64`/`arm64`)、Android (`arm64-v8a`/`armeabi-v7a`) 和 Web 单文件 (`ktui_gallery-web.html`) Gallery 产物。"
           prerelease: true
           make_latest: false
           files: release-assets/*

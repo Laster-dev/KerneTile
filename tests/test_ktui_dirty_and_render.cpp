@@ -499,7 +499,10 @@ std::string pick_proportional_tnum_font() {
         "Constantia",
         "Corbel",
         "Bahnschrift",
-        "Segoe UI Variable Text"
+        "Segoe UI Variable Text",
+        "DejaVu Sans",
+        "Liberation Sans",
+        "Noto Sans"
     };
     for (const char* name : candidates) {
         const float w1 = TextMeasure::measure_width("11111", 16.0f, FontWeight::Regular, false, name, false);
@@ -898,8 +901,21 @@ void test_m21_tabular_nums_text_measure_and_widget() {
     std::cout << "[M2.1 Test 12] R5 TextMeasure / Text / RenderText / PaintContext::draw_text tabular_nums 测试..." << std::endl;
 
     const std::string prop_font = pick_proportional_tnum_font();
+#ifdef _WIN32
     KTUI_CHECK(!prop_font.empty());
+#endif
 
+    // Default system font "" tabular alignment on all platforms
+    {
+        const float sizes[] = {13.0f, 16.0f, 16.0f * 1.25f, 16.0f * 1.5f};
+        for (float sz : sizes) {
+            const float w1_true = TextMeasure::measure_width("11111", sz, FontWeight::Regular, false, "", true);
+            const float w8_true = TextMeasure::measure_width("88888", sz, FontWeight::Regular, false, "", true);
+            KTUI_CHECK_NEAR(w1_true, w8_true, 1e-3f);
+        }
+    }
+
+    if (!prop_font.empty()) {
     // A. TextMeasure: default/false proportional preservation vs tabular_nums=true equality
     {
         const float sizes[] = {13.0f, 16.0f, 16.0f * 1.25f, 16.0f * 1.5f};
@@ -1042,6 +1058,7 @@ void test_m21_tabular_nums_text_measure_and_widget() {
             KTUI_CHECK(std::abs(max_1_true - max_8_true) <= 1);
         }
     }
+    } // if (!prop_font.empty())
 
     std::cout << "  -> tabular_nums 全链路测量、布局脏标记与光栅化像素对齐测试通过！" << std::endl;
 }

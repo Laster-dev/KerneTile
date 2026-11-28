@@ -210,6 +210,24 @@ public:
         m_primitive_count++;
     }
 
+    // 实时重度背景毛玻璃模糊表面 (Backdrop Blur Filter，纯净无微颗粒噪点)
+    KTUI_NOINLINE void draw_backdrop_blur(Rect rect,
+                                          Color tint,
+                                          float corner_radius = 8.0f,
+                                          float blur_radius = 36.0f) {
+        if (rect.is_empty() || tint.a <= 0.0005f) return;
+        Rect abs_rect = to_absolute_rect(rect);
+        if (m_renderer) {
+            Rect px = to_pixels(abs_rect);
+            const float cr_px = corner_radius * m_render_scale;
+            if (m_pixel_snapping) {
+                px = snap_rect_px(px, 0.0f, cr_px);
+            }
+            m_renderer->draw_backdrop_blur(px, tint, cr_px, blur_radius * m_render_scale);
+        }
+        m_primitive_count++;
+    }
+
     // 解析高斯内阴影 (Analytic SDF Inset Shadow)
     KTUI_NOINLINE void draw_inset_shadow(Rect rect,
                                          Color shadow_color,

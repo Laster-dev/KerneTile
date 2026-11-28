@@ -1,9 +1,8 @@
-name: Deploy KTUI Gallery WebAssembly to GitHub Pages
+name: Deploy Web to Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,9 +14,18 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  CCACHE_ENABLE: '1'
+  CCACHE_SLOPPINESS: 'pch_defines,time_macros,include_file_mtime,include_file_ctime'
+  CCACHE_COMPRESS: 'true'
+
 jobs:
-  build:
+  deploy:
+    name: Deploy Web to GitHub Pages
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout Repository
@@ -27,25 +35,25 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Setup Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
 
-      - name: Setup Emscripten SDK
+      - name: Setup Emscripten SDK 3.1.56
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.56
 
-      - name: Verify Emscripten
-        run: |
-          emcc -v
-
-      - name: Configure CMake for Web
-        run: |
-          emcmake cmake -B build-web -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_STANDARD=20
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: web-wasm
+          max-size: 300M
 
       - name: Build KTUI Gallery WebAssembly
         run: |
+          emcmake cmake -B build-web -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=20 \
+            -DBUILD_TESTING=OFF
           cmake --build build-web --target ktui_gallery
 
       - name: Prepare GitHub Pages Distribution
@@ -54,13 +62,9 @@ jobs:
           cp build-web/ktui_gallery.html dist/index.html
           cp build-web/ktui_gallery.js dist/ktui_gallery.js
           cp build-web/ktui_gallery.wasm dist/ktui_gallery.wasm
-          cp examples/ktui_gallery/wallpaper_dark.jpg dist/wallpaper_dark.jpg
-          # 为 JS/WASM/壁纸资源注入提交哈希版本号，防止浏览器混用新版 index.html 与旧缓存
-          sed -i "s|ktui_gallery\.js|ktui_gallery.js?v=${{ github.sha }}|g" dist/index.html
           sed -i "s|__KTUI_ASSET_VER__|${{ github.sha }}|g" dist/index.html
-          sed -i "s|wallpaper_dark\.jpg|wallpaper_dark.jpg?v=${{ github.sha }}|g" dist/index.html
           touch dist/.nojekyll
-          ls -la dist
+          ls -lh dist
 
       - name: Upload GitHub Pages Artifact
         uses: actions/upload-pages-artifact@v3
@@ -68,13 +72,6 @@ jobs:
           name: github-pages
           path: dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

@@ -1,9 +1,11 @@
 #include "kernetile/cpu/cpu_rasterizer.hpp"
+#include "kernetile/fx/dual_kawase_blur.hpp"
 #include "kernetile/math/color_space.hpp"
 #include "kernetile/text/stem_darkening.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -326,7 +328,11 @@ float CpuTileRasterizer::evaluate_coverage(float d) noexcept {
     return std::clamp(0.5f - d, 0.0f, 1.0f);
 }
 
-void CpuTileRasterizer::render_tile(
+namespace {
+inline float evaluate_coverage(float d) noexcept { return CpuTileRasterizer::evaluate_coverage(d); }
+inline float erf_approx(float x) noexcept { return CpuTileRasterizer::erf_approx(x); }
+
+void render_tile_range(
     uint32_t tile_x,
     uint32_t tile_y,
     uint32_t tile_id,
@@ -347,7 +353,10 @@ void CpuTileRasterizer::render_tile(
     uint32_t color_atlas_height,
     bool enable_dithering,
     bool enable_font_gamma,
-    bool enable_acrylic_grain)
+    bool enable_acrylic_grain,
+    uint32_t min_prim_id,
+    uint32_t max_prim_id,
+    bool load_from_dst)
 {
     if (tile_id >= tile_headers.size()) return;
 
@@ -421,6 +430,7 @@ void CpuTileRasterizer::render_tile(
 
     // 0. 空瓦片极速早出
     if (prim_count == 0) {
+        if (load_from_dst) return;
         if (!use_mica) {
             for (uint32_t py = start_y; py < end_y; ++py) {
                 uint32_t* row_dst = reinterpret_cast<uint32_t*>(dst_framebuffer + (static_cast<size_t>(py) * width + start_x) * 4);
@@ -468,7 +478,9 @@ void CpuTileRasterizer::render_tile(
 
     for (uint32_t i = 0; i < prim_count && active_prim_count < 64; ++i) {
         uint32_t prim_idx = tile_indices[prim_offset + i];
+        if (prim_idx < min_prim_id || prim_idx >= max_prim_id) continue;
         const auto& prim = primitives[prim_idx];
+        if (load_from_dst && (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) continue;
 
         uint8_t clip_mode = 0;
         if (prim.clip_index != core::INVALID_INDEX_U16 && prim.clip_index < clip_rects.size()) {
@@ -521,13 +533,15 @@ void CpuTileRasterizer::render_tile(
         const bool is_rim = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim)) != 0;
         const bool is_acrylic = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain)) != 0) &&
                                 !is_glyph && !is_icon;
+        const bool is_backdrop = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) &&
+                                 !is_glyph && !is_icon;
         const bool is_inset = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow)) != 0) &&
                               !is_glyph && !is_icon;
         const bool is_metaball = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball)) != 0) &&
                                  !is_glyph && !is_icon;
         const bool is_gradient = ((prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0) &&
                                  !is_glyph && !is_icon && !is_reveal && !is_rim &&
-                                 !is_acrylic && !is_inset && !is_metaball;
+                                 !is_acrylic && !is_backdrop && !is_inset && !is_metaball;
         p.is_glyph = is_glyph;
         p.is_icon = is_icon;
         p.is_reveal = is_reveal;
@@ -561,7 +575,7 @@ void CpuTileRasterizer::render_tile(
         }
 
         if (!is_gradient && !is_reveal && !is_glyph && !is_icon && !is_rim &&
-            !is_acrylic && !is_inset && !is_metaball && prim.shadow_blur > 0.0f) {
+            !is_acrylic && !is_backdrop && !is_inset && !is_metaball && prim.shadow_blur > 0.0f) {
             p.has_shadow = true;
             p.s_min_x = prim.min_x - prim.shadow_spread + prim.shadow_offset_x;
             p.s_min_y = prim.min_y - prim.shadow_spread + prim.shadow_offset_y;
@@ -649,13 +663,29 @@ void CpuTileRasterizer::render_tile(
     }
 
     // 2. L1 缓存驻留的 16x16 瓦片 SoA 累加器 (4 KB，完美适配 AVX2/SSE2/NEON 自动向量化)
+    if (load_from_dst && active_prim_count == 0) {
+        return;
+    }
+
     alignas(32) float tile_r[256];
     alignas(32) float tile_g[256];
     alignas(32) float tile_b[256];
     alignas(32) float tile_a[256];
 
     uint32_t first_prim_idx = 0;
-    if (last_opaque_cover >= 0) {
+    if (load_from_dst) {
+        constexpr float kInv255 = 1.0f / 255.0f;
+        for (uint32_t ly = 0; ly < tile_h; ++ly) {
+            const uint32_t row_off = ly * 16u;
+            const uint8_t* row_src = dst_framebuffer + (static_cast<size_t>(start_y + ly) * width + start_x) * 4u;
+            for (uint32_t lx = 0; lx < tile_w; ++lx) {
+                tile_r[row_off + lx] = static_cast<float>(row_src[lx * 4u + 0u]) * kInv255;
+                tile_g[row_off + lx] = static_cast<float>(row_src[lx * 4u + 1u]) * kInv255;
+                tile_b[row_off + lx] = static_cast<float>(row_src[lx * 4u + 2u]) * kInv255;
+                tile_a[row_off + lx] = static_cast<float>(row_src[lx * 4u + 3u]) * kInv255;
+            }
+        }
+    } else if (last_opaque_cover >= 0) {
         const auto& base = *prepared_prims[last_opaque_cover].prim;
         const float br = base.color_r, bg = base.color_g, bb = base.color_b, ba = base.color_a;
         const uint32_t total_px = tile_h * 16u;
@@ -1456,6 +1486,120 @@ void CpuTileRasterizer::render_tile(
     }
 }
 
+void apply_backdrop_blur_prim(
+    const core::UiPrimitive& prim,
+    uint32_t width,
+    uint32_t height,
+    uint8_t* dst_framebuffer)
+{
+    const int bx0 = std::clamp(static_cast<int>(std::floor(prim.min_x)), 0, static_cast<int>(width));
+    const int by0 = std::clamp(static_cast<int>(std::floor(prim.min_y)), 0, static_cast<int>(height));
+    const int bx1 = std::clamp(static_cast<int>(std::ceil(prim.max_x)), 0, static_cast<int>(width));
+    const int by1 = std::clamp(static_cast<int>(std::ceil(prim.max_y)), 0, static_cast<int>(height));
+    if (bx1 <= bx0 || by1 <= by0) return;
+
+    const int pad = std::clamp(static_cast<int>(std::ceil(prim.shadow_blur * 1.25f)), 24, 72);
+    const int rx0 = std::max(0, bx0 - pad);
+    const int ry0 = std::max(0, by0 - pad);
+    const int rx1 = std::min(static_cast<int>(width), bx1 + pad);
+    const int ry1 = std::min(static_cast<int>(height), by1 + pad);
+    const uint32_t rw = static_cast<uint32_t>(rx1 - rx0);
+    const uint32_t rh = static_cast<uint32_t>(ry1 - ry0);
+    if (rw == 0 || rh == 0) return;
+
+    std::vector<uint8_t> crop(static_cast<size_t>(rw) * rh * 4u);
+    for (uint32_t y = 0; y < rh; ++y) {
+        const uint8_t* src = dst_framebuffer + (static_cast<size_t>(ry0 + y) * width + rx0) * 4u;
+        std::memcpy(crop.data() + static_cast<size_t>(y) * rw * 4u, src, static_cast<size_t>(rw) * 4u);
+    }
+
+    std::vector<uint8_t> blurred(crop.size());
+    fx::BlurParams bp{};
+    bp.quality = fx::BlurQuality::High;
+    bp.radius = std::max(28.0f, prim.shadow_blur);
+    bp.offset_scale = 1.6f;
+    bp.custom_levels = 4u;
+    fx::DualKawaseBlur::blur_cpu(crop.data(), rw, rh, blurred.data(), bp);
+
+    const float cx = (prim.min_x + prim.max_x) * 0.5f;
+    const float cy = (prim.min_y + prim.max_y) * 0.5f;
+    const float hw = (prim.max_x - prim.min_x) * 0.5f;
+    const float hh = (prim.max_y - prim.min_y) * 0.5f;
+    const float cap_r = std::min(hw, hh);
+    const float rtl = std::clamp(prim.radius_top_left, 0.0f, cap_r);
+    const float rtr = std::clamp(prim.radius_top_right, 0.0f, cap_r);
+    const float rbr = std::clamp(prim.radius_bottom_right, 0.0f, cap_r);
+    const float rbl = std::clamp(prim.radius_bottom_left, 0.0f, cap_r);
+    const float inv_tint_a = 1.0f - prim.color_a;
+    constexpr float kInv255 = 1.0f / 255.0f;
+
+    for (int py = by0; py < by1; ++py) {
+        const float dy = (static_cast<float>(py) + 0.5f) - cy;
+        const float ady = std::abs(dy);
+        uint8_t* dst_row = dst_framebuffer + (static_cast<size_t>(py) * width + bx0) * 4u;
+        const uint8_t* blur_row = blurred.data() + (static_cast<size_t>(py - ry0) * rw + (bx0 - rx0)) * 4u;
+        for (int px = bx0; px < bx1; ++px) {
+            const float dx = (static_cast<float>(px) + 0.5f) - cx;
+            const float raw_r = (dx >= 0.0f) ? ((dy >= 0.0f) ? rbr : rtr) : ((dy >= 0.0f) ? rbl : rtl);
+            const float cov = std::clamp(0.5f - eval_squircle_box_distance(std::abs(dx), ady, hw, hh, raw_r), 0.0f, 1.0f);
+            if (cov > 0.001f) {
+                const float br = static_cast<float>(blur_row[0]) * kInv255;
+                const float bg = static_cast<float>(blur_row[1]) * kInv255;
+                const float bb = static_cast<float>(blur_row[2]) * kInv255;
+                const float ba = static_cast<float>(blur_row[3]) * kInv255;
+                const float fr = prim.color_r + br * inv_tint_a;
+                const float fg = prim.color_g + bg * inv_tint_a;
+                const float fb = prim.color_b + bb * inv_tint_a;
+                const float fa = prim.color_a + ba * inv_tint_a;
+                const float inv_c = 1.0f - cov;
+                const float dr = static_cast<float>(dst_row[0]) * kInv255;
+                const float dg = static_cast<float>(dst_row[1]) * kInv255;
+                const float db = static_cast<float>(dst_row[2]) * kInv255;
+                const float da = static_cast<float>(dst_row[3]) * kInv255;
+                dst_row[0] = static_cast<uint8_t>(std::clamp(fr * cov + dr * inv_c, 0.0f, 1.0f) * 255.0f + 0.5f);
+                dst_row[1] = static_cast<uint8_t>(std::clamp(fg * cov + dg * inv_c, 0.0f, 1.0f) * 255.0f + 0.5f);
+                dst_row[2] = static_cast<uint8_t>(std::clamp(fb * cov + db * inv_c, 0.0f, 1.0f) * 255.0f + 0.5f);
+                dst_row[3] = static_cast<uint8_t>(std::clamp(fa * cov + da * inv_c, 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+            dst_row += 4;
+            blur_row += 4;
+        }
+    }
+}
+} // namespace
+
+void CpuTileRasterizer::render_tile(
+    uint32_t tile_x,
+    uint32_t tile_y,
+    uint32_t tile_id,
+    uint32_t width,
+    uint32_t height,
+    std::span<const core::UiPrimitive> primitives,
+    std::span<const uint32_t>          tile_indices,
+    std::span<const core::TileHeader>  tile_headers,
+    std::span<const core::ClipRect>    clip_rects,
+    uint8_t* dst_framebuffer,
+    const uint8_t* atlas_pixels,
+    uint32_t atlas_width,
+    uint32_t atlas_height,
+    bool mica_enabled,
+    const std::array<uint32_t, 16>* mica_grid,
+    const uint8_t* color_atlas_pixels,
+    uint32_t color_atlas_width,
+    uint32_t color_atlas_height,
+    bool enable_dithering,
+    bool enable_font_gamma,
+    bool enable_acrylic_grain)
+{
+    render_tile_range(
+        tile_x, tile_y, tile_id, width, height,
+        primitives, tile_indices, tile_headers, clip_rects, dst_framebuffer,
+        atlas_pixels, atlas_width, atlas_height, mica_enabled, mica_grid,
+        color_atlas_pixels, color_atlas_width, color_atlas_height,
+        enable_dithering, enable_font_gamma, enable_acrylic_grain,
+        0u, UINT32_MAX, false);
+}
+
 void CpuTileRasterizer::render(
     const RenderParams& params,
     uint8_t* dst_framebuffer)
@@ -1467,39 +1611,65 @@ void CpuTileRasterizer::render(
 
     const uint32_t tiles_x = (params.width + 15) / 16;
 
-    auto run_tile = [&](uint32_t i) {
-        const uint32_t tile_id = params.dirty_tiles[i];
-        const uint32_t tx = tile_id % tiles_x;
-        const uint32_t ty = tile_id / tiles_x;
-        render_tile(tx, ty, tile_id, params.width, params.height,
-                    params.primitives, params.tile_indices,
-                    params.tile_headers, params.clip_rects,
-                    dst_framebuffer,
-                    params.atlas_pixels, params.atlas_width, params.atlas_height,
-                    params.mica_enabled, &params.mica_grid,
-                    params.color_atlas_pixels, params.color_atlas_width, params.color_atlas_height,
-                    params.enable_dithering, params.enable_font_gamma, params.enable_acrylic_grain);
-    };
-
-#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
-    for (uint32_t i = 0; i < dirty_count; ++i) {
-        run_tile(i);
+    uint32_t first_backdrop_id = UINT32_MAX;
+    for (uint32_t i = 0; i < static_cast<uint32_t>(params.primitives.size()); ++i) {
+        if ((params.primitives[i].flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) {
+            first_backdrop_id = i;
+            break;
+        }
     }
-#else
-    const uint32_t cpu_cores = std::thread::hardware_concurrency();
-    const uint32_t threads = (params.thread_count > 0)
-        ? params.thread_count
-        : calculate_worker_threads(dirty_count, cpu_cores);
 
-    if (threads <= 1u || dirty_count <= 8u) {
+    auto dispatch_tiles = [&](uint32_t min_p, uint32_t max_p, bool load_dst) {
+        auto run_tile = [&](uint32_t i) {
+            const uint32_t tile_id = params.dirty_tiles[i];
+            const uint32_t tx = tile_id % tiles_x;
+            const uint32_t ty = tile_id / tiles_x;
+            render_tile_range(tx, ty, tile_id, params.width, params.height,
+                              params.primitives, params.tile_indices,
+                              params.tile_headers, params.clip_rects,
+                              dst_framebuffer,
+                              params.atlas_pixels, params.atlas_width, params.atlas_height,
+                              params.mica_enabled, &params.mica_grid,
+                              params.color_atlas_pixels, params.color_atlas_width, params.color_atlas_height,
+                              params.enable_dithering, params.enable_font_gamma, params.enable_acrylic_grain,
+                              min_p, max_p, load_dst);
+        };
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
         for (uint32_t i = 0; i < dirty_count; ++i) {
             run_tile(i);
         }
+#else
+        const uint32_t cpu_cores = std::thread::hardware_concurrency();
+        const uint32_t threads = (params.thread_count > 0)
+            ? params.thread_count
+            : calculate_worker_threads(dirty_count, cpu_cores);
+        if (threads <= 1u || dirty_count <= 8u) {
+            for (uint32_t i = 0; i < dirty_count; ++i) {
+                run_tile(i);
+            }
+            return;
+        }
+        CpuTileThreadPool::instance().parallel_for_tiles(dirty_count, threads, run_tile);
+#endif
+    };
+
+    if (first_backdrop_id == UINT32_MAX) {
+        dispatch_tiles(0u, UINT32_MAX, false);
         return;
     }
 
-    CpuTileThreadPool::instance().parallel_for_tiles(dirty_count, threads, run_tile);
-#endif
+    // Pass 1: 渲染背景场景图元 (prim_id < first_backdrop_id)
+    dispatch_tiles(0u, first_backdrop_id, false);
+
+    // Pass 2: 对所有背景毛玻璃弹出层区域执行 DualKawaseBlur 高质量重度模糊与圆角合成
+    for (uint32_t i = first_backdrop_id; i < static_cast<uint32_t>(params.primitives.size()); ++i) {
+        if ((params.primitives[i].flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) {
+            apply_backdrop_blur_prim(params.primitives[i], params.width, params.height, dst_framebuffer);
+        }
+    }
+
+    // Pass 3: 在重度模糊毛玻璃底板之上合成弹出层前景（边框、高光、文字、列表项）
+    dispatch_tiles(first_backdrop_id + 1u, UINT32_MAX, true);
 }
 
 } // namespace kernetile::cpu

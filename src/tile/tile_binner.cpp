@@ -63,6 +63,7 @@ const BinningResult& TileBinner::bin_primitives(
         const bool is_icon = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsIcon)) != 0;
         const bool is_rim = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim)) != 0;
         const bool is_acrylic = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain)) != 0;
+        const bool is_backdrop = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0;
         const bool is_inset = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow)) != 0;
         const bool is_metaball = (prim.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball)) != 0;
         float max_alpha = prim.color_a;
@@ -85,7 +86,7 @@ const BinningResult& TileBinner::bin_primitives(
 
         // 若包含软阴影，外扩 3 倍 sigma + spread (跳过复用效果字段的特殊图元，避免触发误扩)
         if (!is_gradient && !is_reveal && !is_glyph && !is_icon && !is_rim &&
-            !is_acrylic && !is_inset && !is_metaball &&
+            !is_acrylic && !is_backdrop && !is_inset && !is_metaball &&
             (prim.shadow_blur > 0.0f || prim.shadow_spread > 0.0f)) {
             float pad = prim.shadow_blur * 3.0f + prim.shadow_spread;
             effective_min_x = std::min(effective_min_x, prim.min_x + prim.shadow_offset_x - pad);
@@ -128,6 +129,7 @@ const BinningResult& TileBinner::bin_primitives(
                             static_cast<uint16_t>(core::PrimitiveFlags::IsPointerReveal) |
                             static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim) |
                             static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain) |
+                            static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter) |
                             static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow) |
                             static_cast<uint16_t>(core::PrimitiveFlags::IsMetaball))) &&
             !clip_has_radius &&

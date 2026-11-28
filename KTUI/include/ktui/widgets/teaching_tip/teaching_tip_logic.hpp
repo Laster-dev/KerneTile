@@ -71,12 +71,8 @@ public:
         float panel_h = h - (m_show_tail ? kTailH : 0.0f);
         Rect panel = Rect::from_xywh(0.0f, panel_y, w, panel_h);
 
-        // 1. 复用 FluentPopupSurface 绘制 32dp 真高斯阴影 + 8px 圆角面板 (可选亚克力微颗粒与方向性玻璃高光)
+        // 1. 复用 FluentPopupSurface 绘制 32dp 真高斯阴影 + 重度模糊 8px 圆角面板
         FluentPopupSurface::paint_panel(ctx, theme, panel, alpha, 8.0f);
-        if (m_desc.acrylic_grain) {
-            Color tint = theme.colors.flyout_surface; tint.a = 0.02f * alpha;
-            ctx.draw_acrylic_panel(panel, tint, 8.0f, 0.024f, 1.0f);
-        }
         if (m_desc.directional_rim) {
             const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.26f * alpha} : Color{1.0f, 1.0f, 1.0f, 0.76f * alpha};
             const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.34f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.14f * alpha};

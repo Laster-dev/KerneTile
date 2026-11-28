@@ -151,6 +151,15 @@ public:
         (void)rect; (void)tint; (void)corner_radius; (void)grain_amount; (void)grain_scale;
     }
 
+    // 实时重度背景毛玻璃模糊表面 (Backdrop Blur Filter, 无颗粒噪点)
+    virtual void draw_backdrop_blur(
+        math::Rect rect,
+        math::Color tint,
+        float corner_radius = 8.0f,
+        float blur_radius = 36.0f) {
+        (void)rect; (void)tint; (void)corner_radius; (void)blur_radius;
+    }
+
     // 解析高斯内阴影 (Analytic SDF Inset Shadow)
     virtual void draw_inset_shadow(
         math::Rect rect,

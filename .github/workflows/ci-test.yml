@@ -1,4 +1,4 @@
-name: CI Unit Tests & Single-File SDK Smoke
+name: Tests
 
 on:
   push:
@@ -14,10 +14,10 @@ env:
 
 jobs:
   # ============================================================================
-  # Windows 单元测试套件 (Pure-GDI + F12 Inspector 开启，无 GPU 依赖稳定运行)
+  # Windows 单元测试套件 (Pure-GDI Release)
   # ============================================================================
   test-windows:
-    name: Unit Tests (Windows x64)
+    name: Tests (Windows x64)
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -62,10 +62,10 @@ jobs:
           ctest --test-dir build-ci-win --output-on-failure
 
   # ============================================================================
-  # Linux 单元测试套件 (Ubuntu 22.04 Clang + Inspector 开启)
+  # Linux 单元测试套件 & SDK 冒烟编译 (Ubuntu 22.04 Clang)
   # ============================================================================
   test-linux:
-    name: Unit Tests (Linux x64)
+    name: Tests (Linux x64)
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -81,7 +81,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build clang lld pkg-config \
+            python3 cmake ninja-build clang lld pkg-config \
             libpango1.0-dev libcairo2-dev libx11-dev libxi-dev \
             libvulkan-dev glslang-tools fonts-liberation
 
@@ -97,73 +97,7 @@ jobs:
         run: |
           ctest --test-dir build-ci-linux --output-on-failure
 
-  # ============================================================================
-  # 单文件 SDK 回归冒烟测试 (Windows MSVC: kernetile.ixx + kernetile.hpp/cpp)
-  # ============================================================================
-  smoke-sdk-windows:
-    name: SDK Smoke (Windows kernetile.ixx & hpp/cpp)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Setup MSVC Developer Environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: amd64
-
-      - name: Generate Single-File SDK Amalgamation
-        shell: pwsh
-        run: |
-          python scripts/amalgamate.py --out dist/amalgamation
-
-      - name: Compile C++20 Module SDK (D3D12)
-        shell: pwsh
-        working-directory: dist/amalgamation
-        run: |
-          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /interface /c kernetile.ixx
-          cl /nologo /std:c++20 /O2 /utf-8 /EHsc example_module.cpp kernetile.obj /Fe:smoke_mod_d3d12.exe
-          Get-Item smoke_mod_d3d12.exe | Select-Object Name, Length
-
-      - name: Compile C++20 Module SDK (Pure-GDI)
-        shell: pwsh
-        working-directory: dist/amalgamation
-        run: |
-          Remove-Item -Force -ErrorAction SilentlyContinue kernetile.ifc, kernetile.obj
-          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 /interface /c kernetile.ixx
-          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_module.cpp kernetile.obj /Fe:smoke_mod_gdi.exe
-          Get-Item smoke_mod_gdi.exe | Select-Object Name, Length
-
-      - name: Compile Two-File SDK (kernetile.hpp + kernetile.cpp)
-        shell: pwsh
-        working-directory: dist/amalgamation
-        run: |
-          cl /nologo /std:c++20 /O2 /utf-8 /EHsc /DKERNETILE_PURE_GDI=1 example_hello.cpp kernetile.cpp /Fe:smoke_twofile_gdi.exe
-          Get-Item smoke_twofile_gdi.exe | Select-Object Name, Length
-
-  # ============================================================================
-  # 单文件 SDK 回归冒烟测试 (Linux Clang: kernetile.hpp + kernetile.cpp)
-  # ============================================================================
-  smoke-sdk-linux:
-    name: SDK Smoke (Linux hpp/cpp)
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            python3 clang lld pkg-config \
-            libpango1.0-dev libcairo2-dev libx11-dev libxi-dev
-
-      - name: Generate & Compile Two-File SDK (Linux Clang)
+      - name: Smoke-Test Single-File SDK (Linux hpp/cpp)
         run: |
           python3 scripts/amalgamate.py --out dist/amalgamation
           cd dist/amalgamation

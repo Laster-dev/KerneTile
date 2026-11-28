@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Bundle build-web/{ktui_gallery.html,ktui_gallery.js,ktui_gallery.wasm,wallpaper_dark.jpg}
+"""Bundle build-web/{ktui_gallery.html,ktui_gallery.js,ktui_gallery.wasm}
 into a compact single-file ktui_gallery-web.html using gzip-9 + native browser
-DecompressionStream('gzip') + direct wasmBinary (smaller than raw .wasm, works offline & file://)."""
+DecompressionStream('gzip') + direct wasmBinary (works offline & via file://)."""
 
 import base64
 import gzip
@@ -11,6 +11,15 @@ import sys
 
 def gz_b64(data: bytes) -> str:
     return base64.b64encode(gzip.compress(data, compresslevel=9, mtime=0)).decode("ascii")
+
+
+def replace_normalized(text: str, old: str, new: str) -> tuple[str, bool]:
+    if old in text:
+        return text.replace(old, new, 1), True
+    old_crlf = old.replace("\n", "\r\n")
+    if old_crlf in text:
+        return text.replace(old_crlf, new, 1), True
+    return text, False
 
 
 def main() -> int:
@@ -28,12 +37,6 @@ def main() -> int:
     js_gz_b64 = gz_b64(js_bytes)
     wasm_gz_b64 = gz_b64(wasm_bytes)
 
-    # Remove external wallpaper_dark.jpg URL in offline single-file mode (keeps built-in CSS Bloom gradient)
-    # so the single HTML stays ultra-compact without +184KB JPEG base64 bloat.
-    html = html.replace("url('wallpaper_dark.jpg'),\r\n                ", "")
-    html = html.replace("url('wallpaper_dark.jpg'),\n                ", "")
-    html = html.replace("url('wallpaper_dark.jpg'),", "")
-
     loader_block = f"""<script>
 window.__KTUI_JS_GZ__ = '{js_gz_b64}';
 window.__KTUI_WASM_GZ__ = '{wasm_gz_b64}';
@@ -45,92 +48,64 @@ window.__ktuiGunzip = async function(b64) {{
     w.write(u8); w.close();
     return new Response(ds.readable).arrayBuffer();
 }};
-window.__ktuiWasmBinaryPromise = null;
-window.__ktuiGetWasmBinary = function() {{
-    if (!window.__ktuiWasmBinaryPromise) {{
-        window.__ktuiWasmBinaryPromise = window.__ktuiGunzip(window.__KTUI_WASM_GZ__).then(function(buf) {{
-            return new Uint8Array(buf);
-        }});
-    }}
-    return window.__ktuiWasmBinaryPromise;
-}};
 </script>
     <script type="text/javascript">"""
 
     marker = '    <script type="text/javascript">'
-    if marker not in html:
+    html, ok = replace_normalized(html, marker, loader_block)
+    if not ok:
         raise RuntimeError("Could not find main <script> marker in ktui_gallery.html")
-    html = html.replace(marker, loader_block, 1)
 
-    # Replace ensureAppScript to decode gzipped inline ktui_gallery.js once
-    old_ensure = """        function ensureAppScript(app) {
-            if (typeof window[app.factoryName] === 'function') {
-                return Promise.resolve(window[app.factoryName]);
+    old_loader = """        var s = document.createElement('script');
+        s.src = withVer('ktui_gallery.js');
+        s.async = true;
+        s.onload = function() {
+            if (typeof window.createKtuiApp !== 'function') {
+                showError('WASM 入口 createKtuiApp 未找到');
+                return;
             }
-            if (loadedScripts[app.id]) return loadedScripts[app.id];
-            loadedScripts[app.id] = new Promise(function(resolve, reject) {
-                var s = document.createElement('script');
-                s.src = withVer(app.jsUrl);
-                s.async = true;
-                s.onload = function() {
-                    if (typeof window[app.factoryName] === 'function') {
-                        resolve(window[app.factoryName]);
-                    } else {
-                        reject(new Error('WASM 工厂函数未找到: ' + app.factoryName));
-                    }
-                };
-                s.onerror = function() {
-                    delete loadedScripts[app.id];
-                    reject(new Error('拉取 ' + app.jsUrl + ' 失败'));
-                };
-                document.body.appendChild(s);
-            });
-            return loadedScripts[app.id];
-        }"""
-
-    new_ensure = """        function ensureAppScript(app) {
-            if (typeof window[app.factoryName] === 'function') {
-                return Promise.resolve(window[app.factoryName]);
-            }
-            if (loadedScripts[app.id]) return loadedScripts[app.id];
-            loadedScripts[app.id] = window.__ktuiGunzip(window.__KTUI_JS_GZ__).then(function(buf) {
-                var code = new TextDecoder().decode(buf);
-                (0, eval)(code);
-                if (typeof window[app.factoryName] === 'function') {
-                    return window[app.factoryName];
+            window.createKtuiApp({
+                locateFile: function(path, prefix) {
+                    return withVer((prefix || '') + path);
                 }
-                throw new Error('WASM 工厂函数未找到: ' + app.factoryName);
+            }).then(function() {
+                if (loadingEl) loadingEl.style.display = 'none';
+            }).catch(function(err) {
+                console.error(err);
+                showError('启动失败: ' + (err && err.message ? err.message : err));
             });
-            return loadedScripts[app.id];
-        }"""
+        };
+        s.onerror = function() {
+            showError('加载 ktui_gallery.js 失败');
+        };
+        document.body.appendChild(s);"""
 
-    if old_ensure in html:
-        html = html.replace(old_ensure, new_ensure, 1)
-    elif old_ensure.replace("\n", "\r\n") in html:
-        html = html.replace(old_ensure.replace("\n", "\r\n"), new_ensure, 1)
-    else:
-        raise RuntimeError("Could not find ensureAppScript block in ktui_gallery.html")
+    new_loader = """        Promise.all([
+            window.__ktuiGunzip(window.__KTUI_JS_GZ__),
+            window.__ktuiGunzip(window.__KTUI_WASM_GZ__)
+        ]).then(function(pair) {
+            var code = new TextDecoder().decode(pair[0]);
+            (0, eval)(code);
+            if (typeof window.createKtuiApp !== 'function') {
+                showError('WASM 入口 createKtuiApp 未找到');
+                return;
+            }
+            return window.createKtuiApp({
+                wasmBinary: new Uint8Array(pair[1]),
+                locateFile: function(path, prefix) {
+                    return withVer((prefix || '') + path);
+                }
+            }).then(function() {
+                if (loadingEl) loadingEl.style.display = 'none';
+            });
+        }).catch(function(err) {
+            console.error(err);
+            showError('启动失败: ' + (err && err.message ? err.message : err));
+        });"""
 
-    # Pass decoded wasmBinary directly into Emscripten factory (zero fetch, works on file://)
-    old_launch = """            ensureAppScript(app).then(function(factory) {
-                return factory({
-                    locateFile: function(path, prefix) {
-                        return withVer((prefix || '') + path);
-                    },"""
-    new_launch = """            Promise.all([ensureAppScript(app), window.__ktuiGetWasmBinary()]).then(function(pair) {
-                var factory = pair[0], wasmBytes = pair[1];
-                return factory({
-                    wasmBinary: wasmBytes.slice(),
-                    locateFile: function(path, prefix) {
-                        return withVer((prefix || '') + path);
-                    },"""
-
-    if old_launch in html:
-        html = html.replace(old_launch, new_launch, 1)
-    elif old_launch.replace("\n", "\r\n") in html:
-        html = html.replace(old_launch.replace("\n", "\r\n"), new_launch, 1)
-    else:
-        raise RuntimeError("Could not find launchWasmApp factory call in ktui_gallery.html")
+    html, ok = replace_normalized(html, old_loader, new_loader)
+    if not ok:
+        raise RuntimeError("Could not find script loader block in ktui_gallery.html")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")

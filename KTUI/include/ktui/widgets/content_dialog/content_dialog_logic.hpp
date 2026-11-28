@@ -141,10 +141,6 @@ public:
         const Rect dlg_rect = Rect::from_xywh(dx, dy, w, h);
         ctx.draw_rounded_rect(Rect::from_xywh(dx, dy, w, body_h), body_bg, 8.0f, 8.0f, 0.0f, 0.0f);
         ctx.draw_rounded_rect(Rect::from_xywh(dx, dy + body_h, w, footer_h), footer_bg, 0.0f, 0.0f, 8.0f, 8.0f);
-        if (m_desc.acrylic_grain) {
-            Color tint = body_bg; tint.a = 0.02f * alpha;
-            ctx.draw_acrylic_panel(dlg_rect, tint, 8.0f, 0.024f, 1.0f);
-        }
         ctx.draw_rect(Rect::from_xywh(dx, dy + body_h, w, 1.0f), divider, 0.0f, 0.0f);
         ctx.draw_rect(dlg_rect, border, 8.0f, 1.0f);
         if (m_desc.directional_rim) {

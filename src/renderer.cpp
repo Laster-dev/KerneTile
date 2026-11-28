@@ -416,6 +416,32 @@ public:
         push_primitive(prim);
     }
 
+    void draw_backdrop_blur(
+        math::Rect rect,
+        math::Color tint,
+        float corner_radius = 8.0f,
+        float blur_radius = 36.0f) override
+    {
+        if (rect.is_empty() || tint.a <= 0.0005f) return;
+        core::UiPrimitive prim{};
+        prim.min_x = rect.min_x;
+        prim.min_y = rect.min_y;
+        prim.max_x = rect.max_x;
+        prim.max_y = rect.max_y;
+        prim.radius_top_left = corner_radius;
+        prim.radius_top_right = corner_radius;
+        prim.radius_bottom_right = corner_radius;
+        prim.radius_bottom_left = corner_radius;
+        prim.color_r = tint.r * tint.a;
+        prim.color_g = tint.g * tint.a;
+        prim.color_b = tint.b * tint.a;
+        prim.color_a = tint.a;
+        prim.border_width = 0.0f;
+        prim.shadow_blur = std::clamp(blur_radius, 4.0f, 96.0f);
+        prim.flags = static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter);
+        push_primitive(prim);
+    }
+
     void draw_inset_shadow(
         math::Rect rect,
         math::Color shadow_color,
@@ -828,7 +854,14 @@ public:
                 const auto& tile = m_last_binning.headers[id];
                 m_compute_tiles.push_back({x, y, tile.primitive_offset, tile.primitive_count});
             };
-            if (m_gpu_full_frame) {
+            bool has_backdrop_filter = false;
+            for (const auto& p : m_primitives) {
+                if ((p.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) {
+                    has_backdrop_filter = true;
+                    break;
+                }
+            }
+            if (m_gpu_full_frame || has_backdrop_filter) {
                 for (uint32_t id = 0; id < m_grid.get_total_tiles(); ++id) {
                     const auto coord = m_grid.get_tile_coord(id);
                     append(coord.x, coord.y, id);
@@ -1006,8 +1039,9 @@ private:
         const bool is_gradient = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasLinearGradient)) != 0;
         const bool is_rim = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasDirectionalRim)) != 0;
         const bool is_acrylic = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasAcrylicGrain)) != 0;
+        const bool is_backdrop = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0;
         const bool is_inset = (p.flags & static_cast<uint16_t>(core::PrimitiveFlags::HasInsetShadow)) != 0;
-        if (!is_gradient && !is_rim && !is_acrylic && !is_inset && p.shadow_blur > 0.0f) return;
+        if (!is_gradient && !is_rim && !is_acrylic && !is_backdrop && !is_inset && p.shadow_blur > 0.0f) return;
 
         const float w_orig = p.max_x - p.min_x;
         const float h_orig = p.max_y - p.min_y;
