@@ -141,11 +141,26 @@ public:
         auto style = ToggleSwitchStyleResolver::resolve(m_data, m_state, theme);
         float desired_w = style.track_width;
         float desired_h = style.track_height;
+        m_wrapped_lines.clear();
 
         if (!m_data.label.empty()) {
             Vec2 txt_sz = TextMeasure::measure(m_data.label, style.font_size);
-            desired_w += style.gap + txt_sz.x;
-            desired_h = std::max(desired_h, txt_sz.y);
+            float avail_label_w = m_constraints.has_bounded_width()
+                ? std::max(40.0f, m_constraints.max_width - style.track_width - style.gap)
+                : std::numeric_limits<float>::infinity();
+            if (std::isfinite(avail_label_w) && txt_sz.x > avail_label_w) {
+                m_wrapped_lines = TextMeasure::wrap_lines(m_data.label, style.font_size, avail_label_w);
+                float max_lw = 0.0f;
+                for (const auto& ln : m_wrapped_lines) {
+                    max_lw = std::max(max_lw, TextMeasure::measure_width(ln, style.font_size));
+                }
+                float line_h = std::max(style.font_size * 1.35f, txt_sz.y);
+                desired_w += style.gap + max_lw;
+                desired_h = std::max(desired_h, static_cast<float>(m_wrapped_lines.size()) * line_h);
+            } else {
+                desired_w += style.gap + txt_sz.x;
+                desired_h = std::max(desired_h, txt_sz.y);
+            }
         }
 
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
@@ -244,12 +259,22 @@ public:
             ctx.draw_line(p1, p2, style.check_color, stroke);
         }
 
-        // 6. 可选右侧标签文字
+        // 6. 可选右侧标签文字（窄屏长标签自动折行）
         if (!m_data.label.empty()) {
-            Vec2 txt_sz = TextMeasure::measure(m_data.label, style.font_size);
             float label_x = track_x + style.track_width + style.gap;
-            float label_y = b.min_y + (b.height() - txt_sz.y) * 0.5f;
-            ctx.draw_text(m_data.label, PointF{label_x, label_y}, style.font_size, style.label_color);
+            if (m_wrapped_lines.size() > 1) {
+                float line_h = std::max(style.font_size * 1.35f, TextMeasure::measure("Hg", style.font_size).y);
+                float total_h = static_cast<float>(m_wrapped_lines.size()) * line_h;
+                float y = b.min_y + std::max(0.0f, (b.height() - total_h) * 0.5f);
+                for (const auto& ln : m_wrapped_lines) {
+                    ctx.draw_text(ln, PointF{label_x, y}, style.font_size, style.label_color);
+                    y += line_h;
+                }
+            } else {
+                Vec2 txt_sz = TextMeasure::measure(m_data.label, style.font_size);
+                float label_y = b.min_y + (b.height() - txt_sz.y) * 0.5f;
+                ctx.draw_text(m_data.label, PointF{label_x, label_y}, style.font_size, style.label_color);
+            }
         }
     }
 
@@ -392,6 +417,7 @@ private:
     float m_effect_val{0.0f};
     float m_elapsed{kDurationSec};
     std::chrono::steady_clock::time_point m_last_tick_time{};
+    std::vector<std::string> m_wrapped_lines;
 };
 
 // C++20 指定初始化器声明式开关控件 (ToggleSwitch DSL Wrapper)

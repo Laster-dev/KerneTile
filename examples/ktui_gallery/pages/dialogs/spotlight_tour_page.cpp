@@ -100,9 +100,10 @@ WidgetPtr build_spotlight_tour_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 14.0f,
                 .content = {
-                    Text { .text = "真实交互演示工作台（引导过程中以下 3 个按钮可直接在聚光灯镂空区内被点击）", .font_size = 13.0f, .font_weight = FontWeight::SemiBold },
-                    HStack {
-                        .spacing = 16.0f,
+                    Text { .text = "真实交互演示工作台（引导过程中以下 3 个按钮可直接在聚光灯镂空区内被点击）", .font_size = 13.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
+                    Wrap {
+                        .spacing = 12.0f,
+                        .run_spacing = 10.0f,
                         .content = {
                             with_ref(Button {
                                 .text = "① 创建数据源",

@@ -173,7 +173,11 @@ inline WidgetPtr build_mobile_home_page(GalleryApp& app) {
                     .spacing = 6.0f,
                     .content = {
                         Text { .text = "KerneTile KTUI Mobile", .font_size = 18.0f, .font_weight = FontWeight::SemiBold },
+#if defined(__EMSCRIPTEN__)
+                        app.make_muted("WebGPU Compute 16×16 瓦片渲染引擎 · 移动端自适应展厅 · 全控件触控与物理惯性适配", 12.0f),
+#else
                         app.make_muted("Vulkan Compute 16×16 瓦片渲染引擎 · 原生移动端自适应展厅 · 全控件触控与物理惯性适配", 12.0f),
+#endif
                         Wrap {
                             .spacing = 8.0f,
                             .run_spacing = 8.0f,

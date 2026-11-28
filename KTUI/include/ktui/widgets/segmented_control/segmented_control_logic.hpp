@@ -68,18 +68,92 @@ public:
     }
 
     void perform_layout() override {
-        float ideal_w = 6.0f;
+        m_item_rects.clear();
+        if (m_items.empty()) {
+            set_size(m_constraints.constrain(Vec2{120.0f, 32.0f}));
+            return;
+        }
+
+        std::vector<float> item_widths;
+        item_widths.reserve(m_items.size());
+        float ideal_w = 4.0f;
         for (const auto& it : m_items) {
             float iw = 28.0f + TextMeasure::measure_width(it.label, 13.0f);
             if (!it.svg_path.empty()) iw += 20.0f;
-            ideal_w += std::max(68.0f, iw);
+            float w_item = std::max(64.0f, std::ceil(iw));
+            item_widths.push_back(w_item);
+            ideal_w += w_item;
         }
-        float w = (m_width > 0.0f) ? m_width : std::max(120.0f, std::ceil(ideal_w));
-        set_size(m_constraints.constrain(Vec2{w, 32.0f}));
-        if (!m_pill_init && !m_items.empty()) {
+
+        const float max_avail = std::isfinite(m_constraints.max_width)
+            ? m_constraints.constrain_width(m_constraints.max_width)
+            : std::max(120.0f, std::ceil(ideal_w));
+        const float target_w = (m_width > 0.0f)
+            ? m_constraints.constrain_width(m_width)
+            : max_avail;
+
+        // 单行放得下（或仅有 1 项）时保持标准 WinUI 3 等分单行形态
+        if (m_items.size() <= 1 || ideal_w <= target_w + 1.0f) {
+            float w = (m_width > 0.0f) ? target_w : std::max(120.0f, std::ceil(ideal_w));
+            Vec2 final_sz = m_constraints.constrain(Vec2{w, 32.0f});
+            set_size(final_sz);
+            float inner_w = std::max(1.0f, final_sz.x - 4.0f);
+            float seg_w = inner_w / static_cast<float>(m_items.size());
+            for (size_t i = 0; i < m_items.size(); ++i) {
+                m_item_rects.push_back(Rect::from_xywh(
+                    2.0f + static_cast<float>(i) * seg_w, 2.0f,
+                    seg_w, std::max(24.0f, final_sz.y - 4.0f)));
+            }
+        } else {
+            // 横向空间不足时按行自动折行，每行段等分铺满可用宽度
+            constexpr float kRowH = 28.0f;
+            constexpr float kRowGap = 2.0f;
+            float container_w = std::max(88.0f, target_w);
+            float inner_w = std::max(60.0f, container_w - 4.0f);
+
+            std::vector<std::pair<size_t, size_t>> rows;
+            size_t row_start = 0;
+            float cur_w = 0.0f;
+            for (size_t i = 0; i < m_items.size(); ++i) {
+                float iw = std::min(item_widths[i], inner_w);
+                if (i > row_start && cur_w + iw > inner_w + 0.5f) {
+                    rows.emplace_back(row_start, i);
+                    row_start = i;
+                    cur_w = iw;
+                } else {
+                    cur_w += iw;
+                }
+            }
+            if (row_start < m_items.size()) {
+                rows.emplace_back(row_start, m_items.size());
+            }
+
+            float total_h = 4.0f + static_cast<float>(rows.size()) * kRowH +
+                            static_cast<float>(rows.size() > 1 ? rows.size() - 1 : 0) * kRowGap;
+            Vec2 final_sz = m_constraints.constrain(Vec2{container_w, total_h});
+            set_size(final_sz);
+
+            float actual_inner_w = std::max(1.0f, final_sz.x - 4.0f);
+            float y = 2.0f;
+            for (const auto& [rs, re] : rows) {
+                size_t count = re - rs;
+                float seg_w = actual_inner_w / static_cast<float>(count);
+                for (size_t i = rs; i < re; ++i) {
+                    m_item_rects.push_back(Rect::from_xywh(
+                        2.0f + static_cast<float>(i - rs) * seg_w, y, seg_w, kRowH));
+                }
+                y += kRowH + kRowGap;
+            }
+        }
+
+        if (!m_pill_init && !m_item_rects.empty()) {
             Rect sr = segment_rect(m_selected);
             m_pill_x = sr.min_x;
+            m_pill_y = sr.min_y;
             m_pill_w = sr.width();
+            m_pill_h = sr.height();
+            m_trail_x = sr.min_x;
+            m_trail_w = sr.width();
             m_pill_init = true;
         }
     }
@@ -117,33 +191,42 @@ public:
         Rect target = segment_rect(m_selected);
         if (!m_pill_init) {
             m_pill_x = target.min_x;
+            m_pill_y = target.min_y;
             m_pill_w = target.width();
+            m_pill_h = target.height();
             m_trail_x = target.min_x;
             m_trail_w = target.width();
             m_pill_init = true;
-        } else if (std::abs(m_pill_x - target.min_x) > 0.15f || std::abs(m_pill_w - target.width()) > 0.15f ||
+        } else if (std::abs(m_pill_x - target.min_x) > 0.15f || std::abs(m_pill_y - target.min_y) > 0.15f ||
+                   std::abs(m_pill_w - target.width()) > 0.15f || std::abs(m_pill_h - target.height()) > 0.15f ||
                    (m_liquid_indicator && (std::abs(m_trail_x - m_pill_x) > 0.25f || std::abs(m_trail_w - m_pill_w) > 0.25f))) {
             float k = 1.0f - std::exp(-dt * 24.0f);
             float kt = 1.0f - std::exp(-dt * 11.5f);
             m_pill_x += (target.min_x - m_pill_x) * k;
+            m_pill_y += (target.min_y - m_pill_y) * k;
             m_pill_w += (target.width() - m_pill_w) * k;
+            m_pill_h += (target.height() - m_pill_h) * k;
             m_trail_x += (m_pill_x - m_trail_x) * kt;
             m_trail_w += (m_pill_w - m_trail_w) * kt;
             mark_needs_paint();
         } else {
             m_pill_x = target.min_x;
+            m_pill_y = target.min_y;
             m_pill_w = target.width();
+            m_pill_h = target.height();
             m_trail_x = m_pill_x;
             m_trail_w = m_pill_w;
             m_has_last_frame = false;
         }
 
-        // 3. 非激活相邻分段之间的柔和分隔竖线
+        // 3. 非激活相邻分段之间的柔和分隔竖线（仅同一行相邻段）
         Color sep_col = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.08f} : Color{0.0f, 0.0f, 0.0f, 0.08f};
         for (int i = 1; i < static_cast<int>(m_items.size()); ++i) {
             if (i == m_selected || i - 1 == m_selected || i == m_hovered || i - 1 == m_hovered) continue;
+            Rect prev_sr = segment_rect(i - 1);
             Rect sr = segment_rect(i);
-            ctx.draw_rect(Rect::from_xywh(std::round(sr.min_x), std::round((h - 14.0f) * 0.5f), 1.0f, 14.0f),
+            if (std::abs(sr.min_y - prev_sr.min_y) > 1.0f) continue;
+            ctx.draw_rect(Rect::from_xywh(std::round(sr.min_x), std::round(sr.min_y + (sr.height() - 14.0f) * 0.5f), 1.0f, 14.0f),
                           sep_col, 0.0f, 0.0f);
         }
 
@@ -154,14 +237,14 @@ public:
         }
 
         // 5. Fluent 2 轻质悬浮滑块 (可选启用 SDF Smooth-Min 液态粘连拉伸)
-        Rect pill = Rect::from_xywh(m_pill_x, 2.0f, m_pill_w, h - 4.0f);
+        Rect pill = Rect::from_xywh(m_pill_x, m_pill_y, m_pill_w, std::max(8.0f, m_pill_h));
         Color pill_bg = theme.is_dark
             ? (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.095f} : Color{1.0f, 1.0f, 1.0f, 0.125f})
             : (m_pressed == m_selected ? Color{1.0f, 1.0f, 1.0f, 0.90f}  : Color{1.0f, 1.0f, 1.0f, 0.99f});
-        if (m_liquid_indicator && std::abs(m_trail_x - m_pill_x) > 0.35f) {
-            const float pr = (h - 4.0f) * 0.5f;
-            const Rect trail = Rect::from_xywh(m_trail_x + 4.0f, 4.0f, std::max(8.0f, m_trail_w - 8.0f), h - 8.0f);
-            ctx.draw_metaball(pill, pr, trail, (h - 8.0f) * 0.5f, m_liquid_smooth_k, pill_bg, 0.0f);
+        if (m_liquid_indicator && std::abs(m_trail_x - m_pill_x) > 0.35f && std::abs(m_pill_y - target.min_y) < 1.0f) {
+            const float pr = pill.height() * 0.5f;
+            const Rect trail = Rect::from_xywh(m_trail_x + 4.0f, pill.min_y + 2.0f, std::max(8.0f, m_trail_w - 8.0f), std::max(4.0f, pill.height() - 4.0f));
+            ctx.draw_metaball(pill, pr, trail, trail.height() * 0.5f, m_liquid_smooth_k, pill_bg, 0.0f);
         } else {
             if (!theme.is_dark) {
                 ctx.draw_rect(Rect::from_xywh(pill.min_x, pill.min_y + 1.0f, pill.width(), pill.height()),
@@ -187,14 +270,16 @@ public:
             Color tc = is_sel ? active_c : (idx == m_hovered ? hover_c : idle_c);
             Vec2 ts = TextMeasure::measure(it.label, 13.0f);
             float content_w = ts.x + (it.svg_path.empty() ? 0.0f : 20.0f);
-            float sx = std::round(sr.min_x + (sr.width() - content_w) * 0.5f);
+            float sx = std::round(sr.min_x + std::max(4.0f, (sr.width() - content_w) * 0.5f));
+            ctx.push_clip(sr, 4.0f);
             if (!it.svg_path.empty()) {
-                Rect ir = Rect::from_xywh(sx, std::round((h - 14.0f) * 0.5f), 14.0f, 14.0f);
+                Rect ir = Rect::from_xywh(sx, std::round(sr.min_y + (sr.height() - 14.0f) * 0.5f), 14.0f, 14.0f);
                 SvgEngine::draw_svg_path(ctx, it.svg_path, 24.0f, 24.0f, ir, tc);
                 sx += 20.0f;
             }
-            ctx.draw_text(it.label, PointF{sx, std::round((h - ts.y) * 0.5f)}, 13.0f, tc,
+            ctx.draw_text(it.label, PointF{sx, std::round(sr.min_y + (sr.height() - ts.y) * 0.5f)}, 13.0f, tc,
                           is_sel ? FontWeight::SemiBold : FontWeight::Regular);
+            ctx.pop_clip();
         }
     }
 
@@ -208,17 +293,20 @@ public:
 
 private:
     Rect segment_rect(int idx) const noexcept {
+        if (idx >= 0 && idx < static_cast<int>(m_item_rects.size())) {
+            return m_item_rects[static_cast<size_t>(idx)];
+        }
         if (m_items.empty()) return Rect{};
         float inner_w = std::max(1.0f, size().x - 4.0f);
         float seg_w = inner_w / static_cast<float>(m_items.size());
-        return Rect::from_xywh(2.0f + static_cast<float>(idx) * seg_w, 2.0f, seg_w, size().y - 4.0f);
+        return Rect::from_xywh(2.0f + static_cast<float>(idx) * seg_w, 2.0f, seg_w, std::max(24.0f, size().y - 4.0f));
     }
 
     int hit_segment(Vec2 local) const noexcept {
-        if (m_items.empty() || local.x < 2.0f || local.x > size().x - 2.0f) return -1;
-        float seg_w = std::max(1.0f, size().x - 4.0f) / static_cast<float>(m_items.size());
-        int idx = static_cast<int>((local.x - 2.0f) / seg_w);
-        return (idx >= 0 && idx < static_cast<int>(m_items.size())) ? idx : -1;
+        for (size_t i = 0; i < m_item_rects.size(); ++i) {
+            if (m_item_rects[i].contains(local)) return static_cast<int>(i);
+        }
+        return -1;
     }
 
     void setup_behavior() {
@@ -301,6 +389,7 @@ private:
     }
 
     std::vector<SegmentedItem> m_items;
+    std::vector<Rect> m_item_rects;
     int m_selected{0};
     int m_hovered{-1};
     int m_pressed{-1};
@@ -311,7 +400,9 @@ private:
     float m_width{0.0f};
     bool m_pill_init{false};
     float m_pill_x{2.0f};
+    float m_pill_y{2.0f};
     float m_pill_w{60.0f};
+    float m_pill_h{28.0f};
     float m_trail_x{2.0f};
     float m_trail_w{60.0f};
     bool m_liquid_indicator{false};

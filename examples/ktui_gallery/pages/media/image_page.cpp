@@ -261,7 +261,7 @@ WidgetPtr build_image_page(GalleryApp& app) {
                         .justify = JustifyContent::SpaceBetween,
                         .align_items = AlignItems::Center,
                         .content = {
-                            Text { .text = "交互式图像预览台（支持直接拖入 PNG / JPG / GIF / BMP）", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                            Text { .text = "交互式图像预览台（支持直接拖入 PNG / JPG / GIF / BMP）", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                             Button {
                                 .text = "打开本地图片...",
                                 .variant = ButtonVariant::Accent,
@@ -311,8 +311,8 @@ WidgetPtr build_image_page(GalleryApp& app) {
                         .run_spacing = 12.0f,
                         .content = {
                             Box {
-                                .width = 340.0f,
-                                .height = 220.0f,
+                                .width = 272.0f,
+                                .height = 200.0f,
                                 .background_color = Color{0.0f, 0.0f, 0.0f, 0.20f},
                                 .border_color = Color{1.0f, 1.0f, 1.0f, 0.12f},
                                 .border_width = 1.0f,
@@ -321,8 +321,8 @@ WidgetPtr build_image_page(GalleryApp& app) {
                                 .child = Image {
                                     .source = app.image_active_src.get(),
                                     .auto_play = app.image_auto_play.get(),
-                                    .width = 324.0f,
-                                    .height = 204.0f,
+                                    .width = 256.0f,
+                                    .height = 184.0f,
                                     .stretch = app.image_stretch.get(),
                                     .corner_radius = app.image_corner_radius.get(),
                                     .tint = app.image_tint.get(),
@@ -513,7 +513,7 @@ WidgetPtr build_image_page(GalleryApp& app) {
                                         .spacing = 4.0f,
                                         .content = {
                                             Text { .text = "KerneTile 壁纸容器示例", .font_size = 15.0f, .color = Color::white(), .font_weight = FontWeight::SemiBold },
-                                            Text { .text = "将任意 PNG / JPG / GIF 拖入窗口或点击上方打开按钮即可实时替换此壁纸", .font_size = 12.0f, .color = Color{0.9f, 0.92f, 0.96f, 0.9f} }
+                                            Text { .text = "将任意 PNG / JPG / GIF 拖入窗口或点击上方打开按钮即可实时替换此壁纸", .font_size = 12.0f, .color = Color{0.9f, 0.92f, 0.96f, 0.9f}, .overflow = TextOverflow::Wrap }
                                         }
                                     }
                                 }

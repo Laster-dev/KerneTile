@@ -34,7 +34,7 @@ WidgetPtr build_scrub_number_box_page(GalleryApp& app) {
                 .spacing = 12.0f,
                 .content = {
                     Grid {
-                        .columns = 2,
+                        .min_item_width = 220.0f,
                         .column_spacing = 12.0f,
                         .row_spacing = 10.0f,
                         .content = {

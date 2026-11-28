@@ -1019,12 +1019,12 @@ WidgetPtr build_tactile_concentric_radius_page(GalleryApp& app) {
                     }
                 }),
 
-                HStack {
-                    .align_items = AlignItems::FlexStart,
+                Wrap {
                     .spacing = 16.0f,
+                    .run_spacing = 12.0f,
                     .content = {
                         Box {
-                            .width = 320.0f,
+                            .width = 264.0f,
                             .background_color = Color{0.12f, 0.44f, 0.90f, 0.16f},
                             .border_color = Color{0.25f, 0.64f, 1.00f, 0.45f},
                             .border_width = 1.5f,
@@ -1041,7 +1041,7 @@ WidgetPtr build_tactile_concentric_radius_page(GalleryApp& app) {
                                     .align_items = AlignItems::Stretch,
                                     .spacing = 6.0f,
                                     .content = {
-                                        Text { .text = "✓ 自动同心推导 (.concentric_inner = true)", .font_size = 13.5f, .font_weight = FontWeight::SemiBold },
+                                        Text { .text = "✓ 自动同心推导 (.concentric_inner = true)", .font_size = 13.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                                         app.make_muted("三层嵌套盒自动沿祖先间距收敛出同圆心弧度，四角缝隙完全平行。", 11.5f),
                                         Box {
                                             .height = 42.0f,
@@ -1060,7 +1060,7 @@ WidgetPtr build_tactile_concentric_radius_page(GalleryApp& app) {
                          .bind(state->inset_pad, [](RenderDecoratedBox& b, float p) { b.set_padding(EdgeInsets(p)); }),
 
                         Box {
-                            .width = 320.0f,
+                            .width = 264.0f,
                             .background_color = Color{0.80f, 0.35f, 0.20f, 0.14f},
                             .border_color = Color{0.96f, 0.52f, 0.34f, 0.45f},
                             .border_width = 1.5f,

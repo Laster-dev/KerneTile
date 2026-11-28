@@ -1,6 +1,6 @@
 #include "gallery_app.hpp"
 #include "pages/gallery_pages.hpp"
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
 #include "mobile_shell.hpp"
 #endif
 
@@ -191,9 +191,9 @@ private:
 } // namespace
 
 WidgetPtr GalleryApp::make_page_title(const std::string& title, float font_size) {
-#if defined(__ANDROID__)
-    font_size = std::min(font_size, 19.0f);
-#endif
+    if (Window* win = Window::active_window(); win && win->size().x < 680.0f) {
+        font_size = std::min(font_size, 19.0f);
+    }
     return HStack {
         .align_items = AlignItems::Center,
         .spacing = 8.0f,
@@ -243,7 +243,14 @@ void GalleryApp::spawn_child_window() {
     child_desc.resizable = true;
 
     auto child_win = app->create_window(child_desc);
-    if (!child_win) return;
+    if (!child_win) {
+        Toast::show(ToastDesc{
+            .title = "当前为全屏单画板模式",
+            .message = "Web 端已禁用额外桌面浮窗，所有绘制均在当前画板内完成。",
+            .severity = ToastSeverity::Informational
+        });
+        return;
+    }
 
     auto note = std::make_shared<Property<std::string>>("独立渲染与事件循环窗口 #" + std::to_string(idx));
     child_notes.push_back(note);
@@ -325,7 +332,7 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         }
     });
 
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
     window->titlebar().set_pin_button_visible(true);
     window->titlebar().set_theme_button_visible(true);
     window->titlebar().add_action("+", "新建工具窗口", [this]() { spawn_child_window(); });
@@ -467,9 +474,17 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         return pages::build_home_page(*this);
     };
 
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
 #if defined(__ANDROID__)
-    window->set_content(mobile::build_mobile_shell(*this, std::move(build_page_by_id)));
+    const bool use_mobile_shell = true;
 #else
+    const bool use_mobile_shell = (window->size().x < 680.0f);
+#endif
+    if (use_mobile_shell) {
+        window->set_content(mobile::build_mobile_shell(*this, std::move(build_page_by_id)));
+        return;
+    }
+#endif
     struct NavEntry { const char* id; const char* label; const char* badge; };
     auto make_cat = [](const char* id, const char* label, NavigationIcon icon, bool expanded, std::initializer_list<NavEntry> list) {
         NavigationViewItem cat;
@@ -608,7 +623,6 @@ void GalleryApp::setup(Application& application, std::shared_ptr<Window> win) {
         .page_builder = std::move(build_page_by_id)
     }.bind_two_way(nav_selected)
      .bind(&RenderNavigationView::set_pane_display_mode, nav_mode));
-#endif
 }
 
 } // namespace gallery

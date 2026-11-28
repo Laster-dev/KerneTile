@@ -58,6 +58,9 @@ EM_JS(int, start_webgpu, (const char* code, int win_id), {
                 });
                 return shared;
             });
+        }).catch(function(err) {
+            Module['ktuiGpuSharedPromise'] = null;
+            throw err;
         });
     }
 
@@ -134,58 +137,74 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
         }
 
         var encoder = device.createCommandEncoder();
-        if (tile_count) {
-            var firstAtlasUpload = !state.atlas;
-            if (firstAtlasUpload) {
-                state.atlas = device.createTexture({
-                    size: [atlas_width, atlas_height], format: 'r8unorm',
-                    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
-                });
-                state.atlasView = state.atlas.createView();
-            }
+
+        var recreateAtlas = !state.atlas || state.atlasW !== atlas_width || state.atlasH !== atlas_height;
+        if (recreateAtlas) {
+            if (state.atlas) state.atlas.destroy();
+            state.atlas = device.createTexture({
+                size: [Math.max(1, atlas_width), Math.max(1, atlas_height)], format: 'r8unorm',
+                usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
+            });
+            state.atlasView = state.atlas.createView();
+            state.atlasW = atlas_width;
+            state.atlasH = atlas_height;
+        }
+        if (atlas && atlas_width > 0 && atlas_height > 0) {
+            var atlasPtr = atlas >>> 0;
             var uploadAtlas = function(x, y, w, h) {
-                var offset = atlas + y * atlas_width + x;
+                if (w <= 0 || h <= 0 || x + w > atlas_width || y + h > atlas_height) return;
+                var offset = atlasPtr + y * atlas_width + x;
                 var bytes = HEAPU8.subarray(offset, offset + (h - 1) * atlas_width + w);
                 device.queue.writeTexture({texture: state.atlas, origin: [x, y]}, bytes,
                     {bytesPerRow: atlas_width, rowsPerImage: h}, [w, h]);
             };
-            if (firstAtlasUpload) {
+            if (recreateAtlas) {
                 uploadAtlas(0, 0, atlas_width, atlas_height);
-            } else {
+            } else if (update_count > 0) {
                 var rect = atlas_updates >>> 2;
-                for (var i = 0; i < update_count; ++i, rect += 4)
-                    uploadAtlas(HEAPU32[rect], HEAPU32[rect + 1], HEAPU32[rect + 2], HEAPU32[rect + 3]);
-            }
-
-            var caW = (color_atlas && color_atlas_width > 0) ? color_atlas_width : 1;
-            var caH = (color_atlas && color_atlas_height > 0) ? color_atlas_height : 1;
-            var recreateColorAtlas = !state.colorAtlas || state.colorAtlasW !== caW || state.colorAtlasH !== caH;
-            if (recreateColorAtlas) {
-                if (state.colorAtlas) state.colorAtlas.destroy();
-                state.colorAtlas = device.createTexture({
-                    size: [caW, caH], format: 'rgba8unorm',
-                    usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
-                });
-                state.colorAtlasView = state.colorAtlas.createView();
-                state.colorAtlasW = caW;
-                state.colorAtlasH = caH;
-            }
-            if (color_atlas && color_atlas_width > 0 && color_atlas_height > 0) {
-                var uploadColorAtlas = function(x, y, w, h) {
-                    var offset = color_atlas + (y * color_atlas_width + x) * 4;
-                    var bytes = HEAPU8.subarray(offset, offset + ((h - 1) * color_atlas_width + w) * 4);
-                    device.queue.writeTexture({texture: state.colorAtlas, origin: [x, y]}, bytes,
-                        {bytesPerRow: color_atlas_width * 4, rowsPerImage: h}, [w, h]);
-                };
-                if (recreateColorAtlas) {
-                    uploadColorAtlas(0, 0, color_atlas_width, color_atlas_height);
-                } else {
-                    var crect = color_atlas_updates >>> 2;
-                    for (var ci = 0; ci < color_update_count; ++ci, crect += 4)
-                        uploadColorAtlas(HEAPU32[crect], HEAPU32[crect + 1], HEAPU32[crect + 2], HEAPU32[crect + 3]);
+                for (var i = 0; i < update_count; ++i, rect += 4) {
+                    var rx = HEAPU32[rect], ry = HEAPU32[rect + 1], rw = HEAPU32[rect + 2], rh = HEAPU32[rect + 3];
+                    uploadAtlas(rx, ry, rw, rh);
+                    if (rx === 0 && ry === 0 && rw === atlas_width && rh === atlas_height) break;
                 }
             }
+        }
 
+        var caW = (color_atlas && color_atlas_width > 0) ? color_atlas_width : 1;
+        var caH = (color_atlas && color_atlas_height > 0) ? color_atlas_height : 1;
+        var recreateColorAtlas = !state.colorAtlas || state.colorAtlasW !== caW || state.colorAtlasH !== caH;
+        if (recreateColorAtlas) {
+            if (state.colorAtlas) state.colorAtlas.destroy();
+            state.colorAtlas = device.createTexture({
+                size: [caW, caH], format: 'rgba8unorm',
+                usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING
+            });
+            state.colorAtlasView = state.colorAtlas.createView();
+            state.colorAtlasW = caW;
+            state.colorAtlasH = caH;
+        }
+        if (color_atlas && color_atlas_width > 0 && color_atlas_height > 0) {
+            var colorAtlasPtr = color_atlas >>> 0;
+            var uploadColorAtlas = function(x, y, w, h) {
+                if (w <= 0 || h <= 0 || x + w > color_atlas_width || y + h > color_atlas_height) return;
+                var offset = colorAtlasPtr + (y * color_atlas_width + x) * 4;
+                var bytes = HEAPU8.subarray(offset, offset + ((h - 1) * color_atlas_width + w) * 4);
+                device.queue.writeTexture({texture: state.colorAtlas, origin: [x, y]}, bytes,
+                    {bytesPerRow: color_atlas_width * 4, rowsPerImage: h}, [w, h]);
+            };
+            if (recreateColorAtlas) {
+                uploadColorAtlas(0, 0, color_atlas_width, color_atlas_height);
+            } else if (color_update_count > 0) {
+                var crect = color_atlas_updates >>> 2;
+                for (var ci = 0; ci < color_update_count; ++ci, crect += 4) {
+                    var crx = HEAPU32[crect], cry = HEAPU32[crect + 1], crw = HEAPU32[crect + 2], crh = HEAPU32[crect + 3];
+                    uploadColorAtlas(crx, cry, crw, crh);
+                    if (crx === 0 && cry === 0 && crw === color_atlas_width && crh === color_atlas_height) break;
+                }
+            }
+        }
+
+        if (tile_count) {
             var upload = function(slot, bytes, minimum, usage) {
                 var required = Math.max(minimum, bytes.byteLength);
                 var buffer = state.buffers[slot];
@@ -211,11 +230,15 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
                 var mIdx = mica_grid >>> 2;
                 for (var mi = 0; mi < 16; ++mi) uniformData[8 + mi] = HEAPU32[mIdx + mi];
             }
+            var primPtr = prim >>> 0;
+            var indicesPtr = indices >>> 0;
+            var tilesPtr = tiles >>> 0;
+            var clipsPtr = clips >>> 0;
             var data = [
-                upload(0, HEAPU8.subarray(prim, prim + prim_bytes), 80, GPUBufferUsage.STORAGE),
-                upload(1, HEAPU8.subarray(indices, indices + index_bytes), 4, GPUBufferUsage.STORAGE),
-                upload(2, HEAPU8.subarray(tiles, tiles + tile_count * 16), 16, GPUBufferUsage.STORAGE),
-                upload(3, HEAPU8.subarray(clips, clips + clip_bytes), 32, GPUBufferUsage.STORAGE),
+                upload(0, HEAPU8.subarray(primPtr, primPtr + prim_bytes), 80, GPUBufferUsage.STORAGE),
+                upload(1, HEAPU8.subarray(indicesPtr, indicesPtr + index_bytes), 4, GPUBufferUsage.STORAGE),
+                upload(2, HEAPU8.subarray(tilesPtr, tilesPtr + tile_count * 16), 16, GPUBufferUsage.STORAGE),
+                upload(3, HEAPU8.subarray(clipsPtr, clipsPtr + clip_bytes), 32, GPUBufferUsage.STORAGE),
                 state.atlasView,
                 state.sampler,
                 state.outputView,

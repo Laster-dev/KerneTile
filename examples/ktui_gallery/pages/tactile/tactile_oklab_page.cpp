@@ -997,8 +997,7 @@ WidgetPtr build_tactile_oklab_page(GalleryApp& app) {
                             SegmentedItem{ .label = "绯红 → 翠绿" },
                             SegmentedItem{ .label = "靛紫 → 琥珀" }
                         },
-                        .selected_index = state->grad_pair_idx.get(),
-                        .width = 420.0f
+                        .selected_index = state->grad_pair_idx.get()
                     }.bind_two_way(state->grad_pair_idx),
                     OkLabGradientPreview { .pair_idx = state->grad_pair_idx.get() }
                         .bind(state->grad_pair_idx, [state](RenderOkLabGradientPreview& n, int idx) {
@@ -1018,7 +1017,7 @@ WidgetPtr build_tactile_oklab_page(GalleryApp& app) {
                             VStack {
                                 .spacing = 2.0f,
                                 .content = {
-                                    Text { .text = "2. 主题跨模态混合与状态颜色动画 (Theme::lerp / Motion::lerp)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                                    Text { .text = "2. 主题跨模态混合与状态颜色动画 (Theme::lerp / Motion::lerp)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                                     app.make_muted("点击按钮触发全窗口 OkLab 主题交叉淡入，或拖动 t 滑块观察语义色与控件轨迹。", 12.0f)
                                 }
                             },

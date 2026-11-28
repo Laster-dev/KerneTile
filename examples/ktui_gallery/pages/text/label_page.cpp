@@ -14,7 +14,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .spacing = 4.0f,
         .content = {
             app.make_page_title(title, 22.0f),
-            Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+            Text { .text = subtitle, .font_size = 12.5f, .overflow = TextOverflow::Wrap }.bind(&RenderText::set_color, app.muted_text)
         }
     };
 }
@@ -35,10 +35,10 @@ WidgetPtr build_label_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "字体字重、斜体与文本装饰 (Bold / Italic / Underline / Strikethrough)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Text { .text = "字体字重、斜体与文本装饰 (Bold / Italic / Underline / Strikethrough)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
+                    Wrap {
                         .spacing = 16.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Label { .text = "细体 Light (300)", .font_weight = FontWeight::Light },
                             Label { .text = "常规 Regular (400)", .font_weight = FontWeight::Regular },
@@ -46,9 +46,9 @@ WidgetPtr build_label_page(GalleryApp& app) {
                             Label { .text = "粗体 Bold (700)", .bold = true }
                         }
                     },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 16.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Label { .text = "斜体 Italic 文本", .italic = true },
                             Label { .text = "粗斜体 Bold + Italic", .bold = true, .italic = true },
@@ -56,9 +56,9 @@ WidgetPtr build_label_page(GalleryApp& app) {
                             Label { .text = "删除线 Strikethrough", .variant = LabelVariant::Caption, .strikethrough = true }
                         }
                     },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 16.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Label { .text = "原价 ¥299.00", .variant = LabelVariant::Caption, .strikethrough = true },
                             Label { .text = "限时特惠 ¥149.00", .variant = LabelVariant::Error, .bold = true },
@@ -72,15 +72,15 @@ WidgetPtr build_label_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "WinUI 3 语义字阶与表单必填标签", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
+                    Text { .text = "WinUI 3 语义字阶与表单必填标签", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                     Label { .text = "Display 展示大标题 (26px Bold)", .variant = LabelVariant::Title, .font_size = 26.0f, .bold = true },
                     Label { .text = "Title 标题标签 (20px SemiBold)", .variant = LabelVariant::Title },
                     Label { .text = "Subtitle 副标题标签 (16px SemiBold)", .variant = LabelVariant::Subtitle },
                     Label { .text = "Body 正文标签 (13.5px Regular)", .variant = LabelVariant::Body },
                     Label { .text = "Caption 辅助说明标签 (12px)", .variant = LabelVariant::Caption },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 14.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Label { .text = "用户名", .variant = LabelVariant::Body, .required = true },
                             Label { .text = "安全校验已通过", .variant = LabelVariant::Success, .svg_path = kTagSvg },
@@ -93,10 +93,10 @@ WidgetPtr build_label_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "Fluent 2 语义胶囊标签 (pill = true)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold },
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Text { .text = "Fluent 2 语义胶囊标签 (pill = true)", .font_size = 14.0f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Label { .text = "默认标签", .variant = LabelVariant::Body, .pill = true },
                             Label { .text = "强调 Accent", .variant = LabelVariant::Accent, .pill = true, .svg_path = kTagSvg },

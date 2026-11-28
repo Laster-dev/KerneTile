@@ -69,6 +69,8 @@ public:
         float total_grow = 0.0f;
         float fixed_main_used = total_gap;
         float max_child_cross = 0.0f;
+        bool has_explicit_shrink = false;
+        size_t fixed_count = 0;
         const bool cross_bounded = (max_cross_constraint < BoxConstraints::kInfinity);
         const bool cross_tight = cross_bounded && (std::abs(max_cross_constraint - min_cross_constraint) < 0.01f);
         const bool main_bounded = (max_main_constraint < BoxConstraints::kInfinity);
@@ -79,9 +81,13 @@ public:
         for (size_t i = 0; i < N; ++i) {
             RenderBox* child = children[i];
             const auto& flex = child->flex_data();
+            if (flex.explicit_shrink) {
+                has_explicit_shrink = true;
+            }
             if (flex.flex_grow > 0.0f) {
                 total_grow += flex.flex_grow;
             } else {
+                ++fixed_count;
                 AlignItems align = flex.align_self.value_or(params.align_items);
                 float cross_min = (align == AlignItems::Stretch && cross_tight) ? max_cross_constraint : 0.0f;
 
@@ -95,83 +101,127 @@ public:
             }
         }
 
-        // 窄屏响应式防溢出自动折行 (Mobile Auto-Reflow):
-        // 当水平 Row 在窄屏容器 (< 560px) 中非弹性子项固有总宽超出可用宽度时，
-        // 优先自动退化为流式多行排布，避免默认 flex_shrink=1 把按钮/控件强行压扁截断，
-        // 同时避免把 Expanded 子项压成 0px。
-        // 桌面宽屏 (>= 560px) 完全不触发，保持 100% 标准 Flexbox 行为。
-        if (is_horizontal && params.direction == FlexDirection::Row &&
-            main_bounded && max_main_constraint < 560.0f &&
-            fixed_main_used > max_main_constraint + 1.0f) {
-            // 先为 flex_grow 子项提供有限宽松宽度进行真实测量，避免被挤压为 0px
+        // 响应式防溢出自动折行 (Responsive Auto-Reflow):
+        // 1. 当水平 Row 未显式声明 Flexible 收缩且固有宽度超出可用容器宽度时，自动多行折排，绝不强行压扁按钮或截断文本。
+        // 2. 若包含 Expanded/Flexible 子项且可用空间在窄屏 (< 580px) 被固定兄弟节点挤压到不足以容纳非 Spacer 内容时，同样自动折行。
+        bool should_reflow = false;
+        if (is_horizontal && params.direction == FlexDirection::Row && main_bounded && N > 1) {
+            bool fixed_overflow = (fixed_main_used > max_main_constraint + 1.0f);
+            float rem = max_main_constraint - fixed_main_used;
+            bool grow_squeezed = (total_grow > 0.0f && fixed_count > 0 && (rem <= 1.0f || (rem / total_grow) < 72.0f));
+            if (!has_explicit_shrink && ((total_grow == 0.0f && fixed_overflow) || grow_squeezed)) {
+                should_reflow = true;
+            }
+        }
+
+        if (should_reflow) {
+            bool has_non_spacer_grow = false;
+            float measured_total_w = total_gap;
             for (size_t i = 0; i < N; ++i) {
                 RenderBox* child = children[i];
                 const auto& flex = child->flex_data();
                 if (flex.flex_grow > 0.0f) {
                     BoxConstraints loose_c(0.0f, max_main_constraint, 0.0f, max_cross_constraint);
                     child->layout(loose_c, true);
-                }
-            }
-
-            struct FlowItem { RenderBox* box; float x; float w; float h; };
-            std::vector<FlowItem> line;
-            line.reserve(N);
-            const float run_gap = std::max(8.0f, params.gap);
-            float cursor_x = 0.0f;
-            float cursor_y = 0.0f;
-            float line_h = 0.0f;
-            float max_line_w = 0.0f;
-
-            auto flush_line = [&]() {
-                if (line.empty()) return;
-                for (const auto& it : line) {
-                    AlignItems align = it.box->flex_data().align_self.value_or(params.align_items);
-                    float dy = 0.0f;
-                    if (align == AlignItems::Center) {
-                        dy = (line_h - it.h) * 0.5f;
-                    } else if (align == AlignItems::FlexEnd) {
-                        dy = line_h - it.h;
-                    } else if (align == AlignItems::Stretch && it.h + 0.5f < line_h) {
-                        it.box->layout(BoxConstraints::tight(Vec2{it.w, line_h}), true);
+                    Vec2 csz = child->size();
+                    if (csz.x > 0.5f || csz.y > 0.5f) {
+                        has_non_spacer_grow = true;
+                        measured_total_w += csz.x;
                     }
-                    it.box->set_offset(Vec2{std::round(it.x), std::round(cursor_y + dy)});
+                } else {
+                    measured_total_w += child->size().x;
                 }
-                max_line_w = std::max(max_line_w, cursor_x);
-                cursor_y += line_h + run_gap;
-                cursor_x = 0.0f;
-                line_h = 0.0f;
-                line.clear();
-            };
-
-            for (size_t i = 0; i < N; ++i) {
-                RenderBox* child = children[i];
-                const auto& flex = child->flex_data();
-                Vec2 csz = child->size();
-                // 折行时忽略纯 Spacer (flex_grow > 0 且无内容尺寸)
-                if (flex.flex_grow > 0.0f && csz.x <= 0.5f && csz.y <= 0.5f) {
-                    child->set_offset(Vec2{0.0f, cursor_y});
-                    continue;
-                }
-                if (csz.x > max_main_constraint) {
-                    child->layout(BoxConstraints(0.0f, max_main_constraint, 0.0f, max_cross_constraint), true);
-                    csz = child->size();
-                }
-                float next_x = line.empty() ? 0.0f : (cursor_x + params.gap);
-                if (!line.empty() && next_x + csz.x > max_main_constraint + 0.5f) {
-                    flush_line();
-                    next_x = 0.0f;
-                }
-                line.push_back(FlowItem{child, next_x, csz.x, csz.y});
-                cursor_x = next_x + csz.x;
-                line_h = std::max(line_h, csz.y);
             }
-            flush_line();
 
-            float total_h = (cursor_y > run_gap) ? (cursor_y - run_gap) : 0.0f;
-            float final_w = std::clamp(std::max(max_line_w, min_main_constraint), min_main_constraint, max_main_constraint);
-            float final_h = std::clamp(total_h, min_cross_constraint, max_cross_constraint);
-            container->set_size(Vec2{final_w, final_h});
-            return;
+            // 仅当真正发生溢出 (包含 Spacer 折行后的固有子项总和或含非 Spacer 弹性子项的固有宽度总和超出容器) 时执行折行
+            if (total_grow == 0.0f || fixed_main_used > max_main_constraint + 1.0f ||
+                (has_non_spacer_grow && measured_total_w > max_main_constraint + 1.0f)) {
+                struct FlowItem { RenderBox* box; float x; float w; float h; };
+                std::vector<FlowItem> line;
+                line.reserve(N);
+                const float run_gap = std::max(8.0f, params.gap);
+                float cursor_x = 0.0f;
+                float cursor_y = 0.0f;
+                float line_h = 0.0f;
+                float max_line_w = 0.0f;
+
+                auto flush_line = [&]() {
+                    if (line.empty()) return;
+                    float free_w = std::max(0.0f, max_main_constraint - cursor_x);
+                    float start_x = 0.0f;
+                    float extra_gap = 0.0f;
+                    switch (params.justify) {
+                        case JustifyContent::FlexStart: break;
+                        case JustifyContent::FlexEnd: start_x = free_w; break;
+                        case JustifyContent::Center: start_x = free_w * 0.5f; break;
+                        case JustifyContent::SpaceBetween:
+                            if (line.size() > 1) extra_gap = free_w / static_cast<float>(line.size() - 1);
+                            break;
+                        case JustifyContent::SpaceAround: {
+                            float unit = free_w / (2.0f * static_cast<float>(line.size()));
+                            start_x = unit;
+                            extra_gap = unit * 2.0f;
+                            break;
+                        }
+                        case JustifyContent::SpaceEvenly: {
+                            float unit = free_w / static_cast<float>(line.size() + 1);
+                            start_x = unit;
+                            extra_gap = unit;
+                            break;
+                        }
+                    }
+                    for (size_t li = 0; li < line.size(); ++li) {
+                        const auto& it = line[li];
+                        AlignItems align = it.box->flex_data().align_self.value_or(params.align_items);
+                        float dy = 0.0f;
+                        if (align == AlignItems::Center) {
+                            dy = (line_h - it.h) * 0.5f;
+                        } else if (align == AlignItems::FlexEnd) {
+                            dy = line_h - it.h;
+                        } else if (align == AlignItems::Stretch && it.h + 0.5f < line_h) {
+                            it.box->layout(BoxConstraints::tight(Vec2{it.w, line_h}), true);
+                        }
+                        float ix = it.x + start_x + extra_gap * static_cast<float>(li);
+                        it.box->set_offset(Vec2{std::round(ix), std::round(cursor_y + dy)});
+                    }
+                    max_line_w = std::max(max_line_w, cursor_x);
+                    cursor_y += line_h + run_gap;
+                    cursor_x = 0.0f;
+                    line_h = 0.0f;
+                    line.clear();
+                };
+
+                for (size_t i = 0; i < N; ++i) {
+                    RenderBox* child = children[i];
+                    const auto& flex = child->flex_data();
+                    Vec2 csz = child->size();
+                    // 折行时忽略纯 Spacer (flex_grow > 0 且无内容尺寸)
+                    if (flex.flex_grow > 0.0f && csz.x <= 0.5f && csz.y <= 0.5f) {
+                        child->set_offset(Vec2{0.0f, cursor_y});
+                        continue;
+                    }
+                    if (csz.x > max_main_constraint) {
+                        child->layout(BoxConstraints(0.0f, max_main_constraint, 0.0f, max_cross_constraint), true);
+                        csz = child->size();
+                    }
+                    float next_x = line.empty() ? 0.0f : (cursor_x + params.gap);
+                    if (!line.empty() && next_x + csz.x > max_main_constraint + 0.5f) {
+                        flush_line();
+                        next_x = 0.0f;
+                    }
+                    line.push_back(FlowItem{child, next_x, csz.x, csz.y});
+                    cursor_x = next_x + csz.x;
+                    line_h = std::max(line_h, csz.y);
+                }
+                flush_line();
+
+                float total_h = (cursor_y > run_gap) ? (cursor_y - run_gap) : 0.0f;
+                float used_w = (params.justify == JustifyContent::FlexStart) ? max_line_w : max_main_constraint;
+                float final_w = std::clamp(std::max(used_w, min_main_constraint), min_main_constraint, max_main_constraint);
+                float final_h = std::clamp(total_h, min_cross_constraint, max_cross_constraint);
+                container->set_size(Vec2{final_w, final_h});
+                return;
+            }
         }
 
         // 若固定子项总和超出主轴上限，按 flex_shrink * base_main 比例执行弹性收缩

@@ -1071,7 +1071,7 @@ WidgetPtr build_tactile_acrylic_grain_page(GalleryApp& app) {
                             .justify = JustifyContent::SpaceBetween,
                             .align_items = AlignItems::Center,
                             .content = {
-                                Text { .text = "Box { .acrylic_grain = true, .directional_rim = true }", .font_size = 12.5f, .font_weight = FontWeight::Medium },
+                                Text { .text = "Box { .acrylic_grain = true, .directional_rim = true }", .font_size = 12.5f, .font_weight = FontWeight::Medium, .overflow = TextOverflow::Wrap },
                                 app.make_muted("微颗粒噪点 + 方向性高光描边一键叠加", 11.5f)
                             }
                         }

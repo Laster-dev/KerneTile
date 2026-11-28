@@ -1016,14 +1016,12 @@ WidgetPtr build_tactile_micro_tilt_page(GalleryApp& app) {
         });
     };
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(24.0f, 20.0f),
-            .content = {
-                Text { .text = "指针感知微倾斜与按压缩放 (Pointer-Aware Micro-Tilt & Press)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("结合鼠标相对控件中心力臂 (nx, ny) 驱动三通道 SpringSolver：按下微缩放、偏心力臂微位移、方向性玻璃边缘高光倾角随光标实时偏转。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("指针感知微倾斜与按压缩放 (Pointer-Aware Micro-Tilt & Press)", 22.0f),
+            app.make_muted("结合鼠标相对控件中心力臂 (nx, ny) 驱动三通道 SpringSolver：按下微缩放、偏心力臂微位移、方向性玻璃边缘高光倾角随光标实时偏转。", 13.0f),
 
                 app.make_card(VStack {
                     .align_items = AlignItems::Stretch,
@@ -1142,8 +1140,7 @@ WidgetPtr build_tactile_micro_tilt_page(GalleryApp& app) {
                     }
                 })
             }
-        }
-    };
+        });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }

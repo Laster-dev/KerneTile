@@ -117,18 +117,21 @@ public:
 
         if (!m_ind_init && m_selected >= 0 && m_selected < static_cast<int>(m_ind_spans.size())) {
             const auto& sp = m_ind_spans[static_cast<size_t>(m_selected)];
-            m_ind_x = sp.first;
-            m_ind_w = sp.second;
+            m_ind_x = sp.x;
+            m_ind_y = sp.y;
+            m_ind_w = sp.w;
             m_ind_init = true;
         }
 
         if (m_active_content_box) {
-            float content_top = strip_h + 6.0f;
+            float content_top = m_strip_total_h + 6.0f;
+            float min_total_h = content_top + 80.0f;
+            float eff_m_h = (m_height > 0.0f) ? std::max(m_height, min_total_h) : 0.0f;
             float avail_h = std::isfinite(m_constraints.max_height)
                 ? std::max(0.0f, m_constraints.max_height - content_top)
                 : std::numeric_limits<float>::infinity();
-            if (m_height > 0.0f) {
-                avail_h = std::max(0.0f, m_height - content_top);
+            if (eff_m_h > 0.0f) {
+                avail_h = std::max(0.0f, eff_m_h - content_top);
             }
             BoxConstraints cc{
                 0.0f, w,
@@ -137,14 +140,14 @@ public:
             m_active_content_box->layout(cc, true);
             m_active_content_box->set_offset(Vec2{0.0f, content_top});
 
-            float h = (m_height > 0.0f)
-                ? m_height
+            float h = (eff_m_h > 0.0f)
+                ? eff_m_h
                 : ((std::isfinite(m_constraints.max_height) && m_constraints.min_height >= m_constraints.max_height - 0.5f)
                        ? m_constraints.max_height
                        : (content_top + m_active_content_box->size().y));
             set_size(m_constraints.constrain(Vec2{w, h}));
         } else {
-            float h = (m_height > 0.0f) ? m_height : strip_h;
+            float h = (m_height > 0.0f) ? std::max(m_height, m_strip_total_h) : m_strip_total_h;
             set_size(m_constraints.constrain(Vec2{w, h}));
         }
     }
@@ -186,7 +189,6 @@ public:
         const Theme& theme = ThemeContext::current();
         const auto resolved_style = PivotStyleResolver::resolve(theme);
         const float w = size().x;
-        const float strip_h = strip_height();
 
         // 1. 平滑滑动下划线指示条 (steady_clock 指数阻尼)
         auto now = std::chrono::steady_clock::now();
@@ -200,23 +202,27 @@ public:
         if (m_selected >= 0 && m_selected < static_cast<int>(m_ind_spans.size())) {
             const auto& target = m_ind_spans[static_cast<size_t>(m_selected)];
             if (!m_ind_init) {
-                m_ind_x = target.first;
-                m_ind_w = target.second;
-                m_trail_x = target.first;
-                m_trail_w = target.second;
+                m_ind_x = target.x;
+                m_ind_y = target.y;
+                m_ind_w = target.w;
+                m_trail_x = target.x;
+                m_trail_w = target.w;
                 m_ind_init = true;
-            } else if (std::abs(m_ind_x - target.first) > 0.15f || std::abs(m_ind_w - target.second) > 0.15f ||
+            } else if (std::abs(m_ind_x - target.x) > 0.15f || std::abs(m_ind_y - target.y) > 0.15f ||
+                       std::abs(m_ind_w - target.w) > 0.15f ||
                        (m_liquid_indicator && (std::abs(m_trail_x - m_ind_x) > 0.25f || std::abs(m_trail_w - m_ind_w) > 0.25f))) {
                 float k = 1.0f - std::exp(-dt * 24.0f);
                 float kt = 1.0f - std::exp(-dt * 11.5f);
-                m_ind_x += (target.first - m_ind_x) * k;
-                m_ind_w += (target.second - m_ind_w) * k;
+                m_ind_x += (target.x - m_ind_x) * k;
+                m_ind_y += (target.y - m_ind_y) * k;
+                m_ind_w += (target.w - m_ind_w) * k;
                 m_trail_x += (m_ind_x - m_trail_x) * kt;
                 m_trail_w += (m_ind_w - m_trail_w) * kt;
                 animating = true;
             } else {
-                m_ind_x = target.first;
-                m_ind_w = target.second;
+                m_ind_x = target.x;
+                m_ind_y = target.y;
+                m_ind_w = target.w;
                 m_trail_x = m_ind_x;
                 m_trail_w = m_ind_w;
             }
@@ -233,7 +239,7 @@ public:
         // 2. 可选底部分割细线 (带内容区或显式开启时)
         if (m_show_divider || m_active_content_box) {
             Color div_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.07f} : Color{0.0f, 0.0f, 0.0f, 0.07f};
-            ctx.draw_rect(Rect::from_xywh(0.0f, strip_h - 1.0f, w, 1.0f), div_c, 0.0f, 0.0f);
+            ctx.draw_rect(Rect::from_xywh(0.0f, m_strip_total_h - 1.0f, w, 1.0f), div_c, 0.0f, 0.0f);
         }
 
         // 3. 页签文字与无边框 Hover 柔和衬底
@@ -274,9 +280,11 @@ public:
 
         // 4. WinUI 3 Pivot 滑动主题色下划线指示条 (可选 SDF Smooth-Min 液态粘连)
         if (m_ind_init && m_ind_w > 0.5f) {
-            const Rect lead = Rect::from_xywh(m_ind_x, strip_h - 3.0f, m_ind_w, 2.5f);
-            if (m_liquid_indicator && std::abs(m_trail_x - m_ind_x) > 0.35f) {
-                const Rect trail = Rect::from_xywh(m_trail_x, strip_h - 2.75f, std::max(6.0f, m_trail_w), 2.0f);
+            const float target_y = (m_selected >= 0 && m_selected < static_cast<int>(m_ind_spans.size()))
+                ? m_ind_spans[static_cast<size_t>(m_selected)].y : m_ind_y;
+            const Rect lead = Rect::from_xywh(m_ind_x, m_ind_y - 3.0f, m_ind_w, 2.5f);
+            if (m_liquid_indicator && std::abs(m_trail_x - m_ind_x) > 0.35f && std::abs(m_ind_y - target_y) < 1.0f) {
+                const Rect trail = Rect::from_xywh(m_trail_x, m_ind_y - 2.75f, std::max(6.0f, m_trail_w), 2.0f);
                 ctx.draw_metaball(lead, 1.25f, trail, 1.0f, 8.0f, resolved_style.accent, 0.0f);
             } else {
                 ctx.draw_rect(lead, resolved_style.accent, 1.25f, 0.0f);
@@ -319,39 +327,67 @@ private:
         return total;
     }
 
-    void compute_item_rects(float w, float strip_h) {
+    void compute_item_rects(float w, float row_h) {
         m_item_rects.clear();
         m_ind_spans.clear();
-        if (m_items.empty()) return;
-
-        size_t n = m_items.size();
-        if (m_equal_width) {
-            float gap_sum = m_item_spacing * static_cast<float>(n > 0 ? n - 1 : 0);
-            float iw = std::max(36.0f, (w - gap_sum) / static_cast<float>(n));
-            float x = 0.0f;
-            for (size_t i = 0; i < n; ++i) {
-                Rect r = Rect::from_xywh(x, 0.0f, iw, strip_h);
-                m_item_rects.push_back(r);
-                float cw = std::max(14.0f, std::min(iw - 8.0f, item_content_width(m_items[i])));
-                m_ind_spans.emplace_back(r.min_x + (r.width() - cw) * 0.5f, cw);
-                x += iw + m_item_spacing;
-            }
+        if (m_items.empty()) {
+            m_strip_total_h = row_h;
             return;
         }
 
+        size_t n = m_items.size();
+        if (m_equal_width) {
+            float gap_sum = m_item_spacing * static_cast<float>(n > 1 ? n - 1 : 0);
+            float iw = (w - gap_sum) / static_cast<float>(n);
+            if (iw >= 60.0f || n <= 1) {
+                iw = std::max(36.0f, iw);
+                float x = 0.0f;
+                for (size_t i = 0; i < n; ++i) {
+                    Rect r = Rect::from_xywh(x, 0.0f, iw, row_h);
+                    m_item_rects.push_back(r);
+                    float cw = std::max(14.0f, std::min(iw - 8.0f, item_content_width(m_items[i])));
+                    m_ind_spans.push_back({r.min_x + (r.width() - cw) * 0.5f, r.max_y, cw});
+                    x += iw + m_item_spacing;
+                }
+                m_strip_total_h = row_h;
+                return;
+            }
+            // 等宽模式窄屏折行成多列网格
+            int cols = std::max(1, static_cast<int>((w + m_item_spacing) / (76.0f + m_item_spacing)));
+            float col_w = std::max(44.0f, (w - m_item_spacing * static_cast<float>(cols - 1)) / static_cast<float>(cols));
+            float y = 0.0f;
+            for (size_t i = 0; i < n; ++i) {
+                int c = static_cast<int>(i % static_cast<size_t>(cols));
+                int row = static_cast<int>(i / static_cast<size_t>(cols));
+                float rx = static_cast<float>(c) * (col_w + m_item_spacing);
+                float ry = static_cast<float>(row) * (row_h + 2.0f);
+                Rect r = Rect::from_xywh(rx, ry, col_w, row_h);
+                m_item_rects.push_back(r);
+                float cw = std::max(14.0f, std::min(col_w - 8.0f, item_content_width(m_items[i])));
+                m_ind_spans.push_back({r.min_x + (r.width() - cw) * 0.5f, r.max_y, cw});
+                y = ry + row_h;
+            }
+            m_strip_total_h = y;
+            return;
+        }
+
+        // 流式页签：超出容器宽时自动换行
         float x = 0.0f;
+        float y = 0.0f;
         for (size_t i = 0; i < n; ++i) {
             float cw = item_content_width(m_items[i]);
-            float iw = std::ceil(cw) + 16.0f;
-            if (x + iw > w && i == n - 1) {
-                iw = std::max(28.0f, w - x);
+            float iw = std::min(std::ceil(cw) + 16.0f, std::max(48.0f, w));
+            if (x > 0.0f && x + iw > w + 0.5f) {
+                x = 0.0f;
+                y += row_h + 2.0f;
             }
-            Rect r = Rect::from_xywh(x, 0.0f, iw, strip_h);
+            Rect r = Rect::from_xywh(x, y, iw, row_h);
             m_item_rects.push_back(r);
             float span_w = std::max(14.0f, std::min(iw - 8.0f, cw));
-            m_ind_spans.emplace_back(r.min_x + (r.width() - span_w) * 0.5f, span_w);
+            m_ind_spans.push_back({r.min_x + (r.width() - span_w) * 0.5f, r.max_y, span_w});
             x += iw + m_item_spacing;
         }
+        m_strip_total_h = y + row_h;
     }
 
     void clear_active_content() {
@@ -387,7 +423,7 @@ private:
     }
 
     [[nodiscard]] int hit_item(Vec2 local) const noexcept {
-        if (local.y < 0.0f || local.y > strip_height()) return -1;
+        if (local.y < 0.0f || local.y > m_strip_total_h) return -1;
         for (size_t i = 0; i < m_item_rects.size(); ++i) {
             if (m_item_rects[i].contains(local)) return static_cast<int>(i);
         }
@@ -421,7 +457,7 @@ private:
                 e.stop_propagation();
                 return;
             }
-            if (e.is_touch() && e.local_position.y > strip_height()) {
+            if (e.is_touch() && e.local_position.y > m_strip_total_h) {
                 m_touch_swiping = true;
                 m_touch_start_x = e.local_position.x;
                 m_touch_start_y = e.local_position.y;
@@ -490,10 +526,13 @@ private:
     Fn<WidgetPtr(int)> m_content_builder;
     Fn<void(int)> m_on_selected;
 
+    struct IndSpan { float x; float y; float w; };
     std::vector<Rect> m_item_rects;
-    std::vector<std::pair<float, float>> m_ind_spans;
+    std::vector<IndSpan> m_ind_spans;
     bool m_ind_init{false};
+    float m_strip_total_h{40.0f};
     float m_ind_x{0.0f};
+    float m_ind_y{40.0f};
     float m_ind_w{0.0f};
     float m_trail_x{0.0f};
     float m_trail_w{0.0f};

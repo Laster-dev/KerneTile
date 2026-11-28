@@ -59,7 +59,7 @@ public:
     explicit FlexibleWidget(Flexible&& desc) noexcept : m_desc(std::move(desc)) {}
 
     std::shared_ptr<RenderBox> create_render_node() override {
-        FlexItemData fd{m_desc.flex_grow, m_desc.flex_shrink, m_desc.fit, m_desc.align_self};
+        FlexItemData fd{m_desc.flex_grow, m_desc.flex_shrink, m_desc.fit, m_desc.align_self, m_desc.flex_grow <= 0.0f};
         auto node = make_render_node<RenderFlexItem>(fd);
         m_child_box = m_desc.child ? m_desc.child->create_render_node() : nullptr;
         if (m_desc.child && m_child_box) m_desc.child->set_render_node(m_child_box);
@@ -69,7 +69,7 @@ public:
 
     void update_render_node(std::shared_ptr<RenderBox> node) override {
         if (auto item = std::static_pointer_cast<RenderFlexItem>(node)) {
-            item->set_flex_data(FlexItemData{m_desc.flex_grow, m_desc.flex_shrink, m_desc.fit, m_desc.align_self});
+            item->set_flex_data(FlexItemData{m_desc.flex_grow, m_desc.flex_shrink, m_desc.fit, m_desc.align_self, m_desc.flex_grow <= 0.0f});
             if (m_desc.child) {
                 if (!m_child_box) {
                     m_child_box = m_desc.child->create_render_node();

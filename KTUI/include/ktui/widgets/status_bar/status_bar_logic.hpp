@@ -47,27 +47,48 @@ public:
 
     void perform_layout() override {
         float w = m_constraints.has_bounded_width() ? m_constraints.max_width : std::max(m_constraints.min_width, 480.0f);
-        float h = m_constraints.has_bounded_height() ? std::min(m_constraints.max_height, 26.0f) : 26.0f;
-        m_size = m_constraints.constrain(Vec2{w, std::max(22.0f, h)});
+        constexpr float kRowH = 24.0f;
+        const float max_slot_w = std::max(40.0f, w - 8.0f);
 
         m_hits.clear();
         float lx = 4.0f;
-        float rx = m_size.x - 4.0f;
+        float ly = 1.0f;
+        bool has_left = false;
 
         for (size_t i = 0; i < m_slots.size(); ++i) {
             if (m_slots[i].align_right) continue;
-            float sw = measure_slot_w(m_slots[i]);
-            m_hits.push_back(SlotHit{i, Rect::from_xywh(lx, 1.0f, sw, m_size.y - 2.0f)});
+            has_left = true;
+            float sw = std::min(measure_slot_w(m_slots[i]), max_slot_w);
+            if (lx > 4.0f && lx + sw > w - 4.0f + 0.5f) {
+                lx = 4.0f;
+                ly += kRowH;
+            }
+            m_hits.push_back(SlotHit{i, Rect::from_xywh(lx, ly, sw, kRowH)});
             lx += sw + 1.0f;
         }
+
+        float ry = ly;
+        float rx = w - 4.0f;
+        bool has_right = false;
         for (size_t i = m_slots.size(); i > 0; --i) {
             size_t idx = i - 1;
             if (!m_slots[idx].align_right) continue;
-            float sw = measure_slot_w(m_slots[idx]);
+            has_right = true;
+            float sw = std::min(measure_slot_w(m_slots[idx]), max_slot_w);
+            float min_allowed_x = (has_left && ry == ly) ? (lx + 6.0f) : 4.0f;
+            if (rx - sw < min_allowed_x - 0.5f && (rx < w - 4.0f - 0.5f || (has_left && ry == ly))) {
+                ry += kRowH;
+                rx = w - 4.0f;
+            }
             rx -= sw;
-            m_hits.push_back(SlotHit{idx, Rect::from_xywh(rx, 1.0f, sw, m_size.y - 2.0f)});
+            m_hits.push_back(SlotHit{idx, Rect::from_xywh(std::max(4.0f, rx), ry, sw, kRowH)});
             rx -= 1.0f;
         }
+
+        float bottom = (has_right ? ry : ly) + kRowH + 1.0f;
+        float desired_h = std::max(26.0f, bottom);
+        float h = m_constraints.has_bounded_height() ? std::min(m_constraints.max_height, desired_h) : desired_h;
+        m_size = m_constraints.constrain(Vec2{w, std::max(22.0f, h)});
     }
 
     bool hit_test(HitTestResult& result, PointF position) override {
@@ -107,20 +128,20 @@ public:
 
             float tx = h.rect.min_x + 8.0f;
             if (s.indicator_color.a > 0.01f) {
-                context.draw_rect(Rect::from_xywh(tx, std::round((m_size.y - 6.0f) * 0.5f), 6.0f, 6.0f),
+                context.draw_rect(Rect::from_xywh(tx, std::round(h.rect.min_y + (h.rect.height() - 6.0f) * 0.5f), 6.0f, 6.0f),
                                   s.indicator_color, 3.0f, 0.0f);
                 tx += 10.0f;
             }
             Vec2 ts = TextMeasure::measure(s.text, 11.0f, clickable ? FontWeight::Medium : FontWeight::Regular);
-            context.draw_text(s.text, PointF{std::round(tx), std::round((m_size.y - ts.y) * 0.5f)},
+            context.draw_text(s.text, PointF{std::round(tx), std::round(h.rect.min_y + (h.rect.height() - ts.y) * 0.5f)},
                               11.0f, clickable ? resolved_style.text_primary : resolved_style.text_secondary,
                               clickable ? FontWeight::Medium : FontWeight::Regular);
 
             // 槽位竖向极细分隔线
             if (!s.align_right) {
-                context.draw_rect(Rect::from_xywh(h.rect.max_x, 5.0f, 1.0f, m_size.y - 10.0f), sep, 0.0f, 0.0f);
+                context.draw_rect(Rect::from_xywh(h.rect.max_x, h.rect.min_y + 4.0f, 1.0f, std::max(8.0f, h.rect.height() - 8.0f)), sep, 0.0f, 0.0f);
             } else {
-                context.draw_rect(Rect::from_xywh(h.rect.min_x - 1.0f, 5.0f, 1.0f, m_size.y - 10.0f), sep, 0.0f, 0.0f);
+                context.draw_rect(Rect::from_xywh(h.rect.min_x - 1.0f, h.rect.min_y + 4.0f, 1.0f, std::max(8.0f, h.rect.height() - 8.0f)), sep, 0.0f, 0.0f);
             }
         }
 

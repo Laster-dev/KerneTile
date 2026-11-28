@@ -32,7 +32,9 @@ static constexpr const char* kIconSparkle =
 } // namespace
 
 WidgetPtr build_settings_page(GalleryApp& app) {
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
     auto always_on_top = std::make_shared<Property<bool>>(app.window ? app.window->is_always_on_top() : false);
+#endif
     auto dither_enabled = std::make_shared<Property<bool>>(app.window ? app.window->dithering_enabled() : false);
     auto snap_enabled = std::make_shared<Property<bool>>(app.window ? app.window->pixel_snapping_enabled() : false);
 #if !defined(__ANDROID__)
@@ -117,6 +119,26 @@ WidgetPtr build_settings_page(GalleryApp& app) {
             // 分组二：导航与窗口（仅桌面端显示）
             Text { .text = "导航与窗口", .font_size = 13.5f, .font_weight = FontWeight::SemiBold },
             Box { .height = 4.0f },
+#if defined(__EMSCRIPTEN__)
+            SettingsCard {
+                .header = "NavigationView 导航栏布局",
+                .description = "调整侧边栏展开模式、紧凑态或顶部水平导航",
+                .header_icon_svg = kIconNav,
+                .content = ComboBox {
+                    .items = {
+                        "Auto (响应式自动)",
+                        "Left (左侧固定)",
+                        "LeftCompact (左侧紧凑 48px)",
+                        "LeftMinimal (极简浮层)",
+                        "Top (顶部水平导航)"
+                    },
+                    .width = 210.0f,
+                    .on_change = [&app](int idx, const std::string&) {
+                        app.nav_mode.set(static_cast<NavigationPaneDisplayMode>(idx));
+                    }
+                }.bind_two_way(app.nav_mode_idx)
+            },
+#else
             SettingsExpander {
                 .header = "NavigationView 导航栏布局",
                 .description = "调整侧边栏展开模式、紧凑态或顶部水平导航",
@@ -158,6 +180,7 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                 }
             },
 #endif
+#endif
 
             Box { .height = 14.0f },
 
@@ -175,6 +198,8 @@ WidgetPtr build_settings_page(GalleryApp& app) {
                         .header = "渲染管线",
 #if defined(__ANDROID__)
                         .description = "Vulkan Compute 16x16 瓦片分箱 + Android Canvas 文本图集 + NanoSVG 矢量光栅化",
+#elif defined(__EMSCRIPTEN__)
+                        .description = "WebGPU Compute 16x16 瓦片分箱 + 浏览器 Canvas 文本图集 + NanoSVG 矢量光栅化",
 #else
                         .description = "Direct3D 12 Compute 16x16 瓦片分箱 + DirectWrite 文本图集 + NanoSVG 矢量光栅化",
 #endif

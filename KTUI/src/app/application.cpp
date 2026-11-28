@@ -292,7 +292,7 @@ std::shared_ptr<Window> Application::create_window(const WindowDesc& desc) {
     auto plat_win = m_backend->create_window(desc);
     if (!plat_win) return nullptr;
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
     bool show_titlebar = false;
 #else
     bool show_titlebar = desc.custom_titlebar && (desc.type != WindowType::Popup);

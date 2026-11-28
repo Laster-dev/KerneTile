@@ -980,14 +980,12 @@ WidgetPtr build_tactile_rolling_counter_page(GalleryApp& app) {
         "All 53/53 Passed 全部通过"
     };
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(24.0f, 20.0f),
-            .content = {
-                Text { .text = "滚动翻滚数值与状态微交叉动画 (Rolling Counter Digits)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("配合 tabular_nums 等宽数位槽，按数值增减方向在安全裁剪窗口内以二阶物理弹簧滚轮切换，默认保持纯净字体本色（可按需开启 OkLab 增减微光）。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("滚动翻滚数值与状态微交叉动画 (Rolling Counter Digits)", 22.0f),
+            app.make_muted("配合 tabular_nums 等宽数位槽，按数值增减方向在安全裁剪窗口内以二阶物理弹簧滚轮切换，默认保持纯净字体本色（可按需开启 OkLab 增减微光）。", 13.0f),
 
                 app.make_card(VStack {
                     .align_items = AlignItems::Stretch,
@@ -1120,8 +1118,7 @@ WidgetPtr build_tactile_rolling_counter_page(GalleryApp& app) {
                     }
                 })
             }
-        }
-    };
+        });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }

@@ -29,7 +29,7 @@ WidgetPtr build_auto_suggest_box_page(GalleryApp& app) {
                         .placeholder = "输入控件名 (如 Tab, Box, Bar, Tree)...",
                         .header = "控件搜索",
                         .items = kAllControls,
-                        .width = 340.0f,
+                        .width = 272.0f,
                         .on_text_changed = [&app](const std::string& q) {
                             app.suggest_status.set(q.empty() ? "已清空搜索词，点击输入框可浏览全部候选" : ("正在过滤关键字: " + q));
                         },

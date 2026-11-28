@@ -14,7 +14,7 @@ WidgetPtr page_header(GalleryApp& app, const std::string& title, const std::stri
         .spacing = 4.0f,
         .content = {
             app.make_page_title(title, 22.0f),
-            Text { .text = subtitle, .font_size = 12.5f }.bind(&RenderText::set_color, app.muted_text)
+            Text { .text = subtitle, .font_size = 12.5f, .overflow = TextOverflow::Wrap }.bind(&RenderText::set_color, app.muted_text)
         }
     };
 }
@@ -34,9 +34,9 @@ WidgetPtr build_button_page(GalleryApp& app) {
                 .content = {
                     Text { .text = "交互式计数器与按钮变体", .font_size = 14.0f },
                     Text { .font_size = 15.0f }.bind(&RenderText::set_text, app.count_text),
-                    HStack {
-                        .align_items = AlignItems::Center,
+                    Wrap {
                         .spacing = 8.0f,
+                        .run_spacing = 8.0f,
                         .content = {
                             Tooltip {
                                 .text = "按步长递增计数 (支持 Tab 焦点与 Space/Enter 激活)",

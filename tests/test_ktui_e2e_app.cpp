@@ -1270,7 +1270,121 @@ void test_mobile_touch_passthrough_and_responsive_layout() {
         require(row->size().y <= 42.0f, "Wide desktop HStack stays single-row");
     }
 
-    std::cout << "  -> 移动端触控防穿透（NavigationView 浮层抽屉）、SettingsCard 堆叠与 FlexEngine 窄屏自动折行验证通过！" << std::endl;
+    // 4. HStack 携带 Spacer {} 或 Expanded {} 在窄屏自动折行
+    {
+        WidgetPtr sp_row_w = HStack{
+            .spacing = 10.0f,
+            .content = {
+                Text{ .text = "这是一段比较长的移动端说明标题用来验证横向防溢出折行表现" },
+                Spacer{},
+                Button{ .text = "立即切换主题" }
+            }
+        };
+        auto sp_row = sp_row_w->create_render_node();
+        sp_row->layout(BoxConstraints{340.0f, 340.0f, 0.0f, BoxConstraints::kInfinity});
+        require(sp_row->size().y > 46.0f, "Narrow HStack with Spacer auto-reflows instead of crushing sibling button");
+        for (RenderNode* c = sp_row->first_child(); c != nullptr; c = c->next_sibling()) {
+            if (auto* b = c->as_render_box()) {
+                require(b->offset().x + b->size().x <= 340.5f, "Reflowed Spacer-row child stays inside 340px width");
+            }
+        }
+
+        WidgetPtr exp_row_w = HStack{
+            .spacing = 8.0f,
+            .content = {
+                Button{ .text = "固定前置按钮A (120px)" },
+                Expanded{ .child = Text{ .text = "中间说明内容在窄屏不应当被压成零宽", .overflow = TextOverflow::Wrap } },
+                Button{ .text = "固定后置按钮B (120px)" }
+            }
+        };
+        auto exp_row = exp_row_w->create_render_node();
+        exp_row->layout(BoxConstraints{340.0f, 340.0f, 0.0f, BoxConstraints::kInfinity});
+        require(exp_row->size().y > 50.0f, "Narrow HStack with Expanded child reflows when leftover width is squeezed");
+        for (RenderNode* c = exp_row->first_child(); c != nullptr; c = c->next_sibling()) {
+            if (auto* b = c->as_render_box()) {
+                require(b->offset().x + b->size().x <= 340.5f, "Reflowed Expanded-row child stays inside 340px width");
+            }
+        }
+    }
+
+    // 5. SegmentedControl / MenuBar / StatusBar / TabView / Pivot / ToggleSwitch 窄屏折行验证
+    {
+        WidgetPtr seg_w = SegmentedControl{
+            .items = {
+                SegmentedItem{ .label = "选项一详情" },
+                SegmentedItem{ .label = "选项二详情" },
+                SegmentedItem{ .label = "选项三详情" },
+                SegmentedItem{ .label = "选项四详情" }
+            },
+            .selected_index = 0
+        };
+        auto seg = seg_w->create_render_node();
+        seg->layout(BoxConstraints{220.0f, 220.0f, 0.0f, BoxConstraints::kInfinity});
+        require(seg->size().y > 50.0f && seg->size().x <= 220.5f, "Narrow SegmentedControl wraps across multiple rows");
+        seg->layout(BoxConstraints{480.0f, 480.0f, 0.0f, BoxConstraints::kInfinity});
+        require(seg->size().y <= 34.0f, "Wide SegmentedControl remains single-row");
+
+        WidgetPtr mb_w = MenuBar{
+            .items = {
+                MenuBarItem{ .title = "File" },
+                MenuBarItem{ .title = "Edit" },
+                MenuBarItem{ .title = "Selection" },
+                MenuBarItem{ .title = "View" },
+                MenuBarItem{ .title = "Window" },
+                MenuBarItem{ .title = "Help" }
+            }
+        };
+        auto mb = mb_w->create_render_node();
+        mb->layout(BoxConstraints{200.0f, 200.0f, 0.0f, BoxConstraints::kInfinity});
+        require(mb->size().y > 40.0f && mb->size().x <= 200.5f, "Narrow MenuBar wraps menu items across rows");
+
+        WidgetPtr sb_w = StatusBar{
+            .slots = {
+                StatusBarSlot{ .text = "main* branch" },
+                StatusBarSlot{ .text = "Ln 128, Col 34" },
+                StatusBarSlot{ .text = "UTF-8", .align_right = true },
+                StatusBarSlot{ .text = "C++20 WebGPU", .align_right = true }
+            }
+        };
+        auto sb = sb_w->create_render_node();
+        sb->layout(BoxConstraints{220.0f, 220.0f, 0.0f, BoxConstraints::kInfinity});
+        require(sb->size().y > 32.0f && sb->size().x <= 220.5f, "Narrow StatusBar wraps left/right slots across rows");
+
+        WidgetPtr tv_w = TabView{
+            .tabs = {
+                TabViewItem{ .id = "t1", .header = "Document 1" },
+                TabViewItem{ .id = "t2", .header = "Document 2" },
+                TabViewItem{ .id = "t3", .header = "Document 3" },
+                TabViewItem{ .id = "t4", .header = "Document 4" },
+                TabViewItem{ .id = "t5", .header = "Document 5" }
+            },
+            .height = 180.0f
+        };
+        auto tv = tv_w->create_render_node();
+        tv->layout(BoxConstraints{240.0f, 240.0f, 0.0f, BoxConstraints::kInfinity});
+        require(tv->size().y > 160.0f && tv->size().x <= 240.5f, "Narrow TabView constrains width cleanly");
+
+        WidgetPtr pv_w = Pivot{
+            .items = {
+                PivotItem{ .header = "Overview" },
+                PivotItem{ .header = "Performance" },
+                PivotItem{ .header = "Memory Profile" },
+                PivotItem{ .header = "GPU Tiles" }
+            }
+        };
+        auto pv = pv_w->create_render_node();
+        pv->layout(BoxConstraints{200.0f, 200.0f, 0.0f, BoxConstraints::kInfinity});
+        require(pv->size().y > 50.0f && pv->size().x <= 200.5f, "Narrow Pivot wraps tab headers onto multiple lines");
+
+        WidgetPtr ts_w = ToggleSwitch{
+            .label = "这是一条非常长的移动端开关说明文字必须能够自动换行"
+        };
+        auto ts = ts_w->create_render_node();
+        ts->layout(BoxConstraints{200.0f, 200.0f, 0.0f, BoxConstraints::kInfinity});
+        require(ts->size().y > 32.0f && ts->size().x <= 200.5f, "Narrow ToggleSwitch wraps long labels onto multiple lines");
+    }
+
+    std::cout << "  -> 移动端触控防穿透（NavigationView 浮层抽屉）、SettingsCard 堆叠与 FlexEngine/复合控件窄屏自动折行验证通过！" << std::endl;
 }
 
 int main() {

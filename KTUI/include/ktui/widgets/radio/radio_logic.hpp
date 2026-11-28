@@ -98,9 +98,29 @@ public:
     void perform_layout() override {
         const Theme& theme = ThemeContext::current();
         auto s = WinUIRadioStyleResolver::resolve(m_data, m_state, theme);
-        Vec2 label_sz = m_data.label.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_data.label, s.font_size);
-        float w = s.outer_diameter + (m_data.label.empty() ? 0.0f : (s.gap + label_sz.x + 4.0f));
-        float h = std::max(s.row_height, label_sz.y + 6.0f);
+        m_wrapped_lines.clear();
+        float w = s.outer_diameter;
+        float h = s.row_height;
+
+        if (!m_data.label.empty()) {
+            Vec2 label_sz = TextMeasure::measure(m_data.label, s.font_size);
+            float avail_label_w = m_constraints.has_bounded_width()
+                ? std::max(40.0f, m_constraints.max_width - s.outer_diameter - s.gap - 4.0f)
+                : std::numeric_limits<float>::infinity();
+            if (std::isfinite(avail_label_w) && label_sz.x > avail_label_w) {
+                m_wrapped_lines = TextMeasure::wrap_lines(m_data.label, s.font_size, avail_label_w);
+                float max_lw = 0.0f;
+                for (const auto& ln : m_wrapped_lines) {
+                    max_lw = std::max(max_lw, TextMeasure::measure_width(ln, s.font_size));
+                }
+                float line_h = std::max(s.font_size * 1.35f, label_sz.y);
+                w += s.gap + max_lw + 4.0f;
+                h = std::max(h, static_cast<float>(m_wrapped_lines.size()) * line_h + 6.0f);
+            } else {
+                w += s.gap + label_sz.x + 4.0f;
+                h = std::max(h, label_sz.y + 6.0f);
+            }
+        }
         m_size = m_constraints.constrain(Vec2{std::ceil(w), std::ceil(h)});
     }
 
@@ -140,12 +160,22 @@ public:
             ctx.draw_rect(inner_rect, s.inner_dot, ir, 0.0f);
         }
 
-        // 3. 整数像素对齐锐利标签文字
+        // 3. 整数像素对齐锐利标签文字（窄屏支持自动折行）
         if (!m_data.label.empty()) {
-            Vec2 label_sz = TextMeasure::measure(m_data.label, s.font_size);
             float tx = std::round(d + s.gap);
-            float ty = std::round((size().y - label_sz.y) * 0.5f);
-            ctx.draw_text(m_data.label, PointF{tx, ty}, s.font_size, s.text);
+            if (m_wrapped_lines.size() > 1) {
+                float line_h = std::max(s.font_size * 1.35f, TextMeasure::measure("Hg", s.font_size).y);
+                float total_h = static_cast<float>(m_wrapped_lines.size()) * line_h;
+                float ty = std::round(std::max(0.0f, (size().y - total_h) * 0.5f));
+                for (const auto& ln : m_wrapped_lines) {
+                    ctx.draw_text(ln, PointF{tx, ty}, s.font_size, s.text);
+                    ty += line_h;
+                }
+            } else {
+                Vec2 label_sz = TextMeasure::measure(m_data.label, s.font_size);
+                float ty = std::round((size().y - label_sz.y) * 0.5f);
+                ctx.draw_text(m_data.label, PointF{tx, ty}, s.font_size, s.text);
+            }
         }
     }
 
@@ -237,6 +267,7 @@ private:
     float m_press_progress{0.0f};
     float m_check_progress{0.0f};
     std::chrono::steady_clock::time_point m_last_anim_time{};
+    std::vector<std::string> m_wrapped_lines;
 };
 
 // 声明式经典 WinUI 3 单选按钮 (RadioButton)

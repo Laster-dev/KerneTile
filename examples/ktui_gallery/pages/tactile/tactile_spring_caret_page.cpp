@@ -975,14 +975,12 @@ WidgetPtr build_tactile_spring_caret_page(GalleryApp& app) {
     };
     auto state = std::make_shared<State>();
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(24.0f, 20.0f),
-            .content = {
-                Text { .text = "平滑弹簧输入光标 + 呼吸渐变闪烁 (Spring Caret)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("通过 SpringCaretSolver 将原本离散瞬移的光标改造为 520 N/m 高频物理滑行，静止后使用 1.08s 周期余弦呼吸渐变取代生硬的 0/1 闪灭。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("平滑弹簧输入光标 + 呼吸渐变闪烁 (Spring Caret)", 22.0f),
+            app.make_muted("通过 SpringCaretSolver 将原本离散瞬移的光标改造为 520 N/m 高频物理滑行，静止后使用 1.08s 周期余弦呼吸渐变取代生硬的 0/1 闪灭。", 13.0f),
 
                 app.make_card(VStack {
                     .align_items = AlignItems::Stretch,
@@ -1052,8 +1050,7 @@ WidgetPtr build_tactile_spring_caret_page(GalleryApp& app) {
                     }
                 })
             }
-        }
-    };
+        });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }

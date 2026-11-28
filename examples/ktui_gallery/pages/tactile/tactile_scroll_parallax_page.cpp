@@ -1002,14 +1002,12 @@ WidgetPtr build_tactile_scroll_parallax_page(GalleryApp& app) {
         });
     }
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(20.0f, 24.0f),
-            .content = {
-                Text { .text = "滚动吸顶渐显分隔线与阻尼视差 (Scroll-Linked Header & Parallax)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("直接依据 SmoothScrollPhysics::offset() 驱动，无额外定时器开销：顶部分隔线从 0 透明渐显，头部视差横幅呈滞后纵深退隐。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("滚动吸顶渐显分隔线与阻尼视差 (Scroll-Linked Header & Parallax)", 22.0f),
+            app.make_muted("直接依据 SmoothScrollPhysics::offset() 驱动，无额外定时器开销：顶部分隔线从 0 透明渐显，头部视差横幅呈滞后纵深退隐。", 13.0f),
 
                 app.make_card(VStack {
                     .align_items = AlignItems::Stretch,
@@ -1107,8 +1105,7 @@ WidgetPtr build_tactile_scroll_parallax_page(GalleryApp& app) {
                     }
                 })
             }
-        }
-    };
+        });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }

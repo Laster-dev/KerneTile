@@ -447,9 +447,6 @@ if (EMSCRIPTEN)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/shell.html"
             "$<TARGET_FILE_DIR:ktui_gallery>/index.html"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/examples/ktui_gallery/wallpaper_dark.jpg"
-            "$<TARGET_FILE_DIR:ktui_gallery>/wallpaper_dark.jpg"
     )
 endif()
 

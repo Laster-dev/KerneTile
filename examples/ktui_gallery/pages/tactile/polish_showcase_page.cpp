@@ -160,7 +160,7 @@ WidgetPtr build_polish_showcase_page(GalleryApp& app) {
                             VStack {
                                 .spacing = 2.0f,
                                 .content = {
-                                    Text { .text = "1. 8-bit IGN 抖动去色带 (Interleaved Gradient Noise)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
+                                    Text { .text = "1. 8-bit IGN 抖动去色带 (Interleaved Gradient Noise)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                                     app.make_muted("写入 RGBA8 前叠加 ±0.5 LSB 无纹理梯度噪声（仅 3 条算术指令），消除云母、大渐变与大半径高斯阴影的阶梯色带。", 12.0f)
                                 }
                             },
@@ -191,7 +191,7 @@ WidgetPtr build_polish_showcase_page(GalleryApp& app) {
                             VStack {
                                 .spacing = 2.0f,
                                 .content = {
-                                    Text { .text = "2. 分数 DPI 物理像素吸附 (125% / 150% 锐利发丝线)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
+                                    Text { .text = "2. 分数 DPI 物理像素吸附 (125% / 150% 锐利发丝线)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                                     app.make_muted("轴对齐 1px 边框与分割线宽度取整至至少 1 物理像素，直边吸附半像素网格，告别非整数缩放发虚。", 12.0f)
                                 }
                             },
@@ -215,7 +215,7 @@ WidgetPtr build_polish_showcase_page(GalleryApp& app) {
                 .align_items = AlignItems::Stretch,
                 .spacing = 10.0f,
                 .content = {
-                    Text { .text = "3. 指针高光跟随 (Fluent Pointer Reveal / Specular Sheen)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
+                    Text { .text = "3. 指针高光跟随 (Fluent Pointer Reveal / Specular Sheen)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                     Text { .font_size = 12.0f }.bind(&RenderText::set_text, *reveal_status),
                     HStack {
                         .spacing = 10.0f,
@@ -291,7 +291,7 @@ WidgetPtr build_polish_showcase_page(GalleryApp& app) {
                             VStack {
                                 .spacing = 2.0f,
                                 .content = {
-                                    Text { .text = "5. 等宽数字排版 (DirectWrite tnum / tabular_nums)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold },
+                                    Text { .text = "5. 等宽数字排版 (DirectWrite tnum / tabular_nums)", .font_size = 14.5f, .font_weight = FontWeight::SemiBold, .overflow = TextOverflow::Wrap },
                                     app.make_muted("切换窄数字 “111,111.11” 与宽数字 “888,888.88” 对照横向稳定性。", 12.0f)
                                 }
                             },

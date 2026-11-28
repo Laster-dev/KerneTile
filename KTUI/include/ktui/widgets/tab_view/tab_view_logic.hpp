@@ -78,18 +78,20 @@ public:
     void perform_layout() override {
         float w = std::isfinite(m_constraints.max_width) ? m_constraints.max_width : 640.0f;
         w = m_constraints.constrain_width(w);
-        float h = (m_height > 0.0f) ? m_height
-                                    : (std::isfinite(m_constraints.max_height) ? m_constraints.max_height : 260.0f);
+        compute_tab_rects(w);
+
+        float min_h_with_strip = m_strip_h + (m_active_content_box ? 100.0f : 0.0f);
+        float h = (m_height > 0.0f)
+            ? std::max(m_height, min_h_with_strip)
+            : (std::isfinite(m_constraints.max_height) ? m_constraints.max_height : std::max(260.0f, min_h_with_strip));
         h = m_constraints.constrain_height(h);
         set_size(Vec2{w, h});
 
-        compute_tab_rects(w);
-
         if (m_active_content_box) {
             float body_w = std::max(0.0f, w - 2.0f);
-            float body_h = std::max(0.0f, h - kStripH - 2.0f);
+            float body_h = std::max(0.0f, h - m_strip_h - 2.0f);
             m_active_content_box->layout(BoxConstraints::tight(Vec2{body_w, body_h}), true);
-            m_active_content_box->set_offset(Vec2{1.0f, kStripH + 1.0f});
+            m_active_content_box->set_offset(Vec2{1.0f, m_strip_h + 1.0f});
         }
     }
 
@@ -98,7 +100,7 @@ public:
             local_position.x > size().x || local_position.y > size().y) {
             return false;
         }
-        if (local_position.y >= kStripH && m_active_content_box) {
+        if (local_position.y >= m_strip_h && m_active_content_box) {
             PointF cp = local_position - m_active_content_box->offset();
             if (m_active_content_box->hit_test(result, cp)) {
                 result.add(this, local_position);
@@ -114,7 +116,7 @@ public:
             local_position.x > size().x || local_position.y > size().y) {
             return false;
         }
-        if (local_position.y >= kStripH && m_active_content_box) {
+        if (local_position.y >= m_strip_h && m_active_content_box) {
             PointF cp = local_position - m_active_content_box->offset();
             if (m_active_content_box->hit_test_touch(result, cp)) {
                 result.add(this, local_position);
@@ -144,16 +146,23 @@ public:
             const Rect& target = m_tab_rects[static_cast<size_t>(m_selected_index)];
             if (!m_ind_init) {
                 m_ind_x = target.min_x;
+                m_ind_y = target.min_y;
                 m_ind_w = target.width();
+                m_ind_h = target.height();
                 m_ind_init = true;
-            } else if (std::abs(m_ind_x - target.min_x) > 0.2f || std::abs(m_ind_w - target.width()) > 0.2f) {
+            } else if (std::abs(m_ind_x - target.min_x) > 0.2f || std::abs(m_ind_y - target.min_y) > 0.2f ||
+                       std::abs(m_ind_w - target.width()) > 0.2f || std::abs(m_ind_h - target.height()) > 0.2f) {
                 float k = 1.0f - std::exp(-dt * 24.0f);
                 m_ind_x += (target.min_x - m_ind_x) * k;
+                m_ind_y += (target.min_y - m_ind_y) * k;
                 m_ind_w += (target.width() - m_ind_w) * k;
+                m_ind_h += (target.height() - m_ind_h) * k;
                 animating = true;
             } else {
                 m_ind_x = target.min_x;
+                m_ind_y = target.min_y;
                 m_ind_w = target.width();
+                m_ind_h = target.height();
             }
         }
         if (std::abs(m_content_slide_x) > 0.2f) {
@@ -184,16 +193,16 @@ public:
         Color text_idle   = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.66f} : Color{0.0f, 0.0f, 0.0f, 0.60f};
 
         // 1. 顶部标签栏条背景 (顶圆角 8px)
-        ctx.draw_rounded_rect(Rect::from_xywh(0.0f, 0.0f, w, kStripH + 2.0f), strip_bg, 8.0f, 8.0f, 0.0f, 0.0f);
+        ctx.draw_rounded_rect(Rect::from_xywh(0.0f, 0.0f, w, m_strip_h + 2.0f), strip_bg, 8.0f, 8.0f, 0.0f, 0.0f);
 
         // 2. 内容区底板与边框 (底圆角 8px)
-        Rect body_rect = Rect::from_xywh(0.0f, kStripH, w, std::max(0.0f, h - kStripH));
+        Rect body_rect = Rect::from_xywh(0.0f, m_strip_h, w, std::max(0.0f, h - m_strip_h));
         ctx.draw_rounded_rect(body_rect, active_bg, 0.0f, 0.0f, 8.0f, 8.0f);
         ctx.draw_rounded_rect(body_rect, border, 0.0f, 0.0f, 8.0f, 8.0f, 0.0f, Vec2{0.0f, 0.0f}, 1.0f);
 
         // 3. 平滑滑动的激活标签融底壳体 + 顶部主题色微指示条
         if (m_ind_init && m_selected_index >= 0 && m_selected_index < static_cast<int>(m_tab_rects.size())) {
-            Rect glide_r = Rect::from_xywh(m_ind_x, 4.0f, m_ind_w, kStripH - 4.0f);
+            Rect glide_r = Rect::from_xywh(m_ind_x, m_ind_y, m_ind_w, std::max(24.0f, m_ind_h));
             Rect sel_fill = Rect::from_xywh(glide_r.min_x, glide_r.min_y, glide_r.width(), glide_r.height() + 2.0f);
             ctx.draw_rounded_rect(sel_fill, active_bg, 6.0f, 6.0f, 0.0f, 0.0f);
             ctx.push_clip(glide_r, 0.0f);
@@ -213,11 +222,12 @@ public:
             bool is_sel = (static_cast<int>(i) == m_selected_index);
             bool is_hov = (static_cast<int>(i) == m_hovered_tab);
 
-            // 非激活标签间的 1px 竖向分隔线 (靠近选中或悬停标签时隐藏)
-            if (i > 0 && !is_sel && !is_hov &&
+            // 非激活标签间的 1px 竖向分隔线 (同一行且靠近选中或悬停标签时隐藏)
+            if (i > 0 && std::abs(tr.min_y - m_tab_rects[i - 1].min_y) < 1.0f &&
+                !is_sel && !is_hov &&
                 static_cast<int>(i - 1) != m_selected_index &&
                 static_cast<int>(i - 1) != m_hovered_tab) {
-                ctx.draw_rect(Rect::from_xywh(std::round(tr.min_x), 11.0f, 1.0f, 16.0f), sep_col, 0.0f, 0.0f);
+                ctx.draw_rect(Rect::from_xywh(std::round(tr.min_x), std::round(tr.min_y + (tr.height() - 16.0f) * 0.5f), 1.0f, 16.0f), sep_col, 0.0f, 0.0f);
             }
 
             if (!is_sel && is_hov) {
@@ -281,9 +291,9 @@ public:
 
         // 6. 绘制当前激活标签的内容视图 (带方向微滑入过渡)
         if (m_active_content_box) {
-            Rect content_clip = Rect::from_xywh(1.0f, kStripH + 1.0f,
+            Rect content_clip = Rect::from_xywh(1.0f, m_strip_h + 1.0f,
                                                 std::max(0.0f, w - 2.0f),
-                                                std::max(0.0f, h - kStripH - 2.0f));
+                                                std::max(0.0f, h - m_strip_h - 2.0f));
             ctx.push_clip(content_clip, 0.0f);
             {
                 Vec2 off = m_active_content_box->offset();
@@ -307,20 +317,52 @@ private:
         float add_reserve = m_show_add_button ? 38.0f : 8.0f;
         float avail = std::max(60.0f, w - 12.0f - add_reserve);
         size_t n = m_tabs.size();
-        float tab_w = (n > 0) ? std::clamp(avail / static_cast<float>(n), 92.0f, 200.0f) : 160.0f;
 
+        if (n == 0 || static_cast<float>(n) * 92.0f <= avail + 1.0f) {
+            m_strip_h = kStripH;
+            float tab_w = (n > 0) ? std::clamp(avail / static_cast<float>(n), 92.0f, 200.0f) : 160.0f;
+            float x = 6.0f;
+            for (size_t i = 0; i < n; ++i) {
+                float tw = std::min(tab_w, std::max(64.0f, avail - (x - 6.0f)));
+                m_tab_rects.push_back(Rect::from_xywh(std::round(x), 4.0f, std::round(tw), kStripH - 4.0f));
+                x += std::round(tw);
+            }
+            if (m_show_add_button) {
+                m_add_btn_rect = Rect::from_xywh(std::min(x + 4.0f, w - 34.0f), 6.0f, 28.0f, 26.0f);
+            } else {
+                m_add_btn_rect = Rect::from_xywh(0, 0, 0, 0);
+            }
+            return;
+        }
+
+        // 窄屏多标签时自动折行，确保所有标签可达且不被截断丢失
+        constexpr float kRowH = 34.0f;
+        float max_row_x = std::max(84.0f, w - 6.0f);
         float x = 6.0f;
+        float y = 4.0f;
         for (size_t i = 0; i < n; ++i) {
-            float tw = std::min(tab_w, std::max(64.0f, avail - (x - 6.0f)));
-            m_tab_rects.push_back(Rect::from_xywh(std::round(x), 4.0f, std::round(tw), kStripH - 4.0f));
-            x += std::round(tw);
-            if (x > w - add_reserve) break;
+            const auto& tab = m_tabs[i];
+            float tw_nat = std::ceil(TextMeasure::measure_width(tab.header, 12.5f)) +
+                           (tab.svg_path.empty() ? 0.0f : 21.0f) +
+                           (tab.is_closable ? 44.0f : 26.0f);
+            float tw = std::min(std::clamp(tw_nat, 92.0f, 180.0f), max_row_x - 6.0f);
+            if (x > 6.0f && x + tw > max_row_x + 0.5f) {
+                x = 6.0f;
+                y += kRowH;
+            }
+            m_tab_rects.push_back(Rect::from_xywh(std::round(x), std::round(y), std::round(tw), kRowH));
+            x += std::round(tw) + 2.0f;
         }
         if (m_show_add_button) {
-            m_add_btn_rect = Rect::from_xywh(std::min(x + 4.0f, w - 34.0f), 6.0f, 28.0f, 26.0f);
+            if (x + 30.0f > max_row_x + 0.5f) {
+                x = 6.0f;
+                y += kRowH;
+            }
+            m_add_btn_rect = Rect::from_xywh(std::min(x + 2.0f, w - 34.0f), std::round(y + 4.0f), 28.0f, 26.0f);
         } else {
             m_add_btn_rect = Rect::from_xywh(0, 0, 0, 0);
         }
+        m_strip_h = y + kRowH;
     }
 
     void rebuild_active_content() {
@@ -345,7 +387,7 @@ private:
             int ht = -1;
             int hc = -1;
             bool ha = m_show_add_button && m_add_btn_rect.contains(e.local_position);
-            if (!ha && e.local_position.y <= kStripH) {
+            if (!ha && e.local_position.y <= m_strip_h) {
                 for (size_t i = 0; i < m_tab_rects.size(); ++i) {
                     if (m_tab_rects[i].contains(e.local_position)) {
                         ht = static_cast<int>(i);
@@ -387,7 +429,7 @@ private:
             }
         };
         on_pointer_down = [this](PointerEvent& e) {
-            if (e.button != PointerButton::Primary || e.local_position.y > kStripH) return;
+            if (e.button != PointerButton::Primary || e.local_position.y > m_strip_h) return;
             Rect add_hit = e.is_touch() ? touch::expand_hit_rect(m_add_btn_rect, 40.0f) : m_add_btn_rect;
             if (m_show_add_button && add_hit.contains(e.local_position)) {
                 if (m_on_add_tab) m_on_add_tab();
@@ -450,8 +492,11 @@ private:
     std::optional<bool> m_enable_pointer_reveal{std::nullopt};
     bool m_reveal_active{false};
     PointF m_reveal_pos{0.0f, 0.0f};
+    float m_strip_h{kStripH};
     float m_ind_x{0.0f};
+    float m_ind_y{4.0f};
     float m_ind_w{0.0f};
+    float m_ind_h{kStripH - 4.0f};
     bool m_ind_init{false};
     float m_content_slide_x{0.0f};
     bool m_has_anim_time{false};

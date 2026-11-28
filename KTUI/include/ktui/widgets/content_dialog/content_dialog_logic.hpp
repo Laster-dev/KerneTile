@@ -27,8 +27,15 @@ public:
     ~RenderContentDialog() override = default;
 
     [[nodiscard]] Vec2 compute_size() const {
-        float w = std::clamp(m_desc.width > 0.0f ? m_desc.width : 420.0f, 300.0f, 540.0f);
-        float text_w = w - 48.0f;
+        float max_w = 540.0f;
+        if (m_constraints.has_bounded_width()) {
+            max_w = std::min(max_w, std::max(220.0f, m_constraints.max_width));
+        } else if (Window* win = Window::active_window(); win && win->size().x > 1.0f) {
+            max_w = std::min(max_w, std::max(220.0f, win->size().x - 24.0f));
+        }
+        float min_w = std::min(300.0f, max_w);
+        float w = std::clamp(m_desc.width > 0.0f ? m_desc.width : 420.0f, min_w, max_w);
+        float text_w = std::max(80.0f, w - 48.0f);
         int lines = count_wrapped_lines(m_desc.content, 13.5f, text_w);
         float body_h = 24.0f + (m_desc.title.empty() ? 0.0f : 32.0f) +
                        static_cast<float>(std::max(1, lines)) * 21.0f + 22.0f;

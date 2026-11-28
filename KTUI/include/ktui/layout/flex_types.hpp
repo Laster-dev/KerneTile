@@ -77,6 +77,7 @@ struct FlexItemData {
     float flex_shrink{1.0f};        // 弹性收缩权重 (空间不足时按比例压缩)
     FlexFit fit{FlexFit::Tight};    // 填充模式
     std::optional<AlignItems> align_self{std::nullopt}; // 单项交叉轴对齐覆盖
+    bool explicit_shrink{false};    // 是否由 Flexible 显式指定了溢出收缩语义
 
     bool operator==(const FlexItemData&) const noexcept = default;
 };

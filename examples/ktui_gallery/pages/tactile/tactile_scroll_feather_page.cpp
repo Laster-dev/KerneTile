@@ -1032,14 +1032,12 @@ WidgetPtr build_tactile_scroll_feather_page(GalleryApp& app) {
         });
     }
 
-    auto scroll = ScrollView {
-        .child = VStack {
-            .align_items = AlignItems::Stretch,
-            .spacing = 16.0f,
-            .padding = EdgeInsets(24.0f, 20.0f),
-            .content = {
-                Text { .text = "列表边缘渐隐羽化 (Scroll Edge Alpha Feathering)", .font_size = 24.0f, .font_weight = FontWeight::Bold },
-                app.make_muted("基于底层 ClipRect 调制：当 ScrollView 或 VirtualList 上/下仍有未展示内容时自动开启羽化遮罩，贴边自动收敛消除裁剪硬切线。", 13.0f),
+    auto scroll = app.make_scroll_page(VStack {
+        .align_items = AlignItems::Stretch,
+        .spacing = 14.0f,
+        .content = {
+            app.make_page_title("列表边缘渐隐羽化 (Scroll Edge Alpha Feathering)", 22.0f),
+            app.make_muted("基于底层 ClipRect 调制：当 ScrollView 或 VirtualList 上/下仍有未展示内容时自动开启羽化遮罩，贴边自动收敛消除裁剪硬切线。", 13.0f),
 
                 app.make_card(VStack {
                     .align_items = AlignItems::Stretch,
@@ -1133,8 +1131,7 @@ WidgetPtr build_tactile_scroll_feather_page(GalleryApp& app) {
                     }
                 })
             }
-        }
-    };
+        });
 
     return attach_page_state(std::move(state), std::move(scroll));
 }

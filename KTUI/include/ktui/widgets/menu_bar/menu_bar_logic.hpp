@@ -42,14 +42,27 @@ public:
     void perform_layout() override {
         float w = std::isfinite(m_constraints.max_width) ? m_constraints.max_width : 480.0f;
         m_item_rects.clear();
+        const float max_inner_w = std::max(44.0f, w - 4.0f);
+        const float row_h = kBarH - 4.0f;
         float x = 2.0f;
+        float y = 2.0f;
+        float max_right = 4.0f;
+
         for (const auto& it : m_items) {
             float tw = std::ceil(TextMeasure::measure_width(it.title, 13.5f)) + 24.0f;
-            m_item_rects.push_back(Rect::from_xywh(x, 2.0f, std::max(44.0f, tw), kBarH - 4.0f));
-            x += std::max(44.0f, tw) + 2.0f;
+            float iw = std::min(std::max(44.0f, tw), max_inner_w);
+            if (x > 2.0f && x + iw > w - 2.0f + 0.5f) {
+                x = 2.0f;
+                y += kBarH;
+            }
+            m_item_rects.push_back(Rect::from_xywh(x, y, iw, row_h));
+            x += iw + 2.0f;
+            max_right = std::max(max_right, x);
         }
-        float desired_w = std::max(x + 2.0f, w);
-        set_size(m_constraints.constrain(Vec2{desired_w, kBarH}));
+
+        float desired_w = (y > 2.0f) ? w : std::max(max_right + 2.0f, w);
+        float desired_h = y + row_h + 2.0f;
+        set_size(m_constraints.constrain(Vec2{desired_w, desired_h}));
     }
 
     void paint(PaintContext& ctx) override {
@@ -83,18 +96,25 @@ public:
 
             if (!m_pill_init) {
                 m_pill_x = tr.min_x;
+                m_pill_y = tr.min_y;
                 m_pill_w = tr.width();
+                m_pill_h = tr.height();
                 m_pill_alpha = 1.0f;
                 m_pill_init = true;
             } else {
                 float k = 1.0f - std::exp(-dt * 26.0f);
-                if (std::abs(m_pill_x - tr.min_x) > 0.15f || std::abs(m_pill_w - tr.width()) > 0.15f) {
+                if (std::abs(m_pill_x - tr.min_x) > 0.15f || std::abs(m_pill_y - tr.min_y) > 0.15f ||
+                    std::abs(m_pill_w - tr.width()) > 0.15f || std::abs(m_pill_h - tr.height()) > 0.15f) {
                     m_pill_x += (tr.min_x - m_pill_x) * k;
+                    m_pill_y += (tr.min_y - m_pill_y) * k;
                     m_pill_w += (tr.width() - m_pill_w) * k;
+                    m_pill_h += (tr.height() - m_pill_h) * k;
                     animating = true;
                 } else {
                     m_pill_x = tr.min_x;
+                    m_pill_y = tr.min_y;
                     m_pill_w = tr.width();
+                    m_pill_h = tr.height();
                 }
                 if (m_pill_alpha < 0.99f) {
                     m_pill_alpha += (1.0f - m_pill_alpha) * k;
@@ -126,7 +146,7 @@ public:
         if (m_pill_alpha > 0.01f && m_pill_w > 1.0f) {
             Color pill_bg = (m_open_index >= 0) ? theme.colors.subtle_fill_tertiary : theme.colors.subtle_fill_secondary;
             pill_bg.a *= m_pill_alpha;
-            ctx.draw_rect(Rect::from_xywh(m_pill_x, 2.0f, m_pill_w, kBarH - 4.0f), pill_bg, 4.0f, 0.0f);
+            ctx.draw_rect(Rect::from_xywh(m_pill_x, m_pill_y, m_pill_w, std::max(8.0f, m_pill_h)), pill_bg, 4.0f, 0.0f);
         }
 
         Color text_c = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.94f} : Color{0.0f, 0.0f, 0.0f, 0.90f};
@@ -156,7 +176,11 @@ private:
             return false;
         }
         // 取下拉菜单近侧边缘（位于菜单栏下方取顶边，向上翻转时取底边）的左右两角
-        float bar_cy = global_offset().y + kBarH * 0.5f;
+        float bar_cy = global_offset().y +
+            ((m_open_index >= 0 && m_open_index < static_cast<int>(m_item_rects.size()))
+                 ? (m_item_rects[static_cast<size_t>(m_open_index)].min_y +
+                    m_item_rects[static_cast<size_t>(m_open_index)].height() * 0.5f)
+                 : (kBarH * 0.5f));
         float pop_cy = m_popup_client_rect.min_y + m_popup_client_rect.height() * 0.5f;
         float near_y = (pop_cy >= bar_cy) ? m_popup_client_rect.min_y : m_popup_client_rect.max_y;
         PointF b{m_popup_client_rect.min_x, near_y};
@@ -209,7 +233,7 @@ private:
 
         Vec2 bar_pos = global_offset();
         const Rect& r = m_item_rects[static_cast<size_t>(idx)];
-        Vec2 anchor{bar_pos.x + r.min_x, bar_pos.y + win->titlebar_height() + kBarH + 2.0f};
+        Vec2 anchor{bar_pos.x + r.min_x, bar_pos.y + win->titlebar_height() + r.max_y + 4.0f};
 
         m_open_index = idx;
         m_last_anim_time = std::chrono::steady_clock::now();
@@ -346,7 +370,9 @@ private:
     std::chrono::steady_clock::time_point m_last_dismiss{};
 
     float m_pill_x{0.0f};
+    float m_pill_y{2.0f};
     float m_pill_w{0.0f};
+    float m_pill_h{28.0f};
     float m_pill_alpha{0.0f};
     bool m_pill_init{false};
     bool m_has_anim_time{false};

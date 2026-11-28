@@ -1071,7 +1071,7 @@ WidgetPtr build_tactile_inset_shadow_page(GalleryApp& app) {
                         .spacing = 16.0f,
                         .content = {
                             Box {
-                                .width = 320.0f,
+                                .width = 264.0f,
                                 .border_color = Color{0.5f, 0.55f, 0.65f, 0.16f},
                                 .border_width = 1.0f,
                                 .corner_radius = 10.0f,

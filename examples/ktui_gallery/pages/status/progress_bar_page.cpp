@@ -32,7 +32,7 @@ WidgetPtr build_progress_bar_page(GalleryApp& app) {
                 .spacing = 12.0f,
                 .content = {
                     Text { .text = "确定进度 (Determinate)", .font_size = 14.0f },
-                    ProgressBar { .width = 320.0f }.bind(app.progress_norm, [](RenderProgressBar& n, float v) { n.set_value(v, true); }),
+                    ProgressBar { .width = 264.0f }.bind(app.progress_norm, [](RenderProgressBar& n, float v) { n.set_value(v, true); }),
                     Slider {
                         .min_value = 0.0f,
                         .max_value = 100.0f,
@@ -50,7 +50,7 @@ WidgetPtr build_progress_bar_page(GalleryApp& app) {
                 .spacing = 10.0f,
                 .content = {
                     Text { .text = "不确定流光进度 (Indeterminate)", .font_size = 14.0f },
-                    ProgressBar { .indeterminate = true, .width = 320.0f }
+                    ProgressBar { .indeterminate = true, .width = 264.0f }
                 }
             })
         }

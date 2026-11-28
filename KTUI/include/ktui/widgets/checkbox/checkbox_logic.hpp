@@ -146,13 +146,34 @@ public:
         );
     }
 
-    // 布局度量
+    // 布局度量（窄屏长标签自动折行）
     void perform_layout() override {
         auto style = resolve_current_style();
-        Vec2 label_sz = m_data.label.empty() ? Vec2{0.0f, 0.0f} : TextMeasure::measure(m_data.label, style.font_size);
-        float label_w = m_data.label.empty() ? 0.0f : (label_sz.x + style.gap);
+        m_wrapped_lines.clear();
+        float label_w = 0.0f;
+        float label_h = style.font_size * 1.35f;
+
+        if (!m_data.label.empty()) {
+            Vec2 label_sz = TextMeasure::measure(m_data.label, style.font_size);
+            float avail_label_w = m_constraints.has_bounded_width()
+                ? std::max(40.0f, m_constraints.max_width - style.box_size - style.gap)
+                : std::numeric_limits<float>::infinity();
+            if (std::isfinite(avail_label_w) && label_sz.x > avail_label_w) {
+                m_wrapped_lines = TextMeasure::wrap_lines(m_data.label, style.font_size, avail_label_w);
+                float max_lw = 0.0f;
+                for (const auto& ln : m_wrapped_lines) {
+                    max_lw = std::max(max_lw, TextMeasure::measure_width(ln, style.font_size));
+                }
+                float line_h = std::max(style.font_size * 1.35f, label_sz.y);
+                label_w = max_lw + style.gap;
+                label_h = static_cast<float>(m_wrapped_lines.size()) * line_h;
+            } else {
+                label_w = label_sz.x + style.gap;
+                label_h = label_sz.y > 0.0f ? label_sz.y : style.font_size * 1.35f;
+            }
+        }
         float desired_w = style.box_size + label_w;
-        float desired_h = std::max(style.box_size, label_sz.y > 0.0f ? label_sz.y : style.font_size * 1.35f);
+        float desired_h = std::max(style.box_size, label_h);
 
         m_size = m_constraints.constrain(Vec2{desired_w, desired_h});
     }
@@ -227,12 +248,22 @@ public:
                               style.check_mark, 1.0f, 0.0f);
         }
 
-        // 5. 绘制标签文字 (施加硬件裁剪，严防文本溢出父容器边界)
+        // 5. 绘制标签文字 (窄屏支持自动折行，并施加裁剪防止溢出边界)
         if (!m_data.label.empty()) {
             float text_x = style.box_size + style.gap;
-            float text_y = std::max(0.0f, (m_size.y - style.font_size * 1.35f) * 0.5f);
             context.push_clip(bounds(), 0.0f);
-            context.draw_text(m_data.label, PointF{text_x, text_y}, style.font_size, style.text);
+            if (m_wrapped_lines.size() > 1) {
+                float line_h = std::max(style.font_size * 1.35f, TextMeasure::measure("Hg", style.font_size).y);
+                float total_h = static_cast<float>(m_wrapped_lines.size()) * line_h;
+                float y = std::max(0.0f, (m_size.y - total_h) * 0.5f);
+                for (const auto& ln : m_wrapped_lines) {
+                    context.draw_text(ln, PointF{text_x, y}, style.font_size, style.text);
+                    y += line_h;
+                }
+            } else {
+                float text_y = std::max(0.0f, (m_size.y - style.font_size * 1.35f) * 0.5f);
+                context.draw_text(m_data.label, PointF{text_x, text_y}, style.font_size, style.text);
+            }
             context.pop_clip();
         }
     }
@@ -360,6 +391,7 @@ private:
     MotionTween<float> m_check_tween;
     MotionTween<float> m_indeterminate_tween;
     std::chrono::steady_clock::time_point m_last_tick_time;
+    std::vector<std::string> m_wrapped_lines;
 
     // 自定义覆盖样式
     std::optional<Color> m_custom_bg_normal;

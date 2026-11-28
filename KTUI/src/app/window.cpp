@@ -257,9 +257,11 @@ void Window::paint_scene(PaintContext& ctx, Vec2 sz, Vec2 client_sz, float tb_h,
         m_root_render_box->paint(ctx);
     }
     m_overlay_manager.layout_and_paint(ctx, sz);
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
     if (!is_decorated()) {
         m_titlebar.paint_outer_border(ctx, sz, m_window_focused, is_maximized());
     }
+#endif
 #if KTUI_INSPECTOR_ACTIVE
     if (m_inspector.enabled) {
         if (m_renderer) m_renderer->mark_scene_end();
@@ -825,6 +827,7 @@ void Window::init_internal_hooks() {
             if (custom_ht != TitlebarHitTest::Client) return custom_ht;
         }
         // 无系统标题栏且关闭框架默认大标题栏的浮动工具窗，仍保留 5px 边缘 8 向缩放命中测试
+#if !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
         if (!is_decorated() && is_resizable() && !is_maximized()) {
             const Vec2 sz = size();
             constexpr float kEdge = 5.0f;
@@ -841,6 +844,7 @@ void Window::init_internal_hooks() {
             if (t) return TitlebarHitTest::BorderTop;
             if (b) return TitlebarHitTest::BorderBottom;
         }
+#endif
         return TitlebarHitTest::Client;
     });
 

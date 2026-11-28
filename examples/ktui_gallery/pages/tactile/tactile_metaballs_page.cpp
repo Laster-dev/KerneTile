@@ -1089,7 +1089,6 @@ WidgetPtr build_tactile_metaballs_page(GalleryApp& app) {
                                     SegmentedItem{ .label = "液态滑块" }
                                 },
                                 .selected_index = state->seg_idx.get(),
-                                .width = 360.0f,
                                 .liquid_indicator = true,
                                 .liquid_smooth_k = 16.0f
                             }.bind_two_way(state->seg_idx),
