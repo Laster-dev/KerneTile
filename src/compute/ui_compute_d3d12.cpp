@@ -90,7 +90,7 @@ public:
             }
         }
         auto& commands = static_cast<D3D12CommandRecorder&>(*slot.recorder);
-        commands.set_descriptor_base(static_cast<uint32_t>(m_frame_slot * 16));
+        commands.set_descriptor_base(static_cast<uint32_t>(m_frame_slot * 128));
         if (!frame.tiles.empty()) compose(commands, slot, frame);
         auto& back = *back_ptr;
         commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::CopySrc);
@@ -148,6 +148,14 @@ private:
             const uint32_t cap_h = ((frame.height + 255u) / 256u) * 256u;
             m_output = std::make_unique<D3D12Texture>(m_device.get_native_device(),
                 TextureDesc{cap_w, cap_h, TextureFormat::RGBA8_UNORM, true});
+            m_scene.reset();
+        }
+        const uint32_t bw = std::max(1u, (frame.width + 3u) / 4u);
+        const uint32_t bh = std::max(1u, (frame.height + 3u) / 4u);
+        if (m_blur_a && (m_blur_a->get_width() != bw || m_blur_a->get_height() != bh)) {
+            wait_all_frames();
+            m_blur_a.reset();
+            m_blur_b.reset();
         }
     }
 
@@ -286,11 +294,9 @@ private:
             if (!input[i].empty()) std::memcpy(buffer.map(), input[i].data(), input[i].size());
             commands.set_storage_buffer(i, buffer);
         }
-        commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::UnorderedAccess);
-        commands.set_storage_texture(0, *m_output);
-        commands.set_compute_atlases(*m_atlas, m_color_atlas ? *m_color_atlas : *m_atlas);
         const auto count = static_cast<uint32_t>(frame.tiles.size());
         const auto groups_x = std::min(count, 1024u);
+        const auto groups_y = (count + groups_x - 1) / groups_x;
         std::array<uint32_t, 24> parameters{};
         parameters[0] = frame.width;
         parameters[1] = frame.height;
@@ -300,8 +306,79 @@ private:
         parameters[5] = frame.mica_enabled ? 1u : 0u;
         parameters[6] = frame.render_flags;
         for (size_t i = 0; i < 16; ++i) parameters[8 + i] = frame.mica_grid[i];
+
+        uint32_t backdrop_split = 0xFFFFFFFFu;
+        for (uint32_t i = 0; i < static_cast<uint32_t>(frame.primitives.size()); ++i) {
+            if ((frame.primitives[i].flags & static_cast<uint16_t>(core::PrimitiveFlags::IsBackdropFilter)) != 0) {
+                backdrop_split = i;
+                break;
+            }
+        }
+
+        const uint32_t base_desc = static_cast<uint32_t>(m_frame_slot * 128);
+        const D3D12Texture& ca_tex = m_color_atlas ? *m_color_atlas : *m_atlas;
+
+        if (backdrop_split == 0xFFFFFFFFu) {
+            commands.set_descriptor_base(base_desc);
+            commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::UnorderedAccess);
+            commands.set_storage_texture(0, *m_output);
+            commands.set_compute_atlases(*m_atlas, ca_tex);
+            parameters[7] = 0u;
+            commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
+            commands.dispatch(groups_x, groups_y, 1);
+            return;
+        }
+
+        // 惰性分配背景场景与 1/4 分辨率模糊纹理 (无弹出层时零显存开销)
+        if (!m_scene) {
+            m_scene = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                TextureDesc{m_output->get_width(), m_output->get_height(), TextureFormat::RGBA8_UNORM, true});
+        }
+        const uint32_t bw = std::max(1u, (frame.width + 3u) / 4u);
+        const uint32_t bh = std::max(1u, (frame.height + 3u) / 4u);
+        if (!m_blur_a) {
+            m_blur_a = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                TextureDesc{bw, bh, TextureFormat::RGBA8_UNORM, true});
+            m_blur_b = std::make_unique<D3D12Texture>(m_device.get_native_device(),
+                TextureDesc{bw, bh, TextureFormat::RGBA8_UNORM, true});
+        }
+
+        // Pass 1: 主场景 (prim_id < backdrop_split) 写入 m_scene
+        commands.set_descriptor_base(base_desc + 0u);
+        commands.resource_barrier(*m_scene, m_scene->get_current_state(), ResourceState::UnorderedAccess);
+        commands.set_storage_texture(0, *m_scene);
+        commands.set_compute_atlases(*m_atlas, ca_tex);
+        parameters[7] = (1u << 28) | (backdrop_split & 0x0FFFFFFFu);
         commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
-        commands.dispatch(groups_x, (count + groups_x - 1) / groups_x, 1);
+        commands.dispatch(groups_x, groups_y, 1);
+        commands.resource_barrier(*m_scene, ResourceState::UnorderedAccess, ResourceState::ComputeShaderResource);
+
+        // Pass 2: 双轮 1/4 分辨率 13-tap 可分离高斯重度背景模糊 (WinUI 3 Acrylic 级模糊)
+        const uint32_t bgx = (bw + 15u) / 16u;
+        const uint32_t bgy = (bh + 15u) / 16u;
+        auto run_blur = [&](uint32_t desc_off, uint32_t mode, uint32_t is_scene_src, D3D12Texture& src, D3D12Texture& dst) {
+            commands.set_descriptor_base(base_desc + desc_off);
+            commands.resource_barrier(dst, dst.get_current_state(), ResourceState::UnorderedAccess);
+            commands.set_storage_texture(0, dst);
+            commands.set_compute_atlases(*m_atlas, ca_tex, &src, &src);
+            parameters[7] = (mode << 28) | is_scene_src;
+            commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
+            commands.dispatch(bgx, bgy, 1);
+            commands.resource_barrier(dst, ResourceState::UnorderedAccess, ResourceState::ComputeShaderResource);
+        };
+        run_blur(16u, 3u, 1u, *m_scene,  *m_blur_a);
+        run_blur(32u, 4u, 0u, *m_blur_a, *m_blur_b);
+        run_blur(48u, 3u, 0u, *m_blur_b, *m_blur_a);
+        run_blur(64u, 4u, 0u, *m_blur_a, *m_blur_b);
+
+        // Pass 3: 从 m_scene 恢复底层并在弹出层区域采样 m_blur_b 执行 WinUI 3 亚克力合成
+        commands.set_descriptor_base(base_desc + 80u);
+        commands.resource_barrier(*m_output, m_output->get_current_state(), ResourceState::UnorderedAccess);
+        commands.set_storage_texture(0, *m_output);
+        commands.set_compute_atlases(*m_atlas, ca_tex, m_scene.get(), m_blur_b.get());
+        parameters[7] = (2u << 28) | (backdrop_split & 0x0FFFFFFFu);
+        commands.get_native_list()->SetComputeRoot32BitConstants(6, static_cast<UINT>(parameters.size()), parameters.data(), 0);
+        commands.dispatch(groups_x, groups_y, 1);
     }
 
     void* m_window;
@@ -309,6 +386,7 @@ private:
     std::unique_ptr<ComputePipeline> m_pipeline;
     std::unique_ptr<Swapchain> m_swapchain;
     std::unique_ptr<D3D12Texture> m_output, m_atlas, m_color_atlas;
+    std::unique_ptr<D3D12Texture> m_scene, m_blur_a, m_blur_b;
     std::array<FrameSlot, kFramesInFlight> m_slots;
     size_t m_frame_slot{0};
     bool m_failed = false;

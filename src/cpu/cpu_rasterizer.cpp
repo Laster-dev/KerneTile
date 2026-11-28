@@ -1531,15 +1531,19 @@ void apply_backdrop_blur_prim(
     const float rbr = std::clamp(prim.radius_bottom_right, 0.0f, cap_r);
     const float rbl = std::clamp(prim.radius_bottom_left, 0.0f, cap_r);
     const float inv_tint_a = 1.0f - prim.color_a;
+    const float inv_ta_safe = (prim.color_a > 0.001f) ? (1.0f / prim.color_a) : 0.0f;
+    const float tint_luma = (prim.color_r * 0.299f + prim.color_g * 0.587f + prim.color_b * 0.114f) * inv_ta_safe;
     constexpr float kInv255 = 1.0f / 255.0f;
 
     for (int py = by0; py < by1; ++py) {
-        const float dy = (static_cast<float>(py) + 0.5f) - cy;
+        const float py_c = static_cast<float>(py) + 0.5f;
+        const float dy = py_c - cy;
         const float ady = std::abs(dy);
         uint8_t* dst_row = dst_framebuffer + (static_cast<size_t>(py) * width + bx0) * 4u;
         const uint8_t* blur_row = blurred.data() + (static_cast<size_t>(py - ry0) * rw + (bx0 - rx0)) * 4u;
         for (int px = bx0; px < bx1; ++px) {
-            const float dx = (static_cast<float>(px) + 0.5f) - cx;
+            const float px_c = static_cast<float>(px) + 0.5f;
+            const float dx = px_c - cx;
             const float raw_r = (dx >= 0.0f) ? ((dy >= 0.0f) ? rbr : rtr) : ((dy >= 0.0f) ? rbl : rtl);
             const float cov = std::clamp(0.5f - eval_squircle_box_distance(std::abs(dx), ady, hw, hh, raw_r), 0.0f, 1.0f);
             if (cov > 0.001f) {
@@ -1547,9 +1551,15 @@ void apply_backdrop_blur_prim(
                 const float bg = static_cast<float>(blur_row[1]) * kInv255;
                 const float bb = static_cast<float>(blur_row[2]) * kInv255;
                 const float ba = static_cast<float>(blur_row[3]) * kInv255;
-                const float fr = prim.color_r + br * inv_tint_a;
-                const float fg = prim.color_g + bg * inv_tint_a;
-                const float fb = prim.color_b + bb * inv_tint_a;
+                const float bg_luma = br * 0.299f + bg * 0.587f + bb * 0.114f;
+                const float lshift = (tint_luma - bg_luma) * 0.55f;
+                const float lr = std::clamp(br + lshift, 0.0f, 1.0f);
+                const float lg = std::clamp(bg + lshift, 0.0f, 1.0f);
+                const float lb = std::clamp(bb + lshift, 0.0f, 1.0f);
+                const float grain = eval_acrylic_grain(px_c, py_c, 1.0f) * 0.015f;
+                const float fr = std::clamp(prim.color_r + lr * inv_tint_a + grain, 0.0f, 1.0f);
+                const float fg = std::clamp(prim.color_g + lg * inv_tint_a + grain, 0.0f, 1.0f);
+                const float fb = std::clamp(prim.color_b + lb * inv_tint_a + grain, 0.0f, 1.0f);
                 const float fa = prim.color_a + ba * inv_tint_a;
                 const float inv_c = 1.0f - cov;
                 const float dr = static_cast<float>(dst_row[0]) * kInv255;

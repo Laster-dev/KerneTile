@@ -180,10 +180,10 @@ void D3D12Device::init_root_signatures() {
     root_params[4].DescriptorTable.pDescriptorRanges = &uav_range;
     root_params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    // t4 & t5 Table (t4: R8 Glyph Atlas, t5: RGBA8 Color Atlas)
+    // t4..t7 Table (t4: R8 Glyph Atlas, t5: RGBA8 Color Atlas, t6: Scene Backdrop, t7: Blurred Backdrop)
     D3D12_DESCRIPTOR_RANGE srv_range{};
     srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srv_range.NumDescriptors = 2;
+    srv_range.NumDescriptors = 4;
     srv_range.BaseShaderRegister = 4;
     srv_range.RegisterSpace = 0;
     srv_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;

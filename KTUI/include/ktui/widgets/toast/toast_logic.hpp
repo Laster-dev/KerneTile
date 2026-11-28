@@ -148,14 +148,9 @@ public:
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel, 8.0f, theme.is_dark, 32.0f, alpha);
 
-        // 2. 重度模糊半透毛玻璃卡片底板 + 方向性玻璃高光描边 (无微颗粒噪点)
-        ctx.draw_backdrop_blur(panel, bg, 8.0f, 40.0f);
+        // 2. WinUI 3 标准重度模糊亚克力卡片底板 + 极细 1px 描边
+        ctx.draw_backdrop_blur(panel, bg, 8.0f, 44.0f);
         ctx.draw_rect(panel, border, 8.0f, 1.0f);
-        {
-            const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.24f * alpha} : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha};
-            const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.30f * alpha} : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha};
-            ctx.draw_directional_rim(panel, top_hi, bot_sh, 8.0f, 1.0f, Vec2{-0.18f, -0.98f}, 0.28f);
-        }
 
         // 3. 左侧语义徽标圆点 + 图标
         Rect badge_r = Rect::from_xywh(std::round(panel.min_x + 14.0f), std::round(panel.min_y + 15.0f), 18.0f, 18.0f);

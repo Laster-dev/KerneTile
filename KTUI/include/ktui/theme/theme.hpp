@@ -81,8 +81,8 @@ struct Theme {
         t.colors.control_fill_disabled     = Color{1.0f, 1.0f, 1.0f, 0.0419f};
         t.colors.control_stroke_default    = Color{1.0f, 1.0f, 1.0f, 0.0698f};
         t.colors.control_stroke_bottom     = Color{1.0f, 1.0f, 1.0f, 0.5442f};
-        t.colors.flyout_surface            = Color{32.0f / 255.0f, 34.0f / 255.0f, 40.0f / 255.0f, 0.68f};
-        t.colors.flyout_stroke             = Color{1.0f, 1.0f, 1.0f, 0.14f};
+        t.colors.flyout_surface            = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 0.74f};
+        t.colors.flyout_stroke             = Color{1.0f, 1.0f, 1.0f, 0.09f};
         t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.0512f};
         t.colors.card_stroke               = Color{0.0f, 0.0f, 0.0f, 0.10f};
         t.colors.subtle_fill_secondary     = Color{1.0f, 1.0f, 1.0f, 0.0605f};
@@ -142,8 +142,8 @@ struct Theme {
         t.colors.control_fill_disabled     = Color{249.0f / 255.0f, 249.0f / 255.0f, 249.0f / 255.0f, 0.30f};
         t.colors.control_stroke_default    = Color{0.0f, 0.0f, 0.0f, 0.0578f};
         t.colors.control_stroke_bottom     = Color{0.0f, 0.0f, 0.0f, 0.4458f};
-        t.colors.flyout_surface            = Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.74f};
-        t.colors.flyout_stroke             = Color{0.0f, 0.0f, 0.0f, 0.10f};
+        t.colors.flyout_surface            = Color{252.0f / 255.0f, 252.0f / 255.0f, 252.0f / 255.0f, 0.80f};
+        t.colors.flyout_stroke             = Color{0.0f, 0.0f, 0.0f, 0.08f};
         t.colors.card_surface              = Color{1.0f, 1.0f, 1.0f, 0.70f};
         t.colors.card_stroke               = Color{0.0f, 0.0f, 0.0f, 0.0578f};
         t.colors.subtle_fill_secondary     = Color{0.0f, 0.0f, 0.0f, 0.0373f};

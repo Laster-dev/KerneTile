@@ -450,7 +450,14 @@ fn compose(@builtin(workgroup_id) group: vec3u,
                 if (pass_mode == 2u) {
                     let uv = clamp(p / max(vec2f(frame.extent), vec2f(1.0)), vec2f(0.0), vec2f(1.0));
                     let blurred = textureSampleLevel(blur_tex, atlas_sampler, uv, 0.0);
-                    let frosted = prim.color + blurred * (1.0 - prim.color.a);
+                    let tint_rgb = prim.color.rgb / max(prim.color.a, 0.001);
+                    let tint_luma = dot(tint_rgb, vec3f(0.299, 0.587, 0.114));
+                    let bg_luma = dot(blurred.rgb, vec3f(0.299, 0.587, 0.114));
+                    let lum_bg = clamp(blurred.rgb + vec3f((tint_luma - bg_luma) * 0.55), vec3f(0.0), vec3f(1.0));
+                    var frosted_rgb = prim.color.rgb + lum_bg * (1.0 - prim.color.a);
+                    let grain = eval_acrylic_grain(p, 1.0) * 0.015;
+                    frosted_rgb = clamp(frosted_rgb + vec3f(grain), vec3f(0.0), vec3f(1.0));
+                    let frosted = vec4f(frosted_rgb, prim.color.a + blurred.a * (1.0 - prim.color.a));
                     let ca = cov * clip_a;
                     color = frosted * ca + color * (1.0 - ca);
                     continue;
@@ -514,7 +521,7 @@ fn sample_gauss_1d(gid: vec2u, dir: vec2f) {
         return;
     }
     let uv = (vec2f(gid) + 0.5) / vec2f(dst_sz);
-    let texel = dir * (1.75 / max(vec2f(dst_sz), vec2f(1.0)));
+    let texel = dir * (1.9 / max(vec2f(dst_sz), vec2f(1.0)));
     let w = array<f32, 7>(0.13625, 0.12889, 0.10932, 0.08316, 0.05674, 0.03472, 0.01904);
     var acc = textureSampleLevel(blur_src, blur_sampler, uv, 0.0) * w[0];
     for (var k = 1; k <= 6; k++) {

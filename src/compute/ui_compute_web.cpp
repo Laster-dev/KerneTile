@@ -374,10 +374,11 @@ EM_JS(int, render_webgpu, (int id, unsigned width, unsigned height,
         device.queue.submit([encoder.finish()]);
 
         var target = state.target;
+        var dpr = Math.max(1, window.devicePixelRatio || 1);
         var left = target.offsetLeft + 'px';
         var top = target.offsetTop + 'px';
-        var cssW = target.clientWidth + 'px';
-        var cssH = target.clientHeight + 'px';
+        var cssW = (width / dpr) + 'px';
+        var cssH = (height / dpr) + 'px';
         if (canvas.style.left !== left) canvas.style.left = left;
         if (canvas.style.top !== top) canvas.style.top = top;
         if (canvas.style.width !== cssW) canvas.style.width = cssW;

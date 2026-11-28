@@ -111,27 +111,31 @@ public:
         set_compute_atlases(atlas, atlas);
     }
 
-    void set_compute_atlases(const D3D12Texture& atlas, const D3D12Texture& color_atlas) {
+    void set_compute_atlases(const D3D12Texture& atlas,
+                             const D3D12Texture& color_atlas,
+                             const D3D12Texture* scene_tex = nullptr,
+                             const D3D12Texture* blur_tex = nullptr) {
         auto cpu_base = m_srv_uav_heap->GetCPUDescriptorHandleForHeapStart();
         auto gpu_base = m_srv_uav_heap->GetGPUDescriptorHandleForHeapStart();
         cpu_base.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
         gpu_base.ptr += (m_descriptor_base + 1) * m_srv_uav_descriptor_size;
 
-        D3D12_SHADER_RESOURCE_VIEW_DESC desc0{};
-        desc0.Format = to_dxgi_format(atlas.get_format());
-        desc0.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        desc0.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        desc0.Texture2D.MipLevels = 1;
-        m_device->CreateShaderResourceView(atlas.get_native_resource(), &desc0, cpu_base);
-
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu1 = cpu_base;
-        cpu1.ptr += m_srv_uav_descriptor_size;
-        D3D12_SHADER_RESOURCE_VIEW_DESC desc1{};
-        desc1.Format = to_dxgi_format(color_atlas.get_format());
-        desc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        desc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        desc1.Texture2D.MipLevels = 1;
-        m_device->CreateShaderResourceView(color_atlas.get_native_resource(), &desc1, cpu1);
+        const D3D12Texture* srvs[4] = {
+            &atlas,
+            &color_atlas,
+            scene_tex ? scene_tex : &atlas,
+            blur_tex ? blur_tex : &atlas
+        };
+        for (uint32_t i = 0; i < 4; ++i) {
+            D3D12_CPU_DESCRIPTOR_HANDLE handle = cpu_base;
+            handle.ptr += static_cast<SIZE_T>(i) * m_srv_uav_descriptor_size;
+            D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
+            desc.Format = to_dxgi_format(srvs[i]->get_format());
+            desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            desc.Texture2D.MipLevels = 1;
+            m_device->CreateShaderResourceView(srvs[i]->get_native_resource(), &desc, handle);
+        }
 
         m_cmd_list->SetComputeRootDescriptorTable(5, gpu_base);
     }

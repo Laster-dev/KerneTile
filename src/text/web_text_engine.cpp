@@ -74,16 +74,11 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int 
     HEAP32[(box >> 2) + 3] = -top;
     if (capacity < width * height) return width * height;
 
-    // 基于 devicePixelRatio 的离屏 Canvas 超采样 (2x~4x 渲染后盒式滤波降采样至目标物理像素尺寸，提升小字清晰度与边缘锐度)
-    var dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
-    var ss = Math.max(2, Math.min(4, Math.ceil(dpr * 1.5)));
-    while (ss > 1 && (width * ss > 4096 || height * ss > 4096)) ss--;
-
-    var sw = width * ss;
-    var sh = height * ss;
-    canvas.width = sw;
-    canvas.height = sh;
-    ctx.setTransform(ss, 0, 0, ss, 0, 0);
+    // 直接在物理像素分辨率 (font_size * dpr) 下 1:1 光栅化，保留浏览器 Skia/DirectWrite 原生像素网格 Hinting，
+    // 避免高倍超采样 + 盒式滤波把 1px 字体笔画糊化到相邻像素
+    canvas.width = width;
+    canvas.height = height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     if ('fontVariantNumeric' in ctx)
         ctx.fontVariantNumeric = tabular_nums ? 'tabular-nums' : 'normal';
     ctx.font = fontSpec;
@@ -91,30 +86,9 @@ EM_JS(int, raster, (const char* source, float size, int weight, int italic, int 
     // 而 #000 走正常线性覆盖率表，与 Windows DirectWrite CreateAlphaTexture 输出的字重几乎一致
     ctx.fillStyle = '#000';
     ctx.fillText(text, -left, -top);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    var data = ctx.getImageData(0, 0, sw, sh).data;
-    if (ss === 1) {
-        for (var i = 0; i < width * height; ++i) HEAPU8[dest + i] = data[i * 4 + 3];
-    } else {
-        var area = ss * ss;
-        var half = area >> 1;
-        for (var y = 0; y < height; ++y) {
-            var baseY = y * ss;
-            var rowOut = dest + y * width;
-            for (var x = 0; x < width; ++x) {
-                var baseX = x * ss;
-                var sum = 0;
-                for (var sy = 0; sy < ss; ++sy) {
-                    var rowIdx = ((baseY + sy) * sw + baseX) * 4 + 3;
-                    for (var sx = 0; sx < ss; ++sx) {
-                        sum += data[rowIdx + sx * 4];
-                    }
-                }
-                HEAPU8[rowOut + x] = (sum + half) / area | 0;
-            }
-        }
-    }
+    var data = ctx.getImageData(0, 0, width, height).data;
+    for (var i = 0; i < width * height; ++i) HEAPU8[dest + i] = data[i * 4 + 3];
     return width * height;
 });
 

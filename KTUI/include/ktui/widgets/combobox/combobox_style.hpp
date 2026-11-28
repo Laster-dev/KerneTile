@@ -68,9 +68,9 @@ public:
             style.placeholder_text = Color{1.0f, 1.0f, 1.0f, 0.56f};
             style.chevron          = Color{1.0f, 1.0f, 1.0f, 0.78f};
 
-            // Flyout Surface (Heavy Frosted Glass Dark)
-            style.popup_bg         = Color{32.0f / 255.0f, 34.0f / 255.0f, 40.0f / 255.0f, 0.68f};
-            style.popup_border     = Color{1.0f, 1.0f, 1.0f, 0.14f};
+            // Flyout Surface (WinUI 3 AcrylicBackgroundFillColorDefaultBrush Dark #2C2C2C)
+            style.popup_bg         = Color{44.0f / 255.0f, 44.0f / 255.0f, 44.0f / 255.0f, 0.74f};
+            style.popup_border     = Color{1.0f, 1.0f, 1.0f, 0.09f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.34f};
 
             style.item_hover_bg    = Color{1.0f, 1.0f, 1.0f, 0.0605f};   // SubtleFillColorSecondary
@@ -96,9 +96,9 @@ public:
             style.placeholder_text = Color{0.0f, 0.0f, 0.0f, 0.56f};
             style.chevron          = Color{0.0f, 0.0f, 0.0f, 0.65f};
 
-            // Flyout Surface (Heavy Frosted Glass Light)
-            style.popup_bg         = Color{248.0f / 255.0f, 249.0f / 255.0f, 252.0f / 255.0f, 0.74f};
-            style.popup_border     = Color{0.0f, 0.0f, 0.0f, 0.11f};
+            // Flyout Surface (WinUI 3 AcrylicBackgroundFillColorDefaultBrush Light #FCFCFC)
+            style.popup_bg         = Color{252.0f / 255.0f, 252.0f / 255.0f, 252.0f / 255.0f, 0.80f};
+            style.popup_border     = Color{0.0f, 0.0f, 0.0f, 0.08f};
             style.popup_shadow     = Color{0.0f, 0.0f, 0.0f, 0.14f};
 
             style.item_hover_bg    = Color{0.0f, 0.0f, 0.0f, 0.038f};

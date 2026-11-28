@@ -25,6 +25,10 @@ KT_BINDING(7) cbuffer Frame : register(b0) {
     uint4 mica_grid[4];
 };
 KT_BINDING(8) Texture2D<float4> color_atlas : register(t5);
+#if !defined(KT_VULKAN)
+Texture2D<float4> scene_tex : register(t6);
+Texture2D<float4> blur_tex : register(t7);
+#endif
 groupshared uint tile_indices[64];
 
 float4 unpack_rgba8(uint packed) {
@@ -258,15 +262,55 @@ float clip_coverage(float2 p, uint index) {
 
 [numthreads(16, 16, 1)]
 void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thread : SV_GroupIndex) {
+#if !defined(KT_VULKAN)
+    uint pass_mode = pad1 >> 28u;
+    uint split_id = pad1 & 0x0FFFFFFFu;
+    [branch]
+    if (pass_mode == 3u || pass_mode == 4u) {
+        uint2 gid = group.xy * 16u + local.xy;
+        uint dst_w, dst_h;
+        output.GetDimensions(dst_w, dst_h);
+        if (gid.x < dst_w && gid.y < dst_h) {
+            uint sw, sh;
+            blur_tex.GetDimensions(sw, sh);
+            float2 src_dim = max(float2(sw, sh), float2(1.0, 1.0));
+            float2 dst_dim = max(float2(dst_w, dst_h), float2(1.0, 1.0));
+            float2 active_uv = (split_id != 0u) ? (float2(extent) / src_dim) : float2(1.0, 1.0);
+            float2 uv_max = max(active_uv - 0.5 / src_dim, float2(0.0, 0.0));
+            float2 uv = ((float2(gid) + 0.5) / dst_dim) * active_uv;
+            float2 dir = (pass_mode == 3u) ? float2(1.0, 0.0) : float2(0.0, 1.0);
+            float2 texel = dir * (1.9 / dst_dim) * active_uv;
+            static const float w[7] = { 0.13625, 0.12889, 0.10932, 0.08316, 0.05674, 0.03472, 0.01904 };
+            float4 acc = blur_tex.SampleLevel(atlas_sampler, clamp(uv, float2(0.0, 0.0), uv_max), 0) * w[0];
+            [unroll]
+            for (int k = 1; k <= 6; ++k) {
+                float2 off = texel * float(k);
+                acc += (blur_tex.SampleLevel(atlas_sampler, clamp(uv + off, float2(0.0, 0.0), uv_max), 0)
+                      + blur_tex.SampleLevel(atlas_sampler, clamp(uv - off, float2(0.0, 0.0), uv_max), 0)) * w[k];
+            }
+            output[gid] = acc;
+        }
+        return;
+    }
+#endif
     uint tile_index = group.y * groups_x + group.x;
     if (tile_index >= tile_count) return;
     Tile tile = tiles[tile_index];
     uint2 pixel = uint2(tile.x, tile.y) * 16 + local.xy;
     float2 p = float2(pixel) + 0.5;
-    float4 color = (mica_enabled != 0u) ? sample_mica(p) : float4(0, 0, 0, 0);
-    if (mica_enabled != 0u && (render_flags & 4u) != 0u) {
-        float g_off = eval_acrylic_grain(p, 1.0) * 0.018 * color.a;
-        color.rgb = clamp(color.rgb + g_off, 0.0, color.a);
+    float4 color = float4(0, 0, 0, 0);
+#if !defined(KT_VULKAN)
+    if (pass_mode == 2u) {
+        uint2 cpx = min(pixel, max(extent, uint2(1u, 1u)) - uint2(1u, 1u));
+        color = scene_tex.Load(int3(cpx, 0));
+    } else
+#endif
+    if (mica_enabled != 0u) {
+        color = sample_mica(p);
+        if ((render_flags & 4u) != 0u) {
+            float g_off = eval_acrylic_grain(p, 1.0) * 0.018 * color.a;
+            color.rgb = clamp(color.rgb + g_off, 0.0, color.a);
+        }
     }
     [loop]
     for (uint start = 0; start < tile.count; start += 64) {
@@ -274,7 +318,12 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
         if (thread < count) tile_indices[thread] = indices[tile.offset + start + thread];
         GroupMemoryBarrierWithGroupSync();
         for (uint i = 0; i < count; ++i) {
-            Primitive prim = primitives[tile_indices[i]];
+            uint prim_id = tile_indices[i];
+#if !defined(KT_VULKAN)
+            if (pass_mode == 1u && prim_id >= split_id) continue;
+            if (pass_mode == 2u && prim_id < split_id) continue;
+#endif
+            Primitive prim = primitives[prim_id];
             float clip_a = clip_coverage(p, prim.flags_clip >> 16u);
             if (clip_a <= 0.0001) continue;
             [branch]
@@ -288,7 +337,7 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
             }
             float4 source;
             [branch]
-            if ((prim.flags_clip & 0x7622u) == 0u) {
+            if ((prim.flags_clip & 0x7662u) == 0u) {
                 // 最热快路径 (占 UI 图元 >95%): 普通矩形/圆角矩形/描边/字形
                 float cov = coverage(p, prim);
                 [branch]
@@ -429,7 +478,27 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
                     }
                     source = base_col * cov;
                 }
-            } else if ((prim.flags_clip & 4096u) != 0u && (prim.flags_clip & 16u) == 0u) {
+            } else [branch] if ((prim.flags_clip & 64u) != 0u && (prim.flags_clip & 16u) == 0u) {
+                float cov = coverage(p, prim);
+#if !defined(KT_VULKAN)
+                if (pass_mode == 2u) {
+                    float2 uv = saturate(p / max(float2(extent), float2(1.0, 1.0)));
+                    float4 blurred = blur_tex.SampleLevel(atlas_sampler, uv, 0);
+                    float3 tint_rgb = prim.color.rgb / max(prim.color.a, 0.001);
+                    float tint_luma = dot(tint_rgb, float3(0.299, 0.587, 0.114));
+                    float bg_luma = dot(blurred.rgb, float3(0.299, 0.587, 0.114));
+                    float3 lum_bg = saturate(blurred.rgb + (tint_luma - bg_luma) * 0.55);
+                    float3 frosted_rgb = prim.color.rgb + lum_bg * (1.0 - prim.color.a);
+                    float grain = eval_acrylic_grain(p, 1.0) * 0.015;
+                    frosted_rgb = saturate(frosted_rgb + grain);
+                    float4 frosted = float4(frosted_rgb, prim.color.a + blurred.a * (1.0 - prim.color.a));
+                    float ca = cov * clip_a;
+                    color = frosted * ca + color * (1.0 - ca);
+                    continue;
+                }
+#endif
+                source = prim.color * cov;
+            } else [branch] if ((prim.flags_clip & 4096u) != 0u && (prim.flags_clip & 16u) == 0u) {
                 float cov = coverage(p, prim);
                 float grain_scale = max(prim.effects.y, 1.0);
                 float grain_amp = clamp(prim.effects.z, 0.0, 0.25);
@@ -437,7 +506,7 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
                 float4 base_col = prim.color;
                 base_col.rgb = clamp(base_col.rgb + g_off, 0.0, base_col.a);
                 source = base_col * cov;
-            } else if ((prim.flags_clip & 2u) != 0u && (prim.flags_clip & 16u) == 0u) {
+            } else [branch] if ((prim.flags_clip & 2u) != 0u && (prim.flags_clip & 16u) == 0u) {
                 float2 g0 = float2(prim.effects.w, prim.shadow_y);
                 float2 g1 = float2(prim.effects.y, prim.effects.z);
                 float2 gdir = g1 - g0;
@@ -471,7 +540,11 @@ void compose(uint3 group : SV_GroupID, uint3 local : SV_GroupThreadID, uint thre
         }
         GroupMemoryBarrierWithGroupSync();
     }
+#if !defined(KT_VULKAN)
+    if (pass_mode != 1u && (render_flags & 1u) != 0u && color.a > 0.0) {
+#else
     if ((render_flags & 1u) != 0u && color.a > 0.0) {
+#endif
         float ign = frac(52.9829189 * frac(dot(float2(pixel), float2(0.06711056, 0.00583715))));
         color.rgb = saturate(color.rgb + (ign - 0.5) / 255.0);
     }

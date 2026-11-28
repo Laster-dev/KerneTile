@@ -116,19 +116,14 @@ public:
         // 1. WinUI 3 Flyout 32dp 双层真实高斯软阴影
         ctx.draw_elevation_shadow(panel_rect, style.popup_corner_radius, theme.is_dark, 32.0f, alpha_mul);
 
-        // 2. 重度模糊半透毛玻璃浮层背景板 (8px 圆角 + 纯净无噪点 + 1px 玻璃高光描边)
+        // 2. WinUI 3 标准重度模糊亚克力浮层背景板 (8px 圆角 + 细腻微颗粒 + 极细 1px 描边)
         Color bg = style.popup_bg;
         bg.a *= alpha_mul;
-        ctx.draw_backdrop_blur(panel_rect, bg, style.popup_corner_radius, 40.0f);
+        ctx.draw_backdrop_blur(panel_rect, bg, style.popup_corner_radius, 44.0f);
 
         Color border = style.popup_border;
         border.a *= alpha_mul;
         ctx.draw_rect(panel_rect, border, style.popup_corner_radius, style.border_width);
-        {
-            const Color top_hi = theme.is_dark ? Color{1.0f, 1.0f, 1.0f, 0.22f * alpha_mul} : Color{1.0f, 1.0f, 1.0f, 0.72f * alpha_mul};
-            const Color bot_sh = theme.is_dark ? Color{0.0f, 0.0f, 0.0f, 0.28f * alpha_mul} : Color{0.0f, 0.0f, 0.0f, 0.12f * alpha_mul};
-            ctx.draw_directional_rim(panel_rect, top_hi, bot_sh, style.popup_corner_radius, 1.0f, Vec2{-0.18f, -0.98f}, 0.26f);
-        }
 
         // 3. 选项列表裁剪与绘制
         const float pad = style.popup_padding;

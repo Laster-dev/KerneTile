@@ -316,6 +316,11 @@ EM_JS(void, ktui_js_present_rgba8_region, (int win_id, const uint8_t* rgba, int 
     var entry = Module['ktuiWindows'] && Module['ktuiWindows'].get(win_id);
     if (!entry || !entry.canvas) return;
     var canvas = entry.canvas;
+    var dpr = Math.max(1, window.devicePixelRatio || 1);
+    var cssW = (width / dpr) + 'px';
+    var cssH = (height / dpr) + 'px';
+    if (canvas.style.width !== cssW) canvas.style.width = cssW;
+    if (canvas.style.height !== cssH) canvas.style.height = cssH;
     var resized = (canvas.width !== width || canvas.height !== height);
     if (resized) {
         canvas.width = width;
